@@ -137,7 +137,23 @@ func (l *Lexer) readString() (StringObject, error) {
 				sb.WriteByte(')')
 			case '\\':
 				sb.WriteByte('\\')
+			case '0', '1', '2', '3', '4', '5', '6', '7':
+				// Octal escape sequence: \ddd where d is 0-7
+				// Can be 1-3 digits
+				octalStr := string(next)
+				for i := 0; i < 2; i++ { // Read up to 2 more digits
+					peek, err := l.reader.Peek(1)
+					if err != nil || peek[0] < '0' || peek[0] > '7' {
+						break
+					}
+					digit, _ := l.reader.ReadByte()
+					octalStr += string(digit)
+				}
+				// Convert octal string to byte value
+				val, _ := strconv.ParseInt(octalStr, 8, 32)
+				sb.WriteByte(byte(val))
 			default:
+				// For any other escape, just include the character literally
 				sb.WriteByte(next)
 			}
 			continue

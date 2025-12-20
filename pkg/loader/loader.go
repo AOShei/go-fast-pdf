@@ -48,7 +48,7 @@ func LoadPDF(path string) (*model.Document, error) {
 
 	// 4. Iterate Pages and Extract Text
 	numPages := reader.NumPages()
-	fmt.Printf("Processing %d pages...\n", numPages)
+	fmt.Fprintf(os.Stderr, "Processing %d pages...\n", numPages)
 
 	for i := 0; i < numPages; i++ {
 		start := time.Now()
@@ -56,21 +56,21 @@ func LoadPDF(path string) (*model.Document, error) {
 		// Get Page Dictionary
 		pdfPage, err := reader.GetPage(i)
 		if err != nil {
-			fmt.Printf("Error getting page %d: %v\n", i+1, err)
+			fmt.Fprintf(os.Stderr, "Error getting page %d: %v\n", i+1, err)
 			continue
 		}
 
 		// Initialize Extractor for this page
 		extractor, err := pdf.NewExtractor(reader, pdfPage)
 		if err != nil {
-			fmt.Printf("Error creating extractor for page %d: %v\n", i+1, err)
+			fmt.Fprintf(os.Stderr, "Error creating extractor for page %d: %v\n", i+1, err)
 			continue
 		}
 
 		// Extract!
 		text, err := extractor.ExtractText()
 		if err != nil {
-			fmt.Printf("Error extracting text from page %d: %v\n", i+1, err)
+			fmt.Fprintf(os.Stderr, "Error extracting text from page %d: %v\n", i+1, err)
 			continue
 		}
 
@@ -95,7 +95,7 @@ func LoadPDF(path string) (*model.Document, error) {
 			Height:     height,
 		})
 
-		fmt.Printf("Page %d processed in %v (%d chars)\n", i+1, time.Since(start), len(text))
+		fmt.Fprintf(os.Stderr, "Page %d processed in %v (%d chars)\n", i+1, time.Since(start), len(text))
 	}
 
 	return doc, nil

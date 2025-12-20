@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"log"
 	"os"
 
@@ -20,11 +19,11 @@ func main() {
 		log.Fatalf("Failed to load PDF: %v", err)
 	}
 
-	// Output as JSON
-	jsonData, err := json.MarshalIndent(doc, "", "  ")
-	if err != nil {
-		log.Fatalf("Failed to marshal JSON: %v", err)
+	// Output as JSON with HTML escaping disabled for better readability
+	encoder := json.NewEncoder(os.Stdout)
+	encoder.SetIndent("", "  ")
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(doc); err != nil {
+		log.Fatalf("Failed to encode JSON: %v", err)
 	}
-
-	fmt.Println(string(jsonData))
 }

@@ -9,6 +9,110 @@ import (
 // Matrix is a 3x3 transform matrix (last row implicitly 0,0,1).
 type Matrix [6]float64
 
+// glyphToUnicode maps PostScript glyph names to Unicode characters
+var glyphToUnicode = map[string]rune{
+	"/space":        ' ',
+	"/exclam":       '!',
+	"/quotedbl":     '"',
+	"/numbersign":   '#',
+	"/dollar":       '$',
+	"/percent":      '%',
+	"/ampersand":    '&',
+	"/quoteright":   '\'',
+	"/quotesingle":  '\'',
+	"/parenleft":    '(',
+	"/parenright":   ')',
+	"/asterisk":     '*',
+	"/plus":         '+',
+	"/comma":        ',',
+	"/hyphen":       '-',
+	"/minus":        '-',
+	"/period":       '.',
+	"/slash":        '/',
+	"/zero":         '0',
+	"/one":          '1',
+	"/two":          '2',
+	"/three":        '3',
+	"/four":         '4',
+	"/five":         '5',
+	"/six":          '6',
+	"/seven":        '7',
+	"/eight":        '8',
+	"/nine":         '9',
+	"/colon":        ':',
+	"/semicolon":    ';',
+	"/less":         '<',
+	"/equal":        '=',
+	"/greater":      '>',
+	"/question":     '?',
+	"/at":           '@',
+	"/A":            'A',
+	"/B":            'B',
+	"/C":            'C',
+	"/D":            'D',
+	"/E":            'E',
+	"/F":            'F',
+	"/G":            'G',
+	"/H":            'H',
+	"/I":            'I',
+	"/J":            'J',
+	"/K":            'K',
+	"/L":            'L',
+	"/M":            'M',
+	"/N":            'N',
+	"/O":            'O',
+	"/P":            'P',
+	"/Q":            'Q',
+	"/R":            'R',
+	"/S":            'S',
+	"/T":            'T',
+	"/U":            'U',
+	"/V":            'V',
+	"/W":            'W',
+	"/X":            'X',
+	"/Y":            'Y',
+	"/Z":            'Z',
+	"/bracketleft":  '[',
+	"/backslash":    '\\',
+	"/bracketright": ']',
+	"/asciicircum":  '^',
+	"/underscore":   '_',
+	"/grave":        '`',
+	"/quoteleft":    '`',
+	"/a":            'a',
+	"/b":            'b',
+	"/c":            'c',
+	"/d":            'd',
+	"/e":            'e',
+	"/f":            'f',
+	"/g":            'g',
+	"/h":            'h',
+	"/i":            'i',
+	"/j":            'j',
+	"/k":            'k',
+	"/l":            'l',
+	"/m":            'm',
+	"/n":            'n',
+	"/o":            'o',
+	"/p":            'p',
+	"/q":            'q',
+	"/r":            'r',
+	"/s":            's',
+	"/t":            't',
+	"/u":            'u',
+	"/v":            'v',
+	"/w":            'w',
+	"/x":            'x',
+	"/y":            'y',
+	"/z":            'z',
+	"/braceleft":    '{',
+	"/bar":          '|',
+	"/braceright":   '}',
+	"/asciitilde":   '~',
+	"/fi":           'f', // ligature - we'll expand to 'fi' later if needed
+	"/fl":           'f', // ligature - we'll expand to 'fl' later if needed
+}
+
 func IdentityMatrix() Matrix {
 	return Matrix{1, 0, 0, 1, 0, 0}
 }
@@ -34,6 +138,7 @@ type GraphicsState struct {
 type Font struct {
 	BaseFont   string
 	CMap       *CMap
+	Encoding   map[int]string  // Map char code -> glyph name (from /Encoding/Differences)
 	Widths     map[int]float64 // Map char code -> width (1/1000 units)
 	MissingW   float64         // Default width
 	SpaceWidth float64         // Width of a space character
@@ -106,6 +211,7 @@ func NewExtractor(r *Reader, page DictionaryObject) (*Extractor, error) {
 func (e *Extractor) loadFont(obj DictionaryObject) *Font {
 	f := &Font{
 		Widths:   make(map[int]float64),
+		Encoding: make(map[int]string),
 		MissingW: 0, // Default usually 0 unless specified
 	}
 
@@ -142,12 +248,53 @@ func (e *Extractor) loadFont(obj DictionaryObject) *Font {
 	if toUnicode, ok := e.reader.Resolve(obj["/ToUnicode"]).(StreamObject); ok {
 		if cmap, err := ParseCMap(toUnicode.Data); err == nil {
 			f.CMap = cmap
+		} else {
+			f.CMap = NewCMap()
 		}
 	} else {
-		f.CMap = NewCMap() // Empty map, will fallback to ASCII
+		f.CMap = NewCMap() // Empty map, will fallback to encoding
+		// Check if there's an Encoding dictionary
+		if enc, ok := obj["/Encoding"]; ok {
+			e.parseEncoding(f, enc)
+		}
 	}
 
 	return f
+}
+
+// parseEncoding parses the /Encoding dictionary and populates the font's encoding map
+func (e *Extractor) parseEncoding(f *Font, encObj Object) {
+	resolved := e.reader.Resolve(encObj)
+
+	// Handle NameObject (built-in encodings like /WinAnsiEncoding, /MacRomanEncoding)
+	if _, ok := resolved.(NameObject); ok {
+		// TODO: Could load standard encoding tables here
+		return
+	}
+
+	// Handle DictionaryObject with /Differences array
+	encDict, ok := resolved.(DictionaryObject)
+	if !ok {
+		return
+	}
+
+	// Parse /Differences array
+	// Format: [code1 /name1 /name2 ... code2 /name3 ...]
+	// Numbers set the current code, names assign to sequential codes
+	if diff, ok := e.reader.Resolve(encDict["/Differences"]).(ArrayObject); ok {
+		currentCode := 0
+		for _, item := range diff {
+			if num, ok := item.(NumberObject); ok {
+				// Number sets the current code
+				currentCode = int(num)
+			} else if name, ok := item.(NameObject); ok {
+				// Name assigns to current code, then increment
+				glyphName := string(name)
+				f.Encoding[currentCode] = glyphName
+				currentCode++
+			}
+		}
+	}
 }
 
 // ExtractText is the main entry point.
@@ -333,7 +480,31 @@ func (e *Extractor) handleText(obj Object) {
 			decoded += string(rawBytes[i])
 			i++
 		}
+	} else if e.textState.Font != nil && len(e.textState.Font.Encoding) > 0 {
+		// Use /Encoding dictionary to map character codes to glyphs
+		for _, b := range rawBytes {
+			code := int(b)
+			if glyphName, ok := e.textState.Font.Encoding[code]; ok {
+				// Map glyph name to Unicode
+				if unicode, ok := glyphToUnicode[glyphName]; ok {
+					decoded += string(unicode)
+				} else {
+					// Unknown glyph, try to extract character from name
+					// e.g., "/a" -> 'a'
+					if len(glyphName) == 2 && glyphName[0] == '/' {
+						decoded += string(glyphName[1])
+					} else {
+						// Fallback: use the byte value as-is
+						decoded += string(b)
+					}
+				}
+			} else {
+				// No encoding entry, use byte value as-is (standard ASCII)
+				decoded += string(b)
+			}
+		}
 	} else {
+		// No CMap and no Encoding - fallback to direct byte conversion
 		decoded = string(rawBytes)
 	}
 

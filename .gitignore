@@ -2,6 +2,9 @@
 # Sample PDFs
 sample.pdf
 
+*.log
+*.json
+
 # GitHub workflows
 .github/
 

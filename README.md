@@ -16,6 +16,8 @@ Originally developed for RAG (Retrieval-Augmented Generation) and LLM document p
 - **Object stream decompression** - Handles modern PDFs with compressed object storage
 - **Text extraction** - Full text state machine with proper font metrics and spacing
 - **Character mapping** - ToUnicode CMap parsing for accurate character decoding
+- **Font encoding support** - PDF /Encoding dictionary parsing with glyph name to Unicode mapping
+- **Octal escape sequences** - Proper handling of PDF string literals with octal escapes (e.g., `\050` → `(`)
 - **Page tree traversal** - Recursive navigation of nested page structures
 - **Metadata extraction** - Extracts title, author, creator, producer from document info
 - **JSON output** - Structured output with page numbers, dimensions, and character counts
@@ -28,7 +30,6 @@ Originally developed for RAG (Retrieval-Augmented Generation) and LLM document p
 - **Images** - Text-only extraction, images are ignored
 - **Advanced filters** - Only FlateDecode implemented (no LZW, JPEG, ASCII85, etc.)
 - **Complex layouts** - May struggle with multi-column text, tables, or right-to-left text
-- **Custom encodings** - Font encoding fallbacks may produce incorrect characters for some PDFs
 
 ## Installation
 
@@ -127,10 +128,14 @@ PDF File → Reader (xref resolution) → Page Dictionary → Extractor (state m
 **Key Components:**
 
 - **`pkg/pdf/lexer.go`** - Tokenizes PDF objects (dictionaries, arrays, streams, etc.)
+  - Handles PDF string literals with escape sequences (`\n`, `\r`, `\nnn` octal escapes)
 - **`pkg/pdf/reader.go`** - Coordinates parsing, resolves indirect object references
 - **`pkg/pdf/xref.go`** - Handles cross-reference tables and object lookup
 - **`pkg/pdf/extractor.go`** - Text extraction with graphics/text state machines
-- **`pkg/pdf/cmap.go`** - Character mapping for font encoding
+  - Parses `/Encoding` dictionaries with `/Differences` arrays
+  - Maps glyph names (e.g., `/parenleft`, `/fi`) to Unicode characters
+  - Supports three decoding paths: ToUnicode CMap, /Encoding dictionary, or direct byte conversion
+- **`pkg/pdf/cmap.go`** - Character mapping for font encoding (ToUnicode CMaps)
 - **`pkg/pdf/content.go`** - Content stream operator parsing
 - **`pkg/loader/loader.go`** - High-level API orchestrating the pipeline
 - **`pkg/model/types.go`** - Output data structures (`Document`, `Page`, `Metadata`)
@@ -138,6 +143,11 @@ PDF File → Reader (xref resolution) → Page Dictionary → Extractor (state m
 The extractor maintains two state machines:
 1. **Graphics State** - Current Transformation Matrix (CTM), saved/restored with `q`/`Q` operators
 2. **Text State** - Font metrics, Text Matrix (TM), positioning, spacing, and scale
+
+**Text Decoding Strategy:**
+1. If font has ToUnicode CMap → use CMap for character code to Unicode mapping
+2. Else if font has /Encoding dictionary → use glyph name mapping (handles embedded fonts)
+3. Else → direct byte-to-character conversion (assumes standard ASCII)
 
 ## Dependencies
 

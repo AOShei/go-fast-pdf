@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"log"
 	"os"
 
@@ -9,12 +10,25 @@ import (
 )
 
 func main() {
-	if len(os.Args) < 2 {
-		log.Fatal("Usage: go run cmd/main.go <path_to_pdf>")
+	concurrent := flag.Bool("concurrent", false, "Enable concurrent page processing")
+	workers := flag.Int("workers", 0, "Number of worker threads (0 = auto-detect, default: NumCPU)")
+	flag.Parse()
+
+	if flag.NArg() < 1 {
+		log.Fatal("Usage: pdf-loader [--concurrent] [--workers N] <path_to_pdf>")
 	}
 
-	path := os.Args[1]
-	doc, err := loader.LoadPDF(path)
+	path := flag.Arg(0)
+
+	var err error
+	var doc interface{}
+
+	if *concurrent {
+		doc, err = loader.LoadPDFConcurrent(path, *workers)
+	} else {
+		doc, err = loader.LoadPDF(path)
+	}
+
 	if err != nil {
 		log.Fatalf("Failed to load PDF: %v", err)
 	}

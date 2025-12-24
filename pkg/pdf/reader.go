@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync"
 )
 
 // Reader is the high-level entry point for reading a PDF.
@@ -14,6 +15,10 @@ type Reader struct {
 	lexer          *Lexer
 	xref           *XRefTable
 	encryptHandler *EncryptionHandler
+
+	// Object cache for performance
+	mu          sync.RWMutex
+	objectCache map[int]Object
 }
 
 func NewReader(rs io.ReadSeeker) (*Reader, error) {
@@ -24,9 +29,10 @@ func NewReader(rs io.ReadSeeker) (*Reader, error) {
 	}
 
 	reader := &Reader{
-		rs:    rs,
-		xref:  xref,
-		lexer: NewLexer(rs),
+		rs:          rs,
+		xref:        xref,
+		lexer:       NewLexer(rs),
+		objectCache: make(map[int]Object),
 	}
 
 	// 2. Check for encryption and initialize handler
@@ -61,6 +67,14 @@ func NewReader(rs io.ReadSeeker) (*Reader, error) {
 
 // GetObject resolves an indirect reference to the actual object.
 func (r *Reader) GetObject(ref IndirectObject) (Object, error) {
+	// Check cache first
+	r.mu.RLock()
+	if cached, ok := r.objectCache[ref.ObjectNumber]; ok {
+		r.mu.RUnlock()
+		return cached, nil
+	}
+	r.mu.RUnlock()
+
 	entry, ok := r.xref.Entries[ref.ObjectNumber]
 	if !ok {
 		return nil, fmt.Errorf("object %d not found in xref", ref.ObjectNumber)
@@ -72,7 +86,14 @@ func (r *Reader) GetObject(ref IndirectObject) (Object, error) {
 
 	// Check if object is in a compressed stream
 	if entry.Compressed {
-		return r.getCompressedObject(entry.StreamObj, entry.StreamIdx)
+		obj, err := r.getCompressedObject(entry.StreamObj, entry.StreamIdx)
+		if err == nil {
+			// Cache the object
+			r.mu.Lock()
+			r.objectCache[ref.ObjectNumber] = obj
+			r.mu.Unlock()
+		}
+		return obj, err
 	}
 
 	// Jump to offset
@@ -104,6 +125,11 @@ func (r *Reader) GetObject(ref IndirectObject) (Object, error) {
 	if r.encryptHandler != nil {
 		obj = r.decryptObject(obj, ref.ObjectNumber, ref.Generation)
 	}
+
+	// Cache the object
+	r.mu.Lock()
+	r.objectCache[ref.ObjectNumber] = obj
+	r.mu.Unlock()
 
 	return obj, nil
 }
@@ -367,30 +393,31 @@ func (r *Reader) IsEncrypted() bool {
 	return exists
 }
 
+// metadataKeys are dictionary keys that should not be encrypted per PDF spec
+var metadataKeys = map[string]bool{
+	"/Type":             true,
+	"/Subtype":          true,
+	"/Length":           true,
+	"/Filter":           true,
+	"/DecodeParms":      true,
+	"/Width":            true,
+	"/Height":           true,
+	"/BitsPerComponent": true,
+	"/ColorSpace":       true,
+	"/Encrypt":          true,
+	"/ID":               true,
+	"/Size":             true,
+	"/Root":             true,
+	"/Info":             true,
+	"/Prev":             true,
+	"/Index":            true,
+	"/W":                true,
+	"/First":            true,
+	"/N":                true,
+}
+
 // isMetadataKey checks if a dictionary key should not be encrypted
 func isMetadataKey(key string) bool {
-	// These keys are never encrypted per PDF spec
-	metadataKeys := map[string]bool{
-		"/Type":             true,
-		"/Subtype":          true,
-		"/Length":           true,
-		"/Filter":           true,
-		"/DecodeParms":      true,
-		"/Width":            true,
-		"/Height":           true,
-		"/BitsPerComponent": true,
-		"/ColorSpace":       true,
-		"/Encrypt":          true,
-		"/ID":               true,
-		"/Size":             true,
-		"/Root":             true,
-		"/Info":             true,
-		"/Prev":             true,
-		"/Index":            true,
-		"/W":                true,
-		"/First":            true,
-		"/N":                true,
-	}
 	return metadataKeys[key]
 }
 

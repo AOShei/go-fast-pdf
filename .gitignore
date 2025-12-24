@@ -2,6 +2,9 @@
 # Sample PDFs
 sample.pdf
 *.pdf
+test_pdfs/
+tests/
+venv/
 
 *.log
 *.json

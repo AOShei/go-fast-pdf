@@ -23,4 +23,15 @@ type Page struct {
 	CharCount  int     `json:"char_count"`
 	Width      float64 `json:"width"`
 	Height     float64 `json:"height"`
+	Images     []Image `json:"images,omitempty"`
+}
+
+// Image represents an image reference on a page.
+type Image struct {
+	Type       string    `json:"type"`                // "image" or "inline_image"
+	ID         string    `json:"id,omitempty"`        // e.g., "Im1" (empty for inline images)
+	Rect       []float64 `json:"rect,omitempty"`      // [x, y, width, height]
+	Width      float64   `json:"width,omitempty"`     // Image width in pixels
+	Height     float64   `json:"height,omitempty"`    // Image height in pixels
+	ColorSpace string    `json:"color_space,omitempty"` // e.g., "/DeviceRGB"
 }

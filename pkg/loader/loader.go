@@ -113,6 +113,7 @@ func LoadPDF(path string) (*model.Document, error) {
 			CharCount:  len(text),
 			Width:      width,
 			Height:     height,
+			Images:     extractor.GetImages(),
 		})
 
 		fmt.Fprintf(os.Stderr, "Page %d processed in %v (%d chars)\n", i+1, time.Since(start), len(text))
@@ -253,6 +254,7 @@ func loadPDFParallel(path string, meta model.Metadata, numPages int, workers int
 					CharCount:  len(text),
 					Width:      width,
 					Height:     height,
+					Images:     extractor.GetImages(),
 				}
 
 				fmt.Fprintf(os.Stderr, "Page %d processed in %v (%d chars)\n",

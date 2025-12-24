@@ -1,8 +1,11 @@
 package pdf
 
 import (
+	"io"
 	"math"
 	"strings"
+
+	"github.com/AOShei/pdf-loader/pkg/model"
 )
 
 // Matrix is a 3x3 transform matrix (last row implicitly 0,0,1).
@@ -354,6 +357,10 @@ type Extractor struct {
 	// Output
 	lastX, lastY float64
 	buffer       strings.Builder
+
+	// Image tracking
+	images   []model.Image
+	xobjects DictionaryObject
 }
 
 func NewExtractor(r *Reader, page DictionaryObject) (*Extractor, error) {
@@ -365,13 +372,18 @@ func NewExtractor(r *Reader, page DictionaryObject) (*Extractor, error) {
 		fonts:     make(map[string]*Font),
 	}
 
-	// Load Fonts from Resources
+	// Load Fonts and XObjects from Resources
 	if res, ok := r.Resolve(page["/Resources"]).(DictionaryObject); ok {
 		if fonts, ok := r.Resolve(res["/Font"]).(DictionaryObject); ok {
 			for name, ref := range fonts {
 				fontObj := r.Resolve(ref).(DictionaryObject)
 				e.fonts[name] = e.loadFont(fontObj)
 			}
+		}
+
+		// Load XObject resources for image handling
+		if xobjects, ok := r.Resolve(res["/XObject"]).(DictionaryObject); ok {
+			e.xobjects = xobjects
 		}
 	}
 
@@ -485,12 +497,15 @@ func (e *Extractor) ExtractText() (string, error) {
 
 	for _, stream := range streams {
 		parser := NewContentStreamParser(stream.Data)
-		ops, err := parser.Parse()
-		if err != nil {
-			return "", err
-		}
-		for _, op := range ops {
-			e.processOp(op)
+		for {
+			op, err := parser.Next()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				return "", err
+			}
+			e.processOp(*op)
 		}
 	}
 
@@ -574,6 +589,20 @@ func (e *Extractor) processOp(op Operation) {
 		e.textState.CharSpacing = number(op.Operands[1])
 		e.processOp(Operation{Operator: "T*"})
 		e.processOp(Operation{Operator: "Tj", Operands: op.Operands[2:]})
+	case "INLINE_IMAGE":
+		// Handle inline image placeholder
+		if len(op.Operands) > 0 {
+			if dict, ok := op.Operands[0].(DictionaryObject); ok {
+				e.recordInlineImage(dict)
+			}
+		}
+	case "Do":
+		// Handle XObject (image) reference
+		if len(op.Operands) > 0 {
+			if name, ok := op.Operands[0].(NameObject); ok {
+				e.recordImage(string(name))
+			}
+		}
 	}
 }
 
@@ -627,7 +656,7 @@ func (e *Extractor) handleText(obj Object) {
 	}
 
 	// 3. Decode Text
-	decoded := ""
+	var decoded strings.Builder
 	if e.textState.Font != nil && e.textState.Font.CMap != nil && len(e.textState.Font.CMap.Map) > 0 {
 		i := 0
 		for i < len(rawBytes) {
@@ -635,7 +664,7 @@ func (e *Extractor) handleText(obj Object) {
 			if i+1 < len(rawBytes) {
 				key := string(rawBytes[i : i+2])
 				if val, ok := e.textState.Font.CMap.Map[key]; ok {
-					decoded += val
+					decoded.WriteString(val)
 					i += 2
 					continue
 				}
@@ -643,12 +672,12 @@ func (e *Extractor) handleText(obj Object) {
 			// Try 1 byte
 			key := string(rawBytes[i : i+1])
 			if val, ok := e.textState.Font.CMap.Map[key]; ok {
-				decoded += val
+				decoded.WriteString(val)
 				i++
 				continue
 			}
 			// Fallback
-			decoded += string(rawBytes[i])
+			decoded.WriteByte(rawBytes[i])
 			i++
 		}
 	} else if e.textState.Font != nil && len(e.textState.Font.Encoding) > 0 {
@@ -658,29 +687,29 @@ func (e *Extractor) handleText(obj Object) {
 			if glyphName, ok := e.textState.Font.Encoding[code]; ok {
 				// Map glyph name to Unicode
 				if unicode, ok := glyphToUnicode[glyphName]; ok {
-					decoded += unicode
+					decoded.WriteString(unicode)
 				} else {
 					// Unknown glyph, try to extract character from name
 					// e.g., "/a" -> 'a'
 					if len(glyphName) == 2 && glyphName[0] == '/' {
-						decoded += string(glyphName[1])
+						decoded.WriteByte(glyphName[1])
 					} else {
 						// Fallback: use the byte value as-is
-						decoded += string(b)
+						decoded.WriteByte(b)
 					}
 				}
 			} else {
 				// No encoding entry, use byte value as-is (standard ASCII)
-				decoded += string(b)
+				decoded.WriteByte(b)
 			}
 		}
 	} else {
 		// No CMap and no Encoding - fallback to direct byte conversion
 		// Filter out non-printable control characters
-		decoded = filterControlChars(rawBytes)
+		decoded.WriteString(filterControlChars(rawBytes))
 	}
 
-	e.buffer.WriteString(decoded)
+	e.buffer.WriteString(decoded.String())
 
 	// 4. Calculate total width of this string to update lastX
 	totalWidth := 0.0
@@ -709,14 +738,15 @@ func (e *Extractor) handleText(obj Object) {
 
 		// Add WordSpacing (approximation: count spaces in decoded)
 		// Better: check raw code 32, but decoded is safer for generic check
-		spaceCount := strings.Count(decoded, " ")
+		decodedStr := decoded.String()
+		spaceCount := strings.Count(decodedStr, " ")
 		totalWidth += float64(spaceCount) * e.textState.WordSpacing
 
 		totalWidth *= (e.textState.Scale / 100.0)
 
 	} else {
 		// Fallback Heuristic (0.5 em per char)
-		totalWidth = float64(len(decoded)) * e.textState.FontSize * 0.5 * (e.textState.Scale / 100.0)
+		totalWidth = float64(decoded.Len()) * e.textState.FontSize * 0.5 * (e.textState.Scale / 100.0)
 	}
 
 	e.lastX = x + totalWidth
@@ -725,6 +755,95 @@ func (e *Extractor) handleText(obj Object) {
 	// Update TM
 	e.textState.TM[4] += totalWidth * e.textState.TM[0]
 	e.textState.TM[5] += totalWidth * e.textState.TM[1]
+}
+
+// recordInlineImage records an inline image placeholder
+func (e *Extractor) recordInlineImage(dict DictionaryObject) {
+	img := model.Image{
+		Type: "inline_image",
+		Rect: e.calculateImageRect(),
+	}
+
+	// Extract metadata from inline image dictionary
+	if w, ok := dict["/W"].(NumberObject); ok {
+		img.Width = float64(w)
+	} else if w, ok := dict["/Width"].(NumberObject); ok {
+		img.Width = float64(w)
+	}
+
+	if h, ok := dict["/H"].(NumberObject); ok {
+		img.Height = float64(h)
+	} else if h, ok := dict["/Height"].(NumberObject); ok {
+		img.Height = float64(h)
+	}
+
+	if cs, ok := dict["/CS"].(NameObject); ok {
+		img.ColorSpace = string(cs)
+	} else if cs, ok := dict["/ColorSpace"].(NameObject); ok {
+		img.ColorSpace = string(cs)
+	}
+
+	e.images = append(e.images, img)
+}
+
+// recordImage records an XObject image reference
+func (e *Extractor) recordImage(name string) {
+	if e.xobjects == nil {
+		return
+	}
+
+	// Resolve XObject to get metadata
+	xobj := e.reader.Resolve(e.xobjects[name])
+	xobjDict, ok := xobj.(DictionaryObject)
+	if !ok {
+		return
+	}
+
+	// Check if it's actually an image (not a form XObject)
+	if subtype, ok := e.reader.Resolve(xobjDict["/Subtype"]).(NameObject); ok {
+		if string(subtype) != "/Image" {
+			return // Not an image, skip
+		}
+	}
+
+	img := model.Image{
+		Type: "image",
+		ID:   name,
+		Rect: e.calculateImageRect(),
+	}
+
+	// Extract image metadata
+	if w, ok := e.reader.Resolve(xobjDict["/Width"]).(NumberObject); ok {
+		img.Width = float64(w)
+	}
+	if h, ok := e.reader.Resolve(xobjDict["/Height"]).(NumberObject); ok {
+		img.Height = float64(h)
+	}
+	if cs, ok := e.reader.Resolve(xobjDict["/ColorSpace"]).(NameObject); ok {
+		img.ColorSpace = string(cs)
+	}
+
+	e.images = append(e.images, img)
+}
+
+// calculateImageRect calculates the bounding box of an image using current CTM
+func (e *Extractor) calculateImageRect() []float64 {
+	// In PDF, images are drawn in a unit square (0,0) to (1,1)
+	// The CTM transforms this to the actual position/size on the page
+	ctm := e.gState.CTM
+
+	// Transform corners of unit square
+	x := ctm[4]
+	y := ctm[5]
+	width := math.Sqrt(ctm[0]*ctm[0] + ctm[1]*ctm[1])
+	height := math.Sqrt(ctm[2]*ctm[2] + ctm[3]*ctm[3])
+
+	return []float64{x, y, width, height}
+}
+
+// GetImages returns the images found on this page
+func (e *Extractor) GetImages() []model.Image {
+	return e.images
 }
 
 // Helpers

@@ -14,7 +14,7 @@ venv/
 CLAUDE.md
 
 # Binaries for programs and plugins
-pdf-loader
+go-fast-pdf
 *.exe
 *.exe~
 *.dll

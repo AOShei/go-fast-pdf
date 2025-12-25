@@ -16,7 +16,7 @@ func main() {
 	flag.Parse()
 
 	if flag.NArg() < 1 {
-		log.Fatal("Usage: pdf-loader [--concurrent] [--workers N] [--images] <path_to_pdf>")
+		log.Fatal("Usage: go-fast-pdf [--concurrent] [--workers N] [--images] <path_to_pdf>")
 	}
 
 	path := flag.Arg(0)

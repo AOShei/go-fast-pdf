@@ -19,6 +19,10 @@ type Reader struct {
 	// Object cache for performance
 	mu          sync.RWMutex
 	objectCache map[int]Object
+
+	// Font cache for performance
+	fontCacheMu sync.RWMutex
+	fontCache   map[int]*Font
 }
 
 func NewReader(rs io.ReadSeeker) (*Reader, error) {
@@ -33,6 +37,7 @@ func NewReader(rs io.ReadSeeker) (*Reader, error) {
 		xref:        xref,
 		lexer:       NewLexer(rs),
 		objectCache: make(map[int]Object),
+		fontCache:   make(map[int]*Font),
 	}
 
 	// 2. Check for encryption and initialize handler
@@ -462,4 +467,16 @@ func (r *Reader) decryptObject(obj Object, objNum, genNum int) Object {
 		// Numbers, names, booleans, null, etc. are not encrypted
 		return obj
 	}
+}
+
+func (r *Reader) GetCachedFont(objNum int) *Font {
+	r.fontCacheMu.RLock()
+	defer r.fontCacheMu.RUnlock()
+	return r.fontCache[objNum]
+}
+
+func (r *Reader) CacheFont(objNum int, f *Font) {
+	r.fontCacheMu.Lock()
+	defer r.fontCacheMu.Unlock()
+	r.fontCache[objNum] = f
 }

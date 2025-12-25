@@ -123,23 +123,23 @@ var glyphToUnicode = map[string]string{
 	"/ij":  "ij",
 
 	// Extended Latin characters
-	"/AE":      "Æ",
-	"/ae":      "æ",
-	"/OE":      "Œ",
-	"/oe":      "œ",
-	"/oslash":  "ø",
-	"/Oslash":  "Ø",
-	"/lslash":  "ł",
-	"/Lslash":  "Ł",
-	"/Eth":     "Ð",
-	"/eth":     "ð",
-	"/Thorn":   "Þ",
-	"/thorn":   "þ",
-	"/ssharp":  "ß",
-	"/Scaron":  "Š",
-	"/scaron":  "š",
-	"/Zcaron":  "Ž",
-	"/zcaron":  "ž",
+	"/AE":       "Æ",
+	"/ae":       "æ",
+	"/OE":       "Œ",
+	"/oe":       "œ",
+	"/oslash":   "ø",
+	"/Oslash":   "Ø",
+	"/lslash":   "ł",
+	"/Lslash":   "Ł",
+	"/Eth":      "Ð",
+	"/eth":      "ð",
+	"/Thorn":    "Þ",
+	"/thorn":    "þ",
+	"/ssharp":   "ß",
+	"/Scaron":   "Š",
+	"/scaron":   "š",
+	"/Zcaron":   "Ž",
+	"/zcaron":   "ž",
 	"/Ccedilla": "Ç",
 	"/ccedilla": "ç",
 
@@ -382,8 +382,14 @@ func NewExtractor(r *Reader, page DictionaryObject, extractImages bool) (*Extrac
 	if res, ok := r.Resolve(page["/Resources"]).(DictionaryObject); ok {
 		if fonts, ok := r.Resolve(res["/Font"]).(DictionaryObject); ok {
 			for name, ref := range fonts {
+				var objNum int
+				// Extract Object Number if it's a reference
+				if indRef, ok := ref.(IndirectObject); ok {
+					objNum = indRef.ObjectNumber
+				}
+
 				fontObj := r.Resolve(ref).(DictionaryObject)
-				e.fonts[name] = e.loadFont(fontObj)
+				e.fonts[name] = e.loadFont(fontObj, objNum) // Pass objNum
 			}
 		}
 
@@ -399,19 +405,28 @@ func NewExtractor(r *Reader, page DictionaryObject, extractImages bool) (*Extrac
 }
 
 // loadFont parses widths and ToUnicode maps
-func (e *Extractor) loadFont(obj DictionaryObject) *Font {
+// loadFont parses widths and ToUnicode maps
+func (e *Extractor) loadFont(obj DictionaryObject, objNum int) *Font {
+	// 1. Check Global Cache (if we have an object number)
+	if objNum != 0 {
+		if cached := e.reader.GetCachedFont(objNum); cached != nil {
+			return cached
+		}
+	}
+
+	// 2. Parse Font
 	f := &Font{
 		Widths:   make(map[int]float64),
 		Encoding: make(map[int]string),
 		MissingW: 0, // Default usually 0 unless specified
 	}
 
-	// 1. Get BaseFont name (for debugging/fallback)
+	// 3. Get BaseFont name (for debugging/fallback)
 	if bf, ok := e.reader.Resolve(obj["/BaseFont"]).(NameObject); ok {
 		f.BaseFont = string(bf)
 	}
 
-	// 2. Parse Widths (Simple Fonts)
+	// 4. Parse Widths (Simple Fonts)
 	// PDF defines widths for range FirstChar to LastChar
 	if firstObj, ok := e.reader.Resolve(obj["/FirstChar"]).(NumberObject); ok {
 		first := int(firstObj)
@@ -428,14 +443,14 @@ func (e *Extractor) loadFont(obj DictionaryObject) *Font {
 		f.IsCID = true
 	}
 
-	// 3. Determine Space Width (Try char 32, else 250 default)
+	// 5. Determine Space Width (Try char 32, else 250 default)
 	if w, ok := f.Widths[32]; ok {
 		f.SpaceWidth = w
 	} else {
 		f.SpaceWidth = 250.0 // Standard PDF default
 	}
 
-	// 4. Parse ToUnicode CMap
+	// 6. Parse ToUnicode CMap
 	if toUnicode, ok := e.reader.Resolve(obj["/ToUnicode"]).(StreamObject); ok {
 		if cmap, err := ParseCMap(toUnicode.Data); err == nil {
 			f.CMap = cmap
@@ -448,6 +463,11 @@ func (e *Extractor) loadFont(obj DictionaryObject) *Font {
 		if enc, ok := obj["/Encoding"]; ok {
 			e.parseEncoding(f, enc)
 		}
+	}
+
+	// 7. Save to Global Cache (This is the missing part)
+	if objNum != 0 {
+		e.reader.CacheFont(objNum, f)
 	}
 
 	return f
@@ -822,7 +842,7 @@ func (e *Extractor) recordImage(name string) {
 	if subtype, ok := e.reader.Resolve(xobjDict["/Subtype"]).(NameObject); ok {
 		if string(subtype) == "/Form" {
 			// Form XObjects contain nested content streams that may reference images
-			e.processFormXObject(name, xobj)
+			e.processFormXObject(xobj)
 			return
 		}
 
@@ -854,7 +874,8 @@ func (e *Extractor) recordImage(name string) {
 }
 
 // processFormXObject recursively processes a Form XObject to find nested images
-func (e *Extractor) processFormXObject(name string, xobj Object) {
+// Removed 'name' parameter as it was unused
+func (e *Extractor) processFormXObject(xobj Object) {
 	// Form XObjects are StreamObjects containing a content stream
 	streamObj, ok := xobj.(StreamObject)
 	if !ok {
@@ -888,7 +909,7 @@ func (e *Extractor) processFormXObject(name string, xobj Object) {
 				if formResources != nil {
 					if nestedXObjects, ok := e.reader.Resolve(formResources["/XObject"]).(DictionaryObject); ok {
 						if nestedXObj := e.reader.Resolve(nestedXObjects[string(imgName)]); nestedXObj != nil {
-							// Recursively process this XObject (could be another Form or an Image)
+							// Recursively process this XObject
 							e.recordNestedImage(string(imgName), nestedXObj)
 						}
 					}
@@ -916,7 +937,7 @@ func (e *Extractor) recordNestedImage(name string, xobj Object) {
 
 		if string(subtype) == "/Form" {
 			// Another nested form - recurse
-			e.processFormXObject(name, xobj)
+			e.processFormXObject(xobj)
 			return
 		}
 

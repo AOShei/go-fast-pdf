@@ -497,6 +497,7 @@ func TestActualText(t *testing.T) {
 		{"empty", "BT /F1 12 Tf 72 720 Td (soft) Tj /Span << /ActualText () >> BDC (-) Tj EMC (hyphen) Tj ET", "softhyphen"},
 		{"UTF-16", "BT /F1 12 Tf 72 720 Td /Span << /ActualText <FEFF00E9D83DDE00> >> BDC (x) Tj EMC ET", "é😀"},
 		{"PDFDocEncoding", `BT /F1 12 Tf 72 720 Td /Span << /ActualText (\351\200) >> BDC (x) Tj EMC ET`, "é•"},
+		{"a ligature character", "BT /F1 12 Tf 72 720 Td (o) Tj /Span << /ActualText <FEFFFB03> >> BDC (X) Tj EMC (ce) Tj ET", "office"},
 		{"the outer one wins", "BT /F1 12 Tf 72 720 Td /Span << /ActualText (outer) >> BDC (a) Tj /Span << /ActualText (inner) >> BDC (b) Tj EMC (c) Tj EMC ET", "outer"},
 		{"nothing drawn, nothing said", "/Span << /ActualText (unseen) >> BDC 0 0 10 10 re f EMC BT /F1 12 Tf 72 720 Td (seen) Tj ET", "seen"},
 		{"other properties", "BT /F1 12 Tf 72 720 Td /P << /MCID 0 >> BDC (plain) Tj EMC /Artifact BMC ( text) Tj EMC ET", "plain text"},

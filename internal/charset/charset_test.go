@@ -14,6 +14,7 @@ func TestGlyphText(t *testing.T) {
 		// uniXXXX and uXXXXXX.
 		{"uni00E9", "é"}, {"uni00410042", "AB"}, {"uniD83DDE00", "😀"}, {"u1F600", "😀"}, {"u00E9", "é"},
 		// Suffixes and compositions.
+		{"uniFB01", "fi"}, {"uFB06", "st"}, {"uni0066FB00", "fff"},
 		{"a.alt", "a"}, {"f_f_i", "ffi"}, {"f_f_i.liga", "ffi"}, {"T_h", "Th"}, {"uni0041_uni0042.x", "AB"},
 		// Variants of a character.
 		{"Asmall", "a"}, {"Eacutesmall", "é"}, {"exclamsmall", "!"}, {"threeoldstyle", "3"},
@@ -129,6 +130,44 @@ func TestCore(t *testing.T) {
 	}
 }
 
+// The ligatures U+FB00 to U+FB06 are EF AC 80 to EF AC 86 in UTF-8.
+func TestLetters(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"", ""},
+		{"plain", "plain"},
+		{"\xef\xac\x80", "ff"},
+		{"\xef\xac\x81", "fi"},
+		{"\xef\xac\x82", "fl"},
+		{"\xef\xac\x83", "ffi"},
+		{"\xef\xac\x84", "ffl"},
+		{"\xef\xac\x85", "st"},
+		{"\xef\xac\x86", "st"},
+		{"o\xef\xac\x83ce and \xef\xac\x82oor", "office and floor"},
+		{"\xef\xac\x81\xef\xac\x81", "fifi"},
+		// Their neighbours in Unicode and other text are left alone.
+		{"\xef\xac\x87", "\xef\xac\x87"},
+		{"\xef\xab\xbf", "\xef\xab\xbf"},
+		{"\xef\xbc\x81 caf\xc3\xa9 \xe6\x97\xa5", "\xef\xbc\x81 caf\xc3\xa9 \xe6\x97\xa5"},
+		// Not a whole character.
+		{"a\xef\xac", "a\xef\xac"},
+		{"\xef", "\xef"},
+	}
+	for _, c := range cases {
+		if got := Letters(c.in); got != c.want {
+			t.Errorf("Letters(%q) = %q, want %q", c.in, got, c.want)
+		}
+		// In place, after a part that is not to be touched.
+		const kept = "\xef\xac\x81<"
+		b := LettersIn([]byte(kept+c.in), len(kept))
+		if string(b) != kept+c.want {
+			t.Errorf("LettersIn(%q) = %q, want %q", c.in, b[len(kept):], c.want)
+		}
+	}
+	if n := testing.AllocsPerRun(100, func() { Letters("no ligature here, only caf\xc3\xa9") }); n != 0 {
+		t.Errorf("text without a ligature: %v allocations", n)
+	}
+}
+
 func TestTextString(t *testing.T) {
 	cases := []struct{ in, want string }{
 		{"", ""},
@@ -144,6 +183,10 @@ func TestTextString(t *testing.T) {
 		{"\xef\xbb\xbf\xff", "�"},   // not UTF-8 after its mark
 		{"a\x00b\x9f", "a�b�"},      // bytes with no character
 		{"line\nnext\ttab", "line\nnext\ttab"},
+		// A ligature is written as its letters, however it is encoded.
+		{"\x93le of\x94ine", "file offline"}, // PDFDocEncoding has fi and fl
+		{"\xfe\xff\x00o\xfb\x03\x00c\x00e", "office"},
+		{"\xef\xbb\xbf\xef\xac\x86op", "stop"},
 	}
 	for _, c := range cases {
 		got := TextString([]byte(c.in))
@@ -153,14 +196,34 @@ func TestTextString(t *testing.T) {
 	}
 }
 
+func hasLigature(s string) bool {
+	for _, r := range s {
+		if r >= 0xFB00 && r <= 0xFB06 {
+			return true
+		}
+	}
+	return false
+}
+
 func FuzzTextString(f *testing.F) {
 	f.Add([]byte("\xfe\xff\xd8\x3d"))
+	f.Add([]byte("\xfe\xff\xfb\x01"))
+	f.Add([]byte("uniFB03"))
+	f.Add([]byte("a\xef\xac\x81\xef\xac"))
 	f.Add([]byte("R\xe9sum\xe9"))
 	f.Fuzz(func(t *testing.T, b []byte) {
-		if s := TextString(b); !utf8.ValidString(s) {
+		s := TextString(b)
+		if !utf8.ValidString(s) {
 			t.Fatalf("not valid UTF-8: %q", s)
 		}
-		if s, ok := GlyphText(string(b)); ok && (s == "" || !utf8.ValidString(s)) {
+		if hasLigature(s) {
+			t.Fatalf("a ligature in %q", s)
+		}
+		// The two forms of the rewriting agree, on any bytes.
+		if got, want := string(LettersIn(append([]byte("-"), b...), 1)), "-"+Letters(string(b)); got != want {
+			t.Fatalf("LettersIn gives %q, Letters %q", got, want)
+		}
+		if s, ok := GlyphText(string(b)); ok && (s == "" || !utf8.ValidString(s) || hasLigature(s)) {
 			t.Fatalf("glyph %q: %q", b, s)
 		}
 	})

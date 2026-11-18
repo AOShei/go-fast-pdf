@@ -1,0 +1,11 @@
+{
+  "cups-form-english": {"f1":0,"order":0,"words":0,"want_words":40,"pages":1,"reference":"pdftotext"},
+  "cups-form-russian": {"f1":0,"order":0,"words":0,"want_words":40,"pages":1,"reference":"pdftotext"},
+  "cups-testpage": {"f1":0,"order":0,"words":12,"want_words":3,"pages":1,"reference":"pdftotext"},
+  "english": {"f1":0.968,"order":0.968,"words":782,"want_words":782,"pages":3,"reference":"src/english.txt"},
+  "graphviz-cgraph": {"f1":0.829,"order":0.3276,"words":3020,"want_words":3870,"pages":8,"reference":"pdftotext"},
+  "gutenprint-manual": {"f1":0.9853,"order":0.9804,"words":24761,"want_words":24564,"pages":70,"reference":"pdftotext"},
+  "gutenprint-users-manual": {"f1":0.999,"order":0.9969,"words":29474,"want_words":29454,"pages":73,"reference":"pdftotext"},
+  "latin1": {"f1":0.5993,"order":0.5882,"words":131,"want_words":136,"pages":1,"reference":"src/latin1.txt"},
+  "multilingual": {"f1":1,"order":1,"words":94,"want_words":94,"pages":1,"reference":"src/multilingual.txt"}
+}

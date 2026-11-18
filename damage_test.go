@@ -183,7 +183,7 @@ func TestDamageFlateCutInHalf(t *testing.T) {
 		// original, in order. With half of the compressed data or more,
 		// a fair share of them is there; with a tenth, the decompressor
 		// may not have had its tables yet.
-		n := len(gotWords) - 1
+		n := max(len(gotWords)-1, 0)
 		minimum := 0
 		if keep >= len(z)/2 {
 			minimum = len(wantWords) / 5

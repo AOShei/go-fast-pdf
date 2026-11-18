@@ -44,7 +44,7 @@ func TestX1DamagedXRef(t *testing.T) {
 
 // hybridFile builds a hybrid-reference file: the catalog, page tree, font
 // and page are in an object stream that only the cross-reference stream
-// named by /XRefStm knows about; the classic table lists them as free.
+// named by /XRefStm knows about.
 func hybridFile() []byte {
 	var out bytes.Buffer
 	out.WriteString("%PDF-1.5\n")
@@ -72,17 +72,13 @@ func hybridFile() []byte {
 	write(4, pdftest.Stream("", pdftest.TextPage("hybrid file")))
 	write(6, pdftest.Stream(fmt.Sprintf("/Type /ObjStm /N %d /First %d", len(packed), index.Len()), index.String()+bodies.String()))
 	write(7, pdftest.Stream("/Type /XRef /Size 8 /W [1 4 2] /Index [1 3 5 1] /Root 1 0 R", string(rows)))
+	// The classic table lists only the objects a reader without support
+	// for cross-reference streams can use; the others are found through
+	// /XRefStm.
 	xref := out.Len()
-	out.WriteString("xref\n0 8\n")
-	for n := 0; n < 8; n++ {
-		if off, ok := offs[n]; ok {
-			fmt.Fprintf(&out, "%010d %05d n \n", off, 0)
-		} else if n == 0 {
-			out.WriteString("0000000000 65535 f \n")
-		} else {
-			out.WriteString("0000000000 00000 f \n")
-		}
-	}
+	out.WriteString("xref\n0 1\n0000000000 65535 f \n")
+	fmt.Fprintf(&out, "4 1\n%010d %05d n \n", offs[4], 0)
+	fmt.Fprintf(&out, "6 2\n%010d %05d n \n%010d %05d n \n", offs[6], 0, offs[7], 0)
 	fmt.Fprintf(&out, "trailer\n<< /Size 8 /Root 1 0 R /XRefStm %d >>\nstartxref\n%d\n%%%%EOF\n", offs[7], xref)
 	return out.Bytes()
 }

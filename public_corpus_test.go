@@ -9,12 +9,12 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 	"unicode"
@@ -308,60 +308,53 @@ func buildPublicManifest(t *testing.T, cache string) []publicFile {
 	return out
 }
 
-// runTool runs a reference tool with a time limit. Its output is capped:
-// on a damaged file a tool can print error messages without end, and
-// 1,650 files are read in parallel.
-func runTool(timeout time.Duration, name string, args ...string) (stdout, stderr string, err error) {
-	cmd := exec.Command(name, args...)
-	so, se := &cappedBuffer{limit: 64 << 20}, &cappedBuffer{limit: 1 << 20}
-	cmd.Stdout, cmd.Stderr = so, se
-	if err := cmd.Start(); err != nil {
-		return "", "", err
-	}
-	timer := time.AfterFunc(timeout, func() { cmd.Process.Kill() })
-	err = cmd.Wait()
-	timer.Stop()
-	if err == nil && so.full {
-		err = fmt.Errorf("%s: more than %d MB of output", name, so.limit>>20)
-	}
-	return so.sb.String(), se.sb.String(), err
-}
+// Bounds on the cache of reference text. The largest reference in the
+// corpus is 2 MB; a tool that produces more than refMaxBytes for one file
+// is reading a damaged or hostile one, and its output is not kept. The
+// cache as a whole stops growing at refCacheMaxBytes.
+const (
+	refMaxBytes      = 8 << 20
+	refCacheMaxBytes = 512 << 20
+)
 
-// cappedBuffer keeps the first limit bytes written to it and discards
-// the rest.
-type cappedBuffer struct {
-	sb    strings.Builder
-	limit int
-	full  bool
-}
-
-func (c *cappedBuffer) Write(p []byte) (int, error) {
-	if room := c.limit - c.sb.Len(); room >= len(p) {
-		c.sb.Write(p)
-	} else {
-		c.sb.Write(p[:max(room, 0)])
-		c.full = true
-	}
-	return len(p), nil
-}
+// refCacheBytes is the size of the reference cache, counted once from
+// the directory and then kept up to date.
+var (
+	refCacheBytes atomic.Int64
+	refCacheOnce  sync.Once
+)
 
 // ensureReference runs the reference reader on a file once and keeps its
-// text and document information in the cache.
+// text and document information in the cache. The tools are run
+// contained (pdftest.Run).
 func ensureReference(cache, path, sum string) {
 	txt, info := refPath(cache, sum, ".txt"), refPath(cache, sum, ".info")
 	if _, err := os.Stat(info); err == nil {
 		return
 	}
-	os.MkdirAll(filepath.Dir(info), 0o755)
-	text, textErr, err1 := runTool(2*time.Minute, "pdftotext", "-enc", "UTF-8", path, "-")
-	meta, metaErr, err2 := runTool(time.Minute, "pdfinfo", path)
-	if err1 == nil {
+	dir := filepath.Dir(info)
+	os.MkdirAll(dir, 0o755)
+	refCacheOnce.Do(func() {
+		entries, _ := os.ReadDir(dir)
+		for _, e := range entries {
+			if fi, err := e.Info(); err == nil {
+				refCacheBytes.Add(fi.Size())
+			}
+		}
+	})
+	text, textErr, err1 := pdftest.RunCapped(2*time.Minute, refMaxBytes, "pdftotext", "-enc", "UTF-8", path, "-")
+	meta, metaErr, err2 := pdftest.Run(time.Minute, "pdfinfo", path)
+	if len(meta) > 64<<10 {
+		meta = meta[:64<<10]
+	}
+	if err1 == nil && refCacheBytes.Add(int64(len(text))) <= refCacheMaxBytes {
 		os.WriteFile(txt, []byte(text), 0o644)
 	}
 	status := "clean"
 	if err1 != nil || err2 != nil || strings.Contains(textErr+metaErr, "Syntax Error") {
 		status = "damaged"
 	}
+	refCacheBytes.Add(int64(len(meta)) + 32)
 	os.WriteFile(info, []byte("Status: "+status+"\n"+meta), 0o644)
 }
 
@@ -369,7 +362,7 @@ func ensureReference(cache, path, sum string) {
 // version 25.10.0". Scores recorded against one version are compared
 // loosely against another, because the reference text itself differs.
 func referenceVersion() string {
-	_, stderr, _ := runTool(10*time.Second, "pdftotext", "-v")
+	_, stderr, _ := pdftest.Run(10*time.Second, "pdftotext", "-v")
 	line, _, _ := strings.Cut(strings.TrimSpace(stderr), "\n")
 	return strings.TrimSpace(line)
 }

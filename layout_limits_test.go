@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/AOShei/go-fast-pdf/internal/pdftest"
 )
 
 // TestLayoutCost: no arrangement of text on a page makes the layout
@@ -12,8 +14,10 @@ import (
 // pages has some hundred thousand pieces of text, arranged so as to
 // meet a step of the layout at its worst.
 func TestLayoutCost(t *testing.T) {
-	if testing.Short() {
-		t.Skip("large pages")
+	if testing.Short() || pdftest.RaceEnabled {
+		// The race detector makes everything several times slower, and
+		// this is a test of time.
+		t.Skip("large pages, timed")
 	}
 	const n = 120000
 	pages := map[string]func(sb *strings.Builder){

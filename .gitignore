@@ -1,20 +1,18 @@
-
-# Sample PDFs
-sample.pdf
-*.pdf
+# PDFs and extraction output dropped in the repository root while trying
+# the tool. Test fixtures live under testdata/ and are tracked.
+/*.pdf
+/*.json
 test_pdfs/
-tests/
 venv/
 
 *.log
-*.json
 
-# GitHub workflows
-.github/
+# Agent instructions kept local
 CLAUDE.md
 
 # Binaries for programs and plugins
-go-fast-pdf
+/go-fast-pdf
+/gofastpdf
 *.exe
 *.exe~
 *.dll

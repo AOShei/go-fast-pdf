@@ -48,9 +48,11 @@ func TestEncryptionMatrix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, line := range strings.Split(strings.TrimSpace(string(listing)), "\n") {
-		name, key, _ := strings.Cut(line, " ")
-		keys[name] = key
+	// Fields, not a split on line feeds: a checkout on Windows may have
+	// converted the line ends.
+	fields := strings.Fields(string(listing))
+	for i := 0; i+1 < len(fields); i += 2 {
+		keys[fields[i]] = fields[i+1]
 	}
 	want := allContent(t, open(t, fixtureData(t, "english")))
 

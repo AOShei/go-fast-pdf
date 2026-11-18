@@ -1,3 +1,5 @@
+IMPLEMENTATION_PLAN.md
+
 # PDFs and extraction output dropped in the repository root while trying
 # the tool. Test fixtures live under testdata/ and are tracked.
 /*.pdf

@@ -9,6 +9,7 @@ import (
 
 	"github.com/AOShei/go-fast-pdf/internal/pdftest"
 	"github.com/AOShei/go-fast-pdf/pkg/loader"
+	"github.com/AOShei/go-fast-pdf/pkg/model"
 )
 
 // This file is the only place where the conformance tests touch the
@@ -49,11 +50,12 @@ func extractFile(path string, o extractOpts) (*extraction, error) {
 	if o.Password != "" {
 		return nil, errNoPassword
 	}
-	var (
-		doc, err = loader.LoadPDF(path, o.Images)
-	)
+	var doc *model.Document
+	var err error
 	if o.Workers > 1 {
 		doc, err = loader.LoadPDFConcurrent(path, o.Workers, o.Images)
+	} else {
+		doc, err = loader.LoadPDF(path, o.Images)
 	}
 	if err != nil {
 		return nil, err

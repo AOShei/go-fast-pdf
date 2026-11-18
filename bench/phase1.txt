@@ -1,0 +1,107 @@
+# commit: f562110
+# date: 2026-11-18
+# go version go1.27.3-X:nodwarf5 linux/amd64
+# cpu: AMD Ryzen 9 9900X 12-Core Processor
+# count: 5
+goos: linux
+goarch: amd64
+pkg: github.com/AOShei/go-fast-pdf
+cpu: AMD Ryzen 9 9900X 12-Core Processor            
+BenchmarkExtract/pages=10/workers=1-24         	    8710	    130509 ns/op	  38.29 MB/s	     13051 ns/page	  121898 B/op	     235 allocs/op
+BenchmarkExtract/pages=10/workers=1-24         	    9841	    128242 ns/op	  38.97 MB/s	     12824 ns/page	  121928 B/op	     235 allocs/op
+BenchmarkExtract/pages=10/workers=1-24         	    8425	    131182 ns/op	  38.09 MB/s	     13118 ns/page	  121893 B/op	     235 allocs/op
+BenchmarkExtract/pages=10/workers=1-24         	   10000	    127969 ns/op	  39.05 MB/s	     12797 ns/page	  122101 B/op	     235 allocs/op
+BenchmarkExtract/pages=10/workers=1-24         	    8598	    129969 ns/op	  38.45 MB/s	     12997 ns/page	  122064 B/op	     235 allocs/op
+BenchmarkExtract/pages=10/workers=8-24         	    7729	    181220 ns/op	  27.57 MB/s	     18122 ns/page	  209467 B/op	     289 allocs/op
+BenchmarkExtract/pages=10/workers=8-24         	    6102	    189495 ns/op	  26.37 MB/s	     18949 ns/page	  214162 B/op	     292 allocs/op
+BenchmarkExtract/pages=10/workers=8-24         	    8388	    182951 ns/op	  27.31 MB/s	     18295 ns/page	  212548 B/op	     291 allocs/op
+BenchmarkExtract/pages=10/workers=8-24         	    7321	    201569 ns/op	  24.79 MB/s	     20157 ns/page	  221121 B/op	     294 allocs/op
+BenchmarkExtract/pages=10/workers=8-24         	    5785	    193178 ns/op	  25.87 MB/s	     19318 ns/page	  218802 B/op	     294 allocs/op
+BenchmarkExtract/pages=100/workers=1-24        	     877	   1404994 ns/op	  33.49 MB/s	     14050 ns/page	 1034510 B/op	    1881 allocs/op
+BenchmarkExtract/pages=100/workers=1-24        	     912	   1372062 ns/op	  34.30 MB/s	     13721 ns/page	 1034822 B/op	    1881 allocs/op
+BenchmarkExtract/pages=100/workers=1-24        	     854	   1371185 ns/op	  34.32 MB/s	     13712 ns/page	 1034406 B/op	    1881 allocs/op
+BenchmarkExtract/pages=100/workers=1-24        	     889	   1349516 ns/op	  34.87 MB/s	     13495 ns/page	 1033952 B/op	    1881 allocs/op
+BenchmarkExtract/pages=100/workers=1-24        	     890	   1353981 ns/op	  34.76 MB/s	     13540 ns/page	 1035336 B/op	    1882 allocs/op
+BenchmarkExtract/pages=100/workers=8-24        	    1270	    991622 ns/op	  47.46 MB/s	      9916 ns/page	 1364963 B/op	    2055 allocs/op
+BenchmarkExtract/pages=100/workers=8-24        	    1209	    997294 ns/op	  47.19 MB/s	      9973 ns/page	 1361824 B/op	    2056 allocs/op
+BenchmarkExtract/pages=100/workers=8-24        	    1206	    994619 ns/op	  47.31 MB/s	      9946 ns/page	 1349733 B/op	    2050 allocs/op
+BenchmarkExtract/pages=100/workers=8-24        	    1332	    994983 ns/op	  47.30 MB/s	      9950 ns/page	 1357560 B/op	    2054 allocs/op
+BenchmarkExtract/pages=100/workers=8-24        	    1179	    993584 ns/op	  47.36 MB/s	      9936 ns/page	 1350145 B/op	    2051 allocs/op
+BenchmarkExtract/pages=1000/workers=1-24       	      81	  13645520 ns/op	  34.53 MB/s	     13646 ns/page	10231692 B/op	   18127 allocs/op
+BenchmarkExtract/pages=1000/workers=1-24       	      85	  13649820 ns/op	  34.52 MB/s	     13650 ns/page	10238738 B/op	   18128 allocs/op
+BenchmarkExtract/pages=1000/workers=1-24       	      84	  13716343 ns/op	  34.35 MB/s	     13716 ns/page	10234784 B/op	   18128 allocs/op
+BenchmarkExtract/pages=1000/workers=1-24       	      87	  13775164 ns/op	  34.20 MB/s	     13775 ns/page	10236447 B/op	   18128 allocs/op
+BenchmarkExtract/pages=1000/workers=1-24       	      86	  13689806 ns/op	  34.42 MB/s	     13690 ns/page	10236585 B/op	   18128 allocs/op
+BenchmarkExtract/pages=1000/workers=8-24       	     164	   7324789 ns/op	  64.33 MB/s	      7325 ns/page	11035751 B/op	   18563 allocs/op
+BenchmarkExtract/pages=1000/workers=8-24       	     163	   7279826 ns/op	  64.72 MB/s	      7280 ns/page	11053893 B/op	   18567 allocs/op
+BenchmarkExtract/pages=1000/workers=8-24       	     164	   7307738 ns/op	  64.48 MB/s	      7308 ns/page	11024086 B/op	   18555 allocs/op
+BenchmarkExtract/pages=1000/workers=8-24       	     163	   7330581 ns/op	  64.27 MB/s	      7331 ns/page	11056030 B/op	   18567 allocs/op
+BenchmarkExtract/pages=1000/workers=8-24       	     166	   7189920 ns/op	  65.53 MB/s	      7190 ns/page	11033173 B/op	   18552 allocs/op
+BenchmarkExtractFiles/english/workers=1-24     	    9273	    107965 ns/op	  50.21 MB/s	     35988 ns/page	   91127 B/op	     166 allocs/op
+BenchmarkExtractFiles/english/workers=1-24     	   10000	    107200 ns/op	  50.57 MB/s	     35733 ns/page	   91174 B/op	     166 allocs/op
+BenchmarkExtractFiles/english/workers=1-24     	   10000	    102231 ns/op	  53.03 MB/s	     34077 ns/page	   91177 B/op	     166 allocs/op
+BenchmarkExtractFiles/english/workers=1-24     	   10000	    101349 ns/op	  53.49 MB/s	     33783 ns/page	   91184 B/op	     166 allocs/op
+BenchmarkExtractFiles/english/workers=1-24     	   10000	    103044 ns/op	  52.61 MB/s	     34348 ns/page	   91352 B/op	     166 allocs/op
+BenchmarkExtractFiles/english/workers=8-24     	   10000	    107794 ns/op	  50.29 MB/s	     35931 ns/page	  106542 B/op	     180 allocs/op
+BenchmarkExtractFiles/english/workers=8-24     	   10000	    117498 ns/op	  46.14 MB/s	     39166 ns/page	  108475 B/op	     181 allocs/op
+BenchmarkExtractFiles/english/workers=8-24     	   10000	    109215 ns/op	  49.64 MB/s	     36405 ns/page	  107336 B/op	     181 allocs/op
+BenchmarkExtractFiles/english/workers=8-24     	   10000	    107473 ns/op	  50.44 MB/s	     35824 ns/page	  106491 B/op	     180 allocs/op
+BenchmarkExtractFiles/english/workers=8-24     	   10000	    112607 ns/op	  48.14 MB/s	     37536 ns/page	  108165 B/op	     181 allocs/op
+BenchmarkExtractFiles/multilingual/workers=1-24         	   17841	     67352 ns/op	 431.82 MB/s	     67352 ns/page	   94304 B/op	     469 allocs/op
+BenchmarkExtractFiles/multilingual/workers=1-24         	   17025	     69865 ns/op	 416.29 MB/s	     69865 ns/page	   94011 B/op	     469 allocs/op
+BenchmarkExtractFiles/multilingual/workers=1-24         	   17551	     67829 ns/op	 428.78 MB/s	     67829 ns/page	   94107 B/op	     469 allocs/op
+BenchmarkExtractFiles/multilingual/workers=1-24         	   17196	     72063 ns/op	 403.59 MB/s	     72063 ns/page	   93861 B/op	     469 allocs/op
+BenchmarkExtractFiles/multilingual/workers=1-24         	   16402	     73808 ns/op	 394.05 MB/s	     73808 ns/page	   93895 B/op	     469 allocs/op
+BenchmarkExtractFiles/multilingual/workers=8-24         	   16683	     72269 ns/op	 402.44 MB/s	     72269 ns/page	   93879 B/op	     469 allocs/op
+BenchmarkExtractFiles/multilingual/workers=8-24         	   16807	     71531 ns/op	 406.60 MB/s	     71531 ns/page	   93958 B/op	     469 allocs/op
+BenchmarkExtractFiles/multilingual/workers=8-24         	   16605	     72670 ns/op	 400.22 MB/s	     72670 ns/page	   93997 B/op	     469 allocs/op
+BenchmarkExtractFiles/multilingual/workers=8-24         	   16519	     73094 ns/op	 397.90 MB/s	     73094 ns/page	   93910 B/op	     469 allocs/op
+BenchmarkExtractFiles/multilingual/workers=8-24         	   16351	     72584 ns/op	 400.69 MB/s	     72584 ns/page	   93876 B/op	     469 allocs/op
+BenchmarkExtractFiles/gutenprint-users-manual/workers=1-24         	     126	   9432560 ns/op	  73.31 MB/s	    129213 ns/page	 1974121 B/op	    5034 allocs/op
+BenchmarkExtractFiles/gutenprint-users-manual/workers=1-24         	     128	   9281325 ns/op	  74.51 MB/s	    127141 ns/page	 2002337 B/op	    5045 allocs/op
+BenchmarkExtractFiles/gutenprint-users-manual/workers=1-24         	     129	   9227441 ns/op	  74.94 MB/s	    126403 ns/page	 1988810 B/op	    5040 allocs/op
+BenchmarkExtractFiles/gutenprint-users-manual/workers=1-24         	     126	   9445692 ns/op	  73.21 MB/s	    129393 ns/page	 1971217 B/op	    5034 allocs/op
+BenchmarkExtractFiles/gutenprint-users-manual/workers=1-24         	     128	   9329742 ns/op	  74.12 MB/s	    127805 ns/page	 1968072 B/op	    5033 allocs/op
+BenchmarkExtractFiles/gutenprint-users-manual/workers=8-24         	     420	   2873413 ns/op	 240.67 MB/s	     39362 ns/page	 3215743 B/op	    6170 allocs/op
+BenchmarkExtractFiles/gutenprint-users-manual/workers=8-24         	     420	   2861172 ns/op	 241.70 MB/s	     39194 ns/page	 3137827 B/op	    6079 allocs/op
+BenchmarkExtractFiles/gutenprint-users-manual/workers=8-24         	     409	   2921020 ns/op	 236.74 MB/s	     40014 ns/page	 3250786 B/op	    6177 allocs/op
+BenchmarkExtractFiles/gutenprint-users-manual/workers=8-24         	     429	   2848349 ns/op	 242.78 MB/s	     39018 ns/page	 3180321 B/op	    6137 allocs/op
+BenchmarkExtractFiles/gutenprint-users-manual/workers=8-24         	     409	   2911056 ns/op	 237.55 MB/s	     39877 ns/page	 3244282 B/op	    6170 allocs/op
+BenchmarkExtractFiles/gutenprint-manual/workers=1-24               	     183	   6392473 ns/op	  51.14 MB/s	     91321 ns/page	 2392197 B/op	    7208 allocs/op
+BenchmarkExtractFiles/gutenprint-manual/workers=1-24               	     190	   6452741 ns/op	  50.66 MB/s	     92182 ns/page	 2432847 B/op	    7214 allocs/op
+BenchmarkExtractFiles/gutenprint-manual/workers=1-24               	     182	   6542510 ns/op	  49.97 MB/s	     93464 ns/page	 2426787 B/op	    7213 allocs/op
+BenchmarkExtractFiles/gutenprint-manual/workers=1-24               	     182	   6546359 ns/op	  49.94 MB/s	     93519 ns/page	 2412139 B/op	    7211 allocs/op
+BenchmarkExtractFiles/gutenprint-manual/workers=1-24               	     190	   6275082 ns/op	  52.10 MB/s	     89644 ns/page	 2410078 B/op	    7211 allocs/op
+BenchmarkExtractFiles/gutenprint-manual/workers=8-24               	     396	   2929436 ns/op	 111.59 MB/s	     41849 ns/page	 3439112 B/op	   11040 allocs/op
+BenchmarkExtractFiles/gutenprint-manual/workers=8-24               	     408	   2930248 ns/op	 111.56 MB/s	     41861 ns/page	 3441878 B/op	   10966 allocs/op
+BenchmarkExtractFiles/gutenprint-manual/workers=8-24               	     409	   2904610 ns/op	 112.55 MB/s	     41494 ns/page	 3426488 B/op	   10953 allocs/op
+BenchmarkExtractFiles/gutenprint-manual/workers=8-24               	     417	   2838937 ns/op	 115.15 MB/s	     40556 ns/page	 3408545 B/op	   11034 allocs/op
+BenchmarkExtractFiles/gutenprint-manual/workers=8-24               	     421	   2831003 ns/op	 115.47 MB/s	     40443 ns/page	 3420073 B/op	   10919 allocs/op
+BenchmarkExtractImages-24                                          	  160190	      8425 ns/op	1071.61 MB/s	      8425 ns/page	   20014 B/op	      53 allocs/op
+BenchmarkExtractImages-24                                          	  138643	      8541 ns/op	1057.08 MB/s	      8541 ns/page	   20018 B/op	      53 allocs/op
+BenchmarkExtractImages-24                                          	  144475	      8327 ns/op	1084.18 MB/s	      8327 ns/page	   20017 B/op	      53 allocs/op
+BenchmarkExtractImages-24                                          	  133393	      8617 ns/op	1047.75 MB/s	      8617 ns/page	   20014 B/op	      53 allocs/op
+BenchmarkExtractImages-24                                          	  138313	      7815 ns/op	1155.20 MB/s	      7815 ns/page	   20014 B/op	      53 allocs/op
+goos: linux
+goarch: amd64
+pkg: github.com/AOShei/go-fast-pdf/internal/content
+cpu: AMD Ryzen 9 9900X 12-Core Processor            
+BenchmarkScanner-24    	     619	   1937738 ns/op	 541.20 MB/s	       1 B/op	       0 allocs/op
+BenchmarkScanner-24    	     625	   1918610 ns/op	 546.59 MB/s	       1 B/op	       0 allocs/op
+BenchmarkScanner-24    	     622	   1905644 ns/op	 550.31 MB/s	       1 B/op	       0 allocs/op
+BenchmarkScanner-24    	     619	   1922063 ns/op	 545.61 MB/s	       1 B/op	       0 allocs/op
+BenchmarkScanner-24    	     621	   1914012 ns/op	 547.91 MB/s	       2 B/op	       0 allocs/op
+goos: linux
+goarch: amd64
+pkg: github.com/AOShei/go-fast-pdf/internal/file
+cpu: AMD Ryzen 9 9900X 12-Core Processor            
+BenchmarkResolve/classic-24         	     562	   1842311 ns/op	 150.99 MB/s	 5825285 B/op	   12061 allocs/op
+BenchmarkResolve/classic-24         	     688	   1769695 ns/op	 157.19 MB/s	 5825209 B/op	   12061 allocs/op
+BenchmarkResolve/classic-24         	     675	   2793911 ns/op	  99.56 MB/s	 5825275 B/op	   12061 allocs/op
+BenchmarkResolve/classic-24         	     470	   2359528 ns/op	 117.89 MB/s	 5825201 B/op	   12061 allocs/op
+BenchmarkResolve/classic-24         	     598	   2198433 ns/op	 126.53 MB/s	 5825203 B/op	   12061 allocs/op
+BenchmarkResolve/objstm-24          	     580	   2442040 ns/op	  46.47 MB/s	 6405012 B/op	   12203 allocs/op
+BenchmarkResolve/objstm-24          	     477	   2532868 ns/op	  44.81 MB/s	 6404828 B/op	   12203 allocs/op
+BenchmarkResolve/objstm-24          	     598	   2176840 ns/op	  52.14 MB/s	 6405282 B/op	   12203 allocs/op
+BenchmarkResolve/objstm-24          	     472	   2503215 ns/op	  45.34 MB/s	 6405047 B/op	   12203 allocs/op
+BenchmarkResolve/objstm-24          	     478	   2225588 ns/op	  50.99 MB/s	 6404609 B/op	   12203 allocs/op

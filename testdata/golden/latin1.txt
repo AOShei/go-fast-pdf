@@ -1,0 +1,11 @@
+Texte en franais et en allemand
+Le franais utilise des lettres accentues chaque phrase : un lve zl, une fort profonde, le
+mas dor, un cur lger et une uvre acheve. O est pass le garon qui a reu ce cadeau 
+Nol ? Il cote dix euros, soit 10 .
+Die deutsche Sprache kennt Umlaute und das Eszett: Gre, bermut, rger, l und se pfel.
+Fnf Bren aen zwlf Brtchen, whrend die Mdchen ber die Strae liefen.
+El espaol aade la ee y los signos invertidos: Cuntos aos tiene el nio? Maana ser otro
+da!
+Typographic marks also matter: double quotes, `single quotes', an en dash and an em dash 
+as well as an ellipsis and the section sign , the degree sign , the pound and the micro sign
+.

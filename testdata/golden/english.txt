@@ -1,0 +1,64 @@
+Extracting text from documents
+A document that looks simple on screen is rarely simple inside. The page a
+reader sees is the result of many small drawing instructions, and the le
+records those instructions in whatever order the producing program found
+convenient. A library that wants the text back has to replay the instructions,
+work out where every glyph landed, and only then decide which glyphs form
+a word and which words form a line.
+Speed matters because extraction is the rst step of every pipeline that
+follows. A retrieval system cannot index a page it has not read, and a
+knowledge graph cannot link an entity it has not seen. When a collection
+holds several million les, a difference of a few milliseconds per page
+decides whether the whole job nishes overnight or runs for a week.
+Correctness matters more than speed. A fast extractor that drops the accented
+letters of a French contract, or joins two columns of a scientic paper into
+one stream of nonsense, produces output that is worse than no output at all,
+because nobody downstream can tell that something went wrong. The rst
+duty of the library is therefore to report what it could not read.
+Fonts are the hardest part. The bytes in a text string are not characters. They
+are codes that select glyphs in a font, and the mapping from code to character
+can be given in three different ways, or not given at all. Some les carry a
+table that maps every code to its Unicode value. Others name each glyph and
+expect the reader to know that the name Eacute means a capital letter E with
+an acute accent. Many old les rely on one of four standard encodings that
+every reader is supposed to have built in.
+Spacing is the second hard part. Most les contain no space characters
+between words. The producing program simply moves the pen a little further
+before the next word, and the reader has to notice the gap. To judge whether a
+gap is a space, the reader must know how wide each glyph is, which again
+
+depends on the font, on the font size, and on every transformation applied to
+the page.
+Damaged les are normal. A table near the end of the le says where every
+object starts, and a single edit with the wrong tool makes that table wrong.
+Good readers notice when an object is not where the table says and rebuild
+the table by scanning the whole le. Users do not care why a le is damaged.
+They care that the text comes out.
+Hostile les are also normal. A stream of one hundred kilobytes can claim to
+hold one hundred megabytes after decompression, and a page tree can refer to
+itself. A library that runs inside a service must put a limit on every quantity
+that the le controls: the depth of nesting, the size of a decoded stream, the
+number of pages, and the time spent on any one of them.
+Encryption is common in business documents, and most encrypted les open
+with an empty password. The reader derives a key from values stored in the
+le, checks that the key is right, and then decrypts each string and each
+stream with a key of its own. When the check fails the reader must stop and
+say that a password is needed. Guessing and returning noise is the worst
+possible answer.
+A page is more than a string of words. Headings, paragraphs, lists and tables
+carry meaning that a language model can use, and a position on the page lets
+an answer point back to its source. Even so, structure that the le does not
+declare can only be estimated, and an honest extractor says which parts of its
+output are declared and which are estimated.
+Testing ties all of this together. Every defect gets a test before it gets a x.
+Every le in the test collection is compared with the output of an independent
+reader, and the score for each le may rise but may never fall without a
+written reason. Random input is thrown at every parser for hours, and any
+input that causes a crash is kept forever as a regression test.
+
+None of this needs anything beyond the standard library. Decompression,
+hashing and the ciphers are all there. What remains is careful reading of the
+specication, a large collection of real les, and the patience to treat every
+strange le as a lesson and not as an annoyance.
+The result is a small tool with one job: given a le, return what it says, where
+it says it, and how sure we are.

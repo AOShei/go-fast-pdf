@@ -1,0 +1,65 @@
+name: Nightly
+
+on:
+  schedule:
+    - cron: '17 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  corpus:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: Install poppler and qpdf
+        run: sudo apt-get update && sudo apt-get install -y poppler-utils qpdf
+      - name: Restore the corpus cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/gofastpdf-corpus
+          key: corpus-${{ hashFiles('testdata/fetch.sh') }}
+      - name: Fetch the public corpus
+        run: testdata/fetch.sh
+      - name: Public corpus
+        run: go test -run 'TestPublicCorpus' -timeout 150m -v .
+
+  fuzz-targets:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.list.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: list
+        run: |
+          json=$({ grep -Ev '^(#|[[:space:]]*$)' .github/fuzz-targets.txt || true; } |
+            awk 'BEGIN { printf "[" } { printf "%s{\"pkg\":\"%s\",\"target\":\"%s\"}", (n++ ? "," : ""), $1, $2 } END { printf "]" }')
+          echo "matrix=$json" >> "$GITHUB_OUTPUT"
+
+  fuzz:
+    needs: fuzz-targets
+    if: needs.fuzz-targets.outputs.matrix != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.fuzz-targets.outputs.matrix) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: Fuzz for one hour
+        run: go test -run '^$' -fuzz "^${{ matrix.target }}\$" -fuzztime 1h "${{ matrix.pkg }}"
+      - name: Keep the failing input
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-${{ matrix.target }}
+          path: '**/testdata/fuzz/**'

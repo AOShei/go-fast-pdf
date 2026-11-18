@@ -1,0 +1,28 @@
+group                     files   read  mean F1    order   not read
+all                        1650  82.9%   0.6691   0.5721   error 141, invalid 34, crash 78, timeout 29
+flag=damaged                219  59.4%   0.3453   0.2929   error 63, invalid 2, crash 21, timeout 3
+flag=encrypted               26  57.7%   0.4879   0.4325   crash 7, timeout 4
+flag=linearized             285  80.4%   0.5782   0.4718   invalid 5, crash 42, timeout 9
+flag=none                  1065  88.6%   0.7070   0.6083   error 72, invalid 27, crash 15, timeout 7
+flag=tagged                 156  75.6%   0.7005   0.6097   error 7, crash 13, timeout 18
+producer=browser             26  84.6%   0.6419   0.6187   error 4
+producer=dtp                 57  84.2%   0.4699   0.3554   error 1, invalid 1, crash 6, timeout 1
+producer=library             44  90.9%   0.8352   0.7081   error 2, invalid 1, crash 1
+producer=office             117  82.1%   0.6789   0.5905   error 6, crash 14, timeout 1
+producer=other              108  76.9%   0.6846   0.5677   error 6, invalid 2, crash 10, timeout 7
+producer=print-driver       248  71.0%   0.6230   0.5375   error 36, invalid 6, crash 18, timeout 12
+producer=scanner             13  76.9%   0.4692   0.4427   error 1, crash 2
+producer=tex                101  70.3%   0.5632   0.5222   error 10, invalid 17, crash 3
+producer=unknown            936  87.8%   0.7268   0.6122   error 75, invalid 7, crash 24, timeout 8
+script=cjk                   14 100.0%   0.5205   0.4492   
+script=cyrillic               6  83.3%   0.1336   0.0890   crash 1  (under-represented)
+script=latin                591  79.7%   0.6846   0.5863   error 24, invalid 25, crash 51, timeout 20
+script=none                 968  87.9%        -        -   error 85, invalid 8, crash 16, timeout 8
+script=other                  5  80.0%   0.7059   0.4980   error 1  (under-represented)
+script=rtl                    5  80.0%   0.0000   0.0000   invalid 1  (under-represented)
+script=unknown               61  31.1%        -        -   error 31, crash 10, timeout 1
+set=held                    561  82.2%   0.6460   0.5625   error 46, invalid 12, crash 32, timeout 10
+set=tune                   1089  83.3%   0.6797   0.5765   error 95, invalid 22, crash 46, timeout 19
+source=govdocs1-000         200  67.5%   0.6003   0.4879   invalid 7, crash 42, timeout 16
+source=pdfium               348  83.0%   0.6247   0.4824   error 48, crash 11
+source=pdfjs               1102  85.7%   0.7097   0.6298   error 93, invalid 27, crash 25, timeout 13

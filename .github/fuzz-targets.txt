@@ -1,0 +1,12 @@
+# Fuzz targets that CI runs, one per line: <package> <target>.
+#
+# Empty in Phase 0. v0.1.1 has known crashes and hangs on malformed input
+# (defects C1 to C4 in IMPLEMENTATION_PLAN.md), which a fuzzer finds within
+# seconds, so fuzzing it would only turn every run red. A target is added
+# here in the change that makes it survive, starting in Phase 1:
+#
+# ./pkg/pdf FuzzLexer
+# ./pkg/pdf FuzzContent
+# ./pkg/pdf FuzzCMap
+# ./pkg/pdf FuzzXRef
+# . FuzzOpen

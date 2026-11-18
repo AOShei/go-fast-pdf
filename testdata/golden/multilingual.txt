@@ -1,0 +1,7 @@
+Text in five languages
+English: The quick brown fox jumps over the lazy dog while the five boxing wizards jump quickly.
+Français : Voix ambiguë d’un cœur qui, au zéphyr, préfère les jattes de kiwis. L’élève a reçu un cadeau à Noël.
+Deutsch: Zwölf Boxkämpfer jagen Viktor quer über den großen Sylter Deich. Die Größe der Straße überrascht.
+Русский: Съешь же ещё этих мягких французских булок да выпей чаю. Широкая электрификация южных 
+губерний даст мощный толчок подъёму сельского хозяйства.
+Ελληνικά: Ξεσκεπάζω την ψυχοφθόρα βδελυγμία. Η γρήγορη καφετιά αλεπού πηδάει πάνω από το τεμπέλικο σκυλί.

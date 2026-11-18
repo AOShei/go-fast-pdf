@@ -6,8 +6,10 @@ import (
 	"github.com/AOShei/go-fast-pdf/internal/pdftest"
 )
 
-// FuzzOpen feeds whole files to the library. In Phase 0 it is a stub: see
-// pkg/pdf/fuzz_test.go.
+// FuzzOpen feeds whole files to the library through its public entry
+// point. The engine's own targets (FuzzParser, FuzzScanner, FuzzCMap,
+// FuzzOpen and FuzzExtract under internal/) reach more inputs per second;
+// this one checks that nothing is lost between them and the caller.
 func FuzzOpen(f *testing.F) {
 	f.Add(pdftest.OnePage(pdftest.TextPage("Hello, world")))
 	f.Add(pdftest.Doc(pdftest.DocOptions{Compress: true, Configure: func(b *pdftest.Builder) { b.ObjStm = true }},

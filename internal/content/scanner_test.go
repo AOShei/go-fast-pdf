@@ -138,6 +138,9 @@ func TestOperandFlood(t *testing.T) {
 // Scanning allocates nothing once the operand stack has grown, and path
 // operands in particular are never converted (defect P2).
 func TestScanAllocatesNothing(t *testing.T) {
+	if pdftest.RaceEnabled {
+		t.Skip("allocation counts are not meaningful under the race detector")
+	}
 	var sb strings.Builder
 	for i := range 2000 {
 		fmt.Fprintf(&sb, "%d.5 %d m %d %d.25 l 1 2 3 4 5 6 c h S 0.5 w 1 0 0 rg 10 20 30 40 re f\n", i, i, i, i)

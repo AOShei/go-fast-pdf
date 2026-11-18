@@ -1,8 +1,6 @@
 package pdftest
 
 import (
-	"bytes"
-	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -21,19 +19,14 @@ func HavePdftotext() bool {
 // Pdftotext returns the text of each page of the file as poppler extracts
 // it. Options are passed before the file name, e.g. "-upw", "secret".
 func Pdftotext(path string, options ...string) ([]string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
 	args := append([]string{"-enc", "UTF-8"}, options...)
 	args = append(args, path, "-")
-	cmd := exec.CommandContext(ctx, "pdftotext", args...)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
+	out, _, err := Run(2*time.Minute, "pdftotext", args...)
 	if err != nil {
-		return nil, fmt.Errorf("pdftotext %s: %v: %s", filepath.Base(path), err, strings.TrimSpace(stderr.String()))
+		return nil, fmt.Errorf("%s: %w", filepath.Base(path), err)
 	}
 	// pdftotext ends every page, including the last, with a form feed.
-	pages := strings.Split(string(out), "\f")
+	pages := strings.Split(out, "\f")
 	if n := len(pages); n > 0 && strings.TrimSpace(pages[n-1]) == "" {
 		pages = pages[:n-1]
 	}
@@ -71,12 +64,9 @@ func QpdfCheck(path string) (err error, available bool) {
 	if _, lookErr := exec.LookPath("qpdf"); lookErr != nil {
 		return nil, false
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
-	out, runErr := exec.CommandContext(ctx, "qpdf", "--check", path).CombinedOutput()
 	// Exit status 3 means warnings only, which still counts as damaged
 	// for a file the builder meant to be well formed.
-	if runErr != nil {
+	if out, _, runErr := Run(time.Minute, "qpdf", "--check", path); runErr != nil {
 		return fmt.Errorf("qpdf --check: %v\n%s", runErr, out), true
 	}
 	return nil, true

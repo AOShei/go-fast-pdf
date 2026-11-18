@@ -265,7 +265,11 @@ func (f *File) rebuild() error {
 	// trailer and the encryption dictionary; then, with decryption in
 	// place, the objects inside object streams.
 	f.xref = nil
+	f.rebuilt = true
 	for _, o := range objects {
+		if o.num > 0 && o.num < int64(len(f.xref)) && f.xref[o.num].kind != entryMissing {
+			f.redefined++ // the later definition is the one read
+		}
 		f.putEntry(o.num, entry{kind: entryOffset, off: o.off, gen: o.gen})
 	}
 	f.objs = make([]atomic.Pointer[syntax.Value], len(f.xref))
@@ -303,6 +307,13 @@ func (f *File) rebuild() error {
 	}
 	return malformed("the file has no document catalog")
 }
+
+// Rebuilt reports whether the file's cross-reference data was unusable
+// and its objects were found by scanning, and how many of the objects
+// found that way were defined more than once. Of several definitions
+// the last in the file is read, as it is the newest when a file was
+// saved in steps.
+func (f *File) Rebuilt() (rebuilt bool, redefined int) { return f.rebuilt, f.redefined }
 
 // putEntry sets the entry of object num, replacing any earlier one.
 func (f *File) putEntry(num int64, e entry) {

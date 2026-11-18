@@ -69,7 +69,24 @@ func (f *File) Decode(stm syntax.Value, dst []byte, limit int64) ([]byte, error)
 	return f.decode(stm, dst, limit, true, 0)
 }
 
+// DecodeImage is Decode for the data of an image. An image can end its
+// chain of filters with a codec of its own: JPEG (DCTDecode), JPEG 2000
+// (JPXDecode), CCITT fax or JBIG2. Those are not decoded here: the data
+// is returned as that codec has it, with the filter's name in codec.
+// codec is empty when the data is the image's samples.
+func (f *File) DecodeImage(stm syntax.Value, dst []byte, limit int64) (data []byte, codec string, err error) {
+	if limit <= 0 {
+		limit = f.limits.MaxStreamBytes
+	}
+	data, err = f.decodeTo(stm, dst, limit, true, 0, &codec)
+	return data, codec, err
+}
+
 func (f *File) decode(stm syntax.Value, dst []byte, limit int64, decrypt bool, depth int) ([]byte, error) {
+	return f.decodeTo(stm, dst, limit, decrypt, depth, nil)
+}
+
+func (f *File) decodeTo(stm syntax.Value, dst []byte, limit int64, decrypt bool, depth int, codec *string) ([]byte, error) {
 	raw, err := f.rawStream(stm, depth)
 	if err != nil {
 		return dst, err
@@ -156,6 +173,16 @@ func (f *File) decode(stm syntax.Value, dst []byte, limit int64, decrypt bool, d
 				return dst, fmt.Errorf("%w: crypt filter /%s in a file that is not encrypted", gofastcore.ErrUnsupported, n.NameString())
 			}
 			out = append(out, data...)
+		case "DCTDecode", "DCT", "JPXDecode", "CCITTFaxDecode", "CCF", "JBIG2Decode":
+			if codec == nil || !last {
+				return dst, fmt.Errorf("%w: stream filter /%s", gofastcore.ErrUnsupported, name.NameString())
+			}
+			// What the filters before it produced is the codec's input.
+			*codec = name.NameString()
+			if int64(len(data)) > limit {
+				return append(dst, data[:limit]...), ErrTruncated
+			}
+			return append(dst, data...), damage
 		default:
 			return dst, fmt.Errorf("%w: stream filter /%s", gofastcore.ErrUnsupported, name.NameString())
 		}

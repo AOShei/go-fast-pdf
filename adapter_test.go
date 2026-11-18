@@ -1,37 +1,44 @@
 package gofastpdf_test
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"reflect"
 	"strings"
 	"unicode/utf8"
 
+	gofastcore "github.com/AOShei/go-fast-core"
+	gofastpdf "github.com/AOShei/go-fast-pdf"
 	"github.com/AOShei/go-fast-pdf/internal/pdftest"
-	"github.com/AOShei/go-fast-pdf/pkg/loader"
-	"github.com/AOShei/go-fast-pdf/pkg/model"
 )
 
-// This file is the only place where the conformance tests touch the
-// library's API. When the API changes (Phase 5: pkg/loader is replaced by
-// gofastpdf.Extract and the shared document model), this file changes and
-// the tests do not.
+// This file is where the conformance tests touch the library's API: the
+// defect tests, the corpus and the fuzz targets all extract through it,
+// and every document that passes through is checked against the shared
+// model's contract.
 
 // extraction is what the tests look at.
 type extraction struct {
 	Pages         []pageOut
 	Title, Author string
 	Encrypted     bool
+	// Doc is the document as the library returned it.
+	Doc *gofastcore.Document
 }
 
 type pageOut struct {
-	Number        int
+	Number int
+	// Text is the page as plain text, as part.Text() gives it.
 	Text          string
 	Width, Height float64
 	// Failed marks a page that is present in the document but could not
-	// be read. The pkg/loader API cannot express this; it drops the page.
+	// be read.
 	Failed bool
-	// Chars is the library's own character count for the page.
+	// Chars is the number of characters of Text.
 	Chars  int
 	Images int
 }
@@ -40,58 +47,193 @@ type extractOpts struct {
 	Password string
 	Images   bool
 	Workers  int // 0 or 1: sequential
+	// Unchecked skips the contract checks, for benchmarks.
+	Unchecked bool
 }
 
-// errNoPassword is returned when a test asks for a capability the current
-// API does not have.
-var errNoPassword = errors.New("the API has no password parameter")
+func (o extractOpts) options() *gofastcore.Options {
+	opts := &gofastcore.Options{Password: o.Password, Workers: max(o.Workers, 1)}
+	if o.Images {
+		opts.Images = gofastcore.ImagesMeta
+	}
+	return opts
+}
 
 func extractFile(path string, o extractOpts) (*extraction, error) {
-	if o.Password != "" {
-		return nil, errNoPassword
-	}
-	var doc *model.Document
-	var err error
-	if o.Workers > 1 {
-		doc, err = loader.LoadPDFConcurrent(path, o.Workers, o.Images)
-	} else {
-		doc, err = loader.LoadPDF(path, o.Images)
-	}
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	out := &extraction{Title: doc.Metadata.Title, Author: doc.Metadata.Author, Encrypted: doc.Metadata.Encrypted}
-	for _, p := range doc.Pages {
-		po := pageOut{Number: p.PageNumber, Text: p.Content, Width: p.Width, Height: p.Height, Chars: p.CharCount}
-		if p.Images != nil {
-			po.Images = len(*p.Images)
+	return extractBytes(data, o)
+}
+
+func extractBytes(data []byte, o extractOpts) (*extraction, error) {
+	doc, err := gofastpdf.Extract(context.Background(), bytes.NewReader(data), int64(len(data)), o.options())
+	if err != nil {
+		return nil, err
+	}
+	out := &extraction{Title: doc.Metadata.Title, Encrypted: doc.Metadata.Encrypted, Doc: doc}
+	if len(doc.Metadata.Authors) > 0 {
+		out.Author = doc.Metadata.Authors[0]
+	}
+	for i := range doc.Parts {
+		p := &doc.Parts[i]
+		po := pageOut{Number: p.Number, Width: p.Width, Height: p.Height, Failed: p.Has(gofastcore.WarnPartFailed)}
+		for j := range p.Blocks {
+			if p.Blocks[j].Kind == gofastcore.KindImage {
+				po.Images++
+			}
 		}
-		if !utf8.ValidString(p.Content) {
-			return out, fmt.Errorf("page %d: text is not valid UTF-8", p.PageNumber)
+		po.Text = p.Text()
+		po.Chars = utf8.RuneCountInString(po.Text)
+		if !utf8.ValidString(po.Text) {
+			return out, fmt.Errorf("%w: page %d: text is not valid UTF-8", errContract, p.Number)
 		}
 		out.Pages = append(out.Pages, po)
+	}
+	if !o.Unchecked {
+		if err := checkContract(doc, o.options()); err != nil {
+			return out, fmt.Errorf("%w: %w", errContract, err)
+		}
 	}
 	return out, nil
 }
 
-// tempPattern names the temporary files of these tests. TestMain sweeps
-// stale ones by this pattern, so it must not match anything else.
-const tempPattern = "gofastpdf-*.pdf"
+// errContract marks a result that the library must never return: a
+// document that breaks the contract of the shared model. An input that
+// cannot be read is an error of another kind and is no defect.
+var errContract = errors.New("the document breaks the contract of the shared model")
 
-func extractBytes(data []byte, o extractOpts) (*extraction, error) {
-	f, err := os.CreateTemp("", tempPattern)
+// defaultChecked is what Document.HiddenChecked is for every run until
+// the deep checks exist.
+const defaultChecked = gofastcore.HiddenInvisible | gofastcore.HiddenTextLayer | gofastcore.HiddenTiny |
+	gofastcore.HiddenOffPage | gofastcore.HiddenTransparent | gofastcore.HiddenChars
+
+// checkContract checks what must hold for every document this library
+// returns, whatever the input (section 4.2 of the plan).
+func checkContract(doc *gofastcore.Document, opts *gofastcore.Options) error {
+	if err := doc.Validate(); err != nil {
+		return err
+	}
+	// The JSON form decodes back to an equal document and has no null
+	// where a list is expected.
+	enc, err := json.Marshal(doc)
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("JSON: %w", err)
 	}
-	defer os.Remove(f.Name())
-	if _, err := f.Write(data); err != nil {
-		f.Close()
-		return nil, err
+	if bytes.Contains(enc, []byte(`"parts":null`)) || bytes.Contains(enc, []byte(`"blocks":null`)) {
+		return fmt.Errorf("JSON has a null list")
 	}
-	if err := f.Close(); err != nil {
-		return nil, err
+	var back gofastcore.Document
+	if err := json.Unmarshal(enc, &back); err != nil {
+		return fmt.Errorf("JSON does not decode: %w", err)
 	}
-	return extractFile(f.Name(), o)
+	if again, err := json.Marshal(&back); err != nil || !bytes.Equal(enc, again) {
+		return fmt.Errorf("the document changes when it is written as JSON and read back (%v)", err)
+	}
+	if doc.Source.Format != gofastpdf.Format {
+		return fmt.Errorf("source format %q", doc.Source.Format)
+	}
+	// The rendered text holds the words of the blocks, all of them and
+	// in their order, and the Markdown is there when the text is.
+	var words []string
+	for _, b := range doc.AllBlocks() {
+		words = append(words, strings.Fields(b.Text)...)
+	}
+	text := doc.Text()
+	if got := strings.Fields(text); !reflect.DeepEqual(got, words) && len(got)+len(words) > 0 {
+		return fmt.Errorf("the rendered text has %d words and the blocks have %d, or they differ", len(got), len(words))
+	}
+	// Markdown shows an image where the plain text has nothing.
+	if opts.Images == gofastcore.ImagesNone && (strings.TrimSpace(doc.Markdown()) == "") != (strings.TrimSpace(text) == "") {
+		return fmt.Errorf("the Markdown is empty and the text is not, or the other way round")
+	}
+	if doc.HiddenChecked != defaultChecked {
+		return fmt.Errorf("hidden_checked is %s", doc.HiddenChecked)
+	}
+	deep := false
+	for _, w := range doc.Warnings {
+		deep = deep || w.Code == gofastpdf.WarnDeepHiddenUnavailable
+	}
+	if deep != opts.DeepHidden {
+		return fmt.Errorf("%s present: %v, DeepHidden: %v", gofastpdf.WarnDeepHiddenUnavailable, deep, opts.DeepHidden)
+	}
+	for i := range doc.Parts {
+		p := &doc.Parts[i]
+		if p.Kind != gofastcore.PartPage {
+			return fmt.Errorf("part %d is a %s", p.Number, p.Kind)
+		}
+		text := false
+		for j := range p.Blocks {
+			b := &p.Blocks[j]
+			where := fmt.Sprintf("page %d, block %d", p.Number, j)
+			switch b.Kind {
+			case gofastcore.KindImage:
+				if opts.Images == gofastcore.ImagesNone {
+					return fmt.Errorf("%s: an image block without the option", where)
+				}
+				if b.Origin != gofastcore.OriginNative || b.Image.ID == "" {
+					return fmt.Errorf("%s: image block with origin %s and ID %q", where, b.Origin, b.Image.ID)
+				}
+				if opts.Images != gofastcore.ImagesData && b.Image.Data != nil {
+					return fmt.Errorf("%s: image data without the option", where)
+				}
+				continue
+			case gofastcore.KindParagraph:
+				text = true
+			default:
+				return fmt.Errorf("%s: a %s block", where, b.Kind)
+			}
+			if b.Origin != gofastcore.OriginInferred {
+				return fmt.Errorf("%s: a text block that is not marked as inferred", where)
+			}
+			if len(b.Spans) > 0 && b.Hidden&gofastcore.HiddenChars == 0 {
+				return fmt.Errorf("%s: spans on a block without invisible characters", where)
+			}
+			// A block is on its page unless it is flagged as off it.
+			r := b.Loc.BBox
+			const tol = 1.0
+			off := r.X1 < -tol || r.Y1 < -tol || r.X0 > p.Width+tol || r.Y0 > p.Height+tol
+			if off && p.Width > 0 && p.Height > 0 && b.Hidden&gofastcore.HiddenOffPage == 0 {
+				return fmt.Errorf("%s: box %+v lies off a page of %v by %v and is not flagged", where, r, p.Width, p.Height)
+			}
+			for _, v := range [...]float64{r.X0, r.Y0, r.X1, r.Y1} {
+				if v != v || v > 1e9 || v < -1e9 {
+					return fmt.Errorf("%s: box %+v", where, r)
+				}
+			}
+		}
+		// A page without text says which kind it is, and only then.
+		none, image := p.Has(gofastcore.WarnPartNoText), p.Has(gofastcore.WarnPartImageOnly)
+		failed := p.Has(gofastcore.WarnPartFailed)
+		switch {
+		case text && (none || image):
+			return fmt.Errorf("page %d has text and a warning that it has none", p.Number)
+		case !text && !failed && none == image:
+			return fmt.Errorf("page %d has no text; part.no_text: %v, part.image_only: %v", p.Number, none, image)
+		case failed && (none || image):
+			return fmt.Errorf("page %d failed and is also described as empty", p.Number)
+		}
+	}
+	return nil
+}
+
+// sameDocument reports how two documents differ, or "" if they do not.
+func sameDocument(a, b *gofastcore.Document) string {
+	if reflect.DeepEqual(a, b) {
+		return ""
+	}
+	ja, _ := json.Marshal(a)
+	jb, _ := json.Marshal(b)
+	if bytes.Equal(ja, jb) {
+		return ""
+	}
+	n := 0
+	for n < len(ja) && n < len(jb) && ja[n] == jb[n] {
+		n++
+	}
+	from := max(n-60, 0)
+	return fmt.Sprintf("they differ at byte %d of their JSON: ...%s | ...%s", n, ja[from:min(n+60, len(ja))], jb[from:min(n+60, len(jb))])
 }
 
 // pageTexts returns the text of each page.

@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"math"
@@ -210,13 +211,8 @@ func TestInvariants(t *testing.T) {
 			if err != nil {
 				t.Fatalf("extraction with 8 workers failed: %v", err)
 			}
-			if len(one.Pages) != len(many.Pages) {
-				t.Fatalf("1 worker gives %d pages, 8 workers give %d", len(one.Pages), len(many.Pages))
-			}
-			for i := range one.Pages {
-				if one.Pages[i] != many.Pages[i] {
-					t.Fatalf("page %d differs between 1 and 8 workers", i+1)
-				}
+			if diff := sameDocument(one.Doc, many.Doc); diff != "" {
+				t.Fatalf("1 worker and 8 workers: %s", diff)
 			}
 		})
 	}
@@ -246,7 +242,7 @@ func TestExtraCorpus(t *testing.T) {
 		err := pdftest.Isolated(t, path, 2*time.Minute, func() error {
 			// An error is an acceptable answer for a file that cannot be
 			// read; invalid UTF-8, a crash and a hang are not.
-			if _, err := extractFile(path, extractOpts{}); err != nil && strings.Contains(err.Error(), "UTF-8") {
+			if _, err := extractFile(path, extractOpts{}); errors.Is(err, errContract) {
 				return err
 			}
 			return nil

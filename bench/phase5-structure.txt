@@ -1,0 +1,25 @@
+Structure found on the generated fixtures of testdata/gen-layout.sh, against their source text
+(testdata/src/layout.txt: a title and six paragraphs). From TestParagraphFixtures and
+TestReadingOrderFixtures.
+
+Paragraphs: one text in three ways of setting paragraphs, from three programs
+layout-spaced-libreoffice        words F1 1.0000, order 1.0000, paragraph ends: 6 found, 0 extra, 0 missed, F1 1.000
+layout-spaced-firefox            words F1 1.0000, order 1.0000, paragraph ends: 6 found, 0 extra, 0 missed, F1 1.000
+layout-spaced-groff              words F1 1.0000, order 1.0000, paragraph ends: 6 found, 0 extra, 0 missed, F1 1.000
+layout-indented-libreoffice      words F1 1.0000, order 1.0000, paragraph ends: 6 found, 0 extra, 0 missed, F1 1.000
+layout-indented-firefox          words F1 1.0000, order 1.0000, paragraph ends: 6 found, 0 extra, 0 missed, F1 1.000
+layout-indented-groff            words F1 1.0000, order 1.0000, paragraph ends: 6 found, 0 extra, 0 missed, F1 1.000
+layout-justified-libreoffice     words F1 1.0000, order 1.0000, paragraph ends: 6 found, 0 extra, 0 missed, F1 1.000
+layout-justified-firefox         words F1 1.0000, order 1.0000, paragraph ends: 6 found, 0 extra, 0 missed, F1 1.000
+layout-justified-groff           words F1 1.0000, order 1.0000, paragraph ends: 6 found, 0 extra, 0 missed, F1 1.000
+all nine: 54 paragraph ends found, 0 extra, 0 missed, F1 1.000
+
+Reading order: the same text in columns. An extra paragraph end is a paragraph that runs
+from the foot of one column to the head of the next and is two blocks.
+layout-cols2-firefox         words F1 1.0000, order 1.0000, paragraph ends: 5 found, 1 extra, 0 missed
+layout-cols2-groff           words F1 1.0000, order 1.0000, paragraph ends: 5 found, 0 extra, 0 missed
+layout-cols3-firefox         words F1 1.0000, order 1.0000, paragraph ends: 5 found, 1 extra, 0 missed
+layout-cols3-groff           words F1 1.0000, order 1.0000, paragraph ends: 5 found, 0 extra, 0 missed
+layout-title2-firefox        words F1 1.0000, order 1.0000, paragraph ends: 6 found, 1 extra, 0 missed
+layout-title2-groff          words F1 1.0000, order 1.0000, paragraph ends: 6 found, 0 extra, 0 missed
+layout-sidebox-firefox       words F1 1.0000, order 1.0000, paragraph ends: 6 found, 0 extra, 0 missed

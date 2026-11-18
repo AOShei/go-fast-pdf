@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sort"
 	"sync"
 	"sync/atomic"
 
@@ -105,6 +106,10 @@ type File struct {
 	stms     objStmCache
 	pages    []Page
 	rec      recovery
+	// rebuilt and redefined describe a file read by scanning; see
+	// Rebuilt.
+	rebuilt   bool
+	redefined int
 
 	mu       sync.Mutex
 	warnings []gofastcore.Warning
@@ -200,26 +205,53 @@ func (f *File) finish() *File {
 	return f
 }
 
+// maxWarnings bounds the problems kept for one file. A damaged file can
+// have a problem in every object.
+const maxWarnings = 100
+
 // Warn records a problem that concerns the file as a whole.
+//
+// Problems are found as objects are read, and several goroutines read
+// objects in no fixed order. So that the result does not depend on that
+// order, the problems kept are not the first ones found but the first
+// ones in the order of their code and message.
 func (f *File) Warn(severity gofastcore.Severity, code, message string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	// A damaged file can repeat one problem thousands of times.
-	for _, w := range f.warnings {
-		if w.Code == code && w.Message == message {
+	w := gofastcore.Warning{Code: code, Severity: severity, Message: message}
+	last := -1
+	for i := range f.warnings {
+		// A damaged file can repeat one problem thousands of times.
+		if f.warnings[i].Code == code && f.warnings[i].Message == message {
 			return
 		}
+		if last < 0 || warningLess(f.warnings[last], f.warnings[i]) {
+			last = i
+		}
 	}
-	if len(f.warnings) < 100 {
-		f.warnings = append(f.warnings, gofastcore.Warning{Code: code, Severity: severity, Message: message})
+	switch {
+	case len(f.warnings) < maxWarnings:
+		f.warnings = append(f.warnings, w)
+	case warningLess(w, f.warnings[last]):
+		f.warnings[last] = w
 	}
 }
 
-// Warnings returns the problems recorded so far.
+func warningLess(a, b gofastcore.Warning) bool {
+	if a.Code != b.Code {
+		return a.Code < b.Code
+	}
+	return a.Message < b.Message
+}
+
+// Warnings returns the problems recorded so far, in the order of their
+// code and message.
 func (f *File) Warnings() []gofastcore.Warning {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return append([]gofastcore.Warning(nil), f.warnings...)
+	out := append([]gofastcore.Warning(nil), f.warnings...)
+	sort.Slice(out, func(i, j int) bool { return warningLess(out[i], out[j]) })
+	return out
 }
 
 // Limits returns the limits the file was opened with.
@@ -233,6 +265,14 @@ func (f *File) Trailer() syntax.Value { return f.trailer }
 
 // IsEncrypted reports whether the file has an encryption dictionary.
 func (f *File) IsEncrypted() bool { return f.trailer.Has("Encrypt") }
+
+// Catalog returns the document catalog, or null.
+func (f *File) Catalog() syntax.Value {
+	if c := f.Resolve(f.trailer.Get("Root")); c.IsDict() {
+		return c
+	}
+	return syntax.Value{}
+}
 
 // Info returns the document information dictionary, or null.
 func (f *File) Info() syntax.Value {

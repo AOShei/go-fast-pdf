@@ -55,6 +55,9 @@ type Font struct {
 	SpaceWidth float64
 	// Truncated is set when a table of the font was larger than is kept.
 	Truncated bool
+	// LongestText is the length in bytes of the longest text that one
+	// character code of the font stands for.
+	LongestText int
 
 	// A simple font: the text and the advance of each of its 256 codes.
 	// An empty text is a code with no mapping, unless the code is blank:
@@ -283,6 +286,13 @@ func parse(f *file.File, dict syntax.Value) *Font {
 
 	if f.Resolve(dict.Get("Subtype")).IsName("Type0") {
 		font.parseComposite(f, dict, toUni)
+		if font.toUni != nil {
+			for i := range font.toUni.entries {
+				if e := &font.toUni.entries[i]; e.kind != kindCID {
+					font.LongestText = max(font.LongestText, int(e.tlen))
+				}
+			}
+		}
 	} else {
 		font.parseSimple(f, dict, toUni)
 		font.index()
@@ -296,6 +306,7 @@ func (f *Font) index() {
 		// A ToUnicode map can state a ligature character.
 		t = charset.Letters(t)
 		f.text[code] = t
+		f.LongestText = max(f.LongestText, len(t))
 		f.one[code] = 0
 		if len(t) == 1 && t[0] < 0x80 && t[0] != 0 {
 			f.one[code] = t[0]

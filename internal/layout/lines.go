@@ -211,8 +211,8 @@ func (b *builder) rejoin(first int) {
 	for i := first; i < len(b.lines); i++ {
 		b.sorted = append(b.sorted, int32(i))
 	}
-	sort.SliceStable(b.sorted, func(i, j int) bool {
-		a, c := &b.lines[b.sorted[i]], &b.lines[b.sorted[j]]
+	sortStable(b.sorted, func(i, j int32) bool {
+		a, c := &b.lines[i], &b.lines[j]
 		if a.v != c.v {
 			return a.v < c.v
 		}
@@ -242,7 +242,7 @@ func (b *builder) rejoin(first int) {
 		}
 		if j-i > 1 {
 			row := b.sorted[i:j]
-			sort.SliceStable(row, func(x, y int) bool { return b.lines[row[x]].u0 < b.lines[row[y]].u0 })
+			sortStable(row, func(x, y int32) bool { return b.lines[x].u0 < b.lines[y].u0 })
 		}
 		rows = append(rows, [2]int{i, j})
 		i = j
@@ -343,7 +343,7 @@ func (b *builder) merge(a, c *line) {
 	b.lidx = append(b.lidx, b.lidx[c.lo:c.hi]...)
 	hi := int32(len(b.lidx))
 	list := b.lidx[lo:hi]
-	sort.SliceStable(list, func(i, j int) bool { return b.pieces[list[i]].u0 < b.pieces[list[j]].u0 })
+	sortStable(list, func(i, j int32) bool { return b.pieces[i].u0 < b.pieces[j].u0 })
 	for k := range list {
 		p := &b.pieces[list[k]]
 		p.sep, p.gap = 0, 0

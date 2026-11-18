@@ -1,7 +1,7 @@
 package layout
 
 import (
-	"sort"
+	"slices"
 	"strings"
 
 	gofastcore "github.com/AOShei/go-fast-core"
@@ -20,8 +20,18 @@ const (
 	columnGap = 1.0
 )
 
+// sortStable sorts s by less, keeping the order of what is equal. It
+// allocates nothing, which the sorts of package sort do.
 func sortStable(s []int32, less func(a, b int32) bool) {
-	sort.SliceStable(s, func(i, j int) bool { return less(s[i], s[j]) })
+	slices.SortStableFunc(s, func(a, b int32) int {
+		switch {
+		case less(a, b):
+			return -1
+		case less(b, a):
+			return 1
+		}
+		return 0
+	})
 }
 
 // cutBox is the box of a block for the purpose of finding white space

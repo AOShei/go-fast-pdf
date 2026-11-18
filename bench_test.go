@@ -1,15 +1,19 @@
 package gofastpdf_test
 
 import (
+	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"testing"
 
+	gofastpdf "github.com/AOShei/go-fast-pdf"
 	"github.com/AOShei/go-fast-pdf/internal/pdftest"
 )
 
 // Whole-document benchmarks through the public entry point. The numbers
-// for v0.1.1 are in bench/baseline.txt; regenerate with bench/run.sh.
+// for v0.1.1 are in bench/baseline.txt and those of each phase beside
+// it; regenerate with bench/run.sh.
 
 func benchExtract(b *testing.B, path string, o extractOpts) {
 	b.Helper()
@@ -28,14 +32,26 @@ func benchExtract(b *testing.B, path string, o extractOpts) {
 	b.SetBytes(info.Size())
 	b.ReportAllocs()
 	pages := 0
+	cpu := cpuTime()
 	for b.Loop() {
-		e, err := extractFile(path, o)
+		// As a caller does it: read the file, extract it. The checks of
+		// the test adapter are not part of the measurement.
+		data, err := os.ReadFile(path)
 		if err != nil {
 			b.Fatal(err)
 		}
-		pages = len(e.Pages)
+		doc, err := gofastpdf.Extract(context.Background(), bytes.NewReader(data), int64(len(data)), o.options())
+		if err != nil {
+			b.Fatal(err)
+		}
+		pages = len(doc.Parts)
 	}
 	b.ReportMetric(float64(b.Elapsed().Nanoseconds())/float64(b.N)/float64(max(pages, 1)), "ns/page")
+	// Processor time, which a busy machine does not inflate as it does
+	// the time on the clock.
+	if used := cpuTime() - cpu; used > 0 {
+		b.ReportMetric(float64(used.Nanoseconds())/float64(b.N), "cpu-ns/op")
+	}
 }
 
 // BenchmarkExtract reads synthetic documents of three sizes, sequentially

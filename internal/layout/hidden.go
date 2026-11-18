@@ -88,6 +88,9 @@ func (b *builder) prepare() {
 	// The images that can hide text, and the ones large enough for
 	// unpainted text over them to be the text layer of a scan.
 	for i := range c.Images {
+		if b.opts.NoHiddenChecks {
+			break
+		}
 		img := &c.Images[i]
 		q, bb := b.quadBox(img.Quad)
 		large := false
@@ -143,7 +146,9 @@ func (b *builder) prepare() {
 			deg := math.Atan2(p.dy, p.dx) * 180 / math.Pi
 			p.class = uint8(int(math.Round(deg/5)+72) % 72)
 		}
-		p.hidden = b.reasons(r, &p, pageBox)
+		if !b.opts.NoHiddenChecks {
+			p.hidden = b.reasons(r, &p, pageBox)
+		}
 		if p.hidden == 0 && r.Seq > 0 {
 			b.stats.Unjudged++
 		}
@@ -242,7 +247,15 @@ func (b *builder) reasons(r *extract.Run, p *piece, page box) gofastcore.Hidden 
 // faint reports whether a colour cannot be told from white. A colour
 // that could not be converted is not judged.
 func faint(c extract.Color) bool {
-	return c.Known && gofastcore.LowContrast(c.R, c.G, c.B, 255, 255, 255)
+	// Nearly all text is dark, and the exact test is not needed to say
+	// so. Green carries most of what the eye takes for brightness: no
+	// colour with green below 226 or red below 117 comes within the
+	// threshold of white, whatever its other parts are. The bounds here
+	// are a little lower than that; a test tries every colour.
+	if !c.Known || c.G < 220 || c.R < 110 {
+		return false
+	}
+	return gofastcore.LowContrast(c.R, c.G, c.B, 255, 255, 255)
 }
 
 // overprintSlack is how far from a run the same text may be printed
@@ -263,13 +276,7 @@ func (b *builder) markDuplicates() {
 	for i := range b.pieces {
 		b.sorted = append(b.sorted, int32(i))
 	}
-	sort.Slice(b.sorted, func(i, j int) bool {
-		pi, pj := &b.pieces[b.sorted[i]], &b.pieces[b.sorted[j]]
-		if pi.sx != pj.sx {
-			return pi.sx < pj.sx
-		}
-		return pi.run < pj.run
-	})
+	sortStable(b.sorted, func(i, j int32) bool { return b.pieces[i].sx < b.pieces[j].sx })
 	for i, ai := range b.sorted {
 		a := &b.pieces[ai]
 		slack := overprintSlack * a.em

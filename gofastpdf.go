@@ -34,7 +34,11 @@ const maxStreamBytes = 64 << 20
 // value is ready to use and safe for concurrent use.
 //
 // Settings that only PDF has become fields of this type.
-type Extractor struct{}
+type Extractor struct {
+	// noHiddenChecks leaves out the checks for hidden text. It exists
+	// to measure what they cost and is not reachable from outside.
+	noHiddenChecks bool
+}
 
 var _ gofastcore.Extractor = (*Extractor)(nil)
 
@@ -267,7 +271,8 @@ func (e *Extractor) page(f *file.File, p *file.Page, opts *gofastcore.Options) (
 	var lay layout.Result
 	images := 0
 	res := extract.Page(f, p, extract.Options{Use: func(c *extract.Content) {
-		lay = layout.Build(layout.Page{M: m, Width: w, Height: h}, c, layout.Options{Images: opts.Images != gofastcore.ImagesNone})
+		lay = layout.Build(layout.Page{M: m, Width: w, Height: h}, c,
+			layout.Options{Images: opts.Images != gofastcore.ImagesNone, NoHiddenChecks: e.noHiddenChecks})
 		images = len(c.Images)
 		for k, i := range lay.Images {
 			if i >= 0 {

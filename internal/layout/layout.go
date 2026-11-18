@@ -46,6 +46,9 @@ type Page struct {
 type Options struct {
 	// Images puts an image block where each image is.
 	Images bool
+	// NoHiddenChecks treats all text as visible. It is for measuring
+	// what the checks cost.
+	NoHiddenChecks bool
 }
 
 // Result is the page as blocks.

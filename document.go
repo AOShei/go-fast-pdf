@@ -261,6 +261,62 @@ func walkTree(f *file.File, root syntax.Value, leaf string, fn func(key, val syn
 	walk(root, 0)
 }
 
+// findName looks one key up in a name tree, which is in the order of
+// its keys: each node says which keys its branches hold, and the keys
+// of a leaf are sorted. It follows one path and searches one leaf, and
+// can miss a key in a tree that is not in order.
+func findName(f *file.File, root syntax.Value, name string) (syntax.Value, bool) {
+	node := f.Resolve(root)
+	for depth := 0; depth < 32 && node.IsDict(); depth++ {
+		if list := f.Resolve(node.Get("Names")).Elems(); len(list) > 1 {
+			// The leaf holds key and value by turns.
+			lo, hi := 0, len(list)/2
+			for lo < hi {
+				mid := (lo + hi) / 2
+				key := f.Resolve(list[2*mid])
+				switch {
+				case key.Kind != syntax.String:
+					return syntax.Value{}, false
+				case string(key.Data) == name:
+					return list[2*mid+1], true
+				case string(key.Data) < name:
+					lo = mid + 1
+				default:
+					hi = mid
+				}
+			}
+			return syntax.Value{}, false
+		}
+		kids := f.Resolve(node.Get("Kids")).Elems()
+		lo, hi := 0, len(kids)
+		var next syntax.Value
+		for lo < hi {
+			mid := (lo + hi) / 2
+			kid := f.Resolve(kids[mid])
+			limits := f.Resolve(kid.Get("Limits")).Elems()
+			if len(limits) != 2 {
+				return syntax.Value{}, false
+			}
+			first, last := f.Resolve(limits[0]), f.Resolve(limits[1])
+			switch {
+			case first.Kind != syntax.String || last.Kind != syntax.String:
+				return syntax.Value{}, false
+			case name < string(first.Data):
+				hi = mid
+			case name > string(last.Data):
+				lo = mid + 1
+			default:
+				next, lo = kid, hi
+			}
+		}
+		if next.IsNull() {
+			return syntax.Value{}, false
+		}
+		node = next
+	}
+	return syntax.Value{}, false
+}
+
 // pageLabels returns the function from a page's index, counted from 0,
 // to its label, or nil if the document has no page labels.
 func pageLabels(f *file.File, tree syntax.Value) func(index int) string {
@@ -366,24 +422,31 @@ func outline(f *file.File, catalog, outlines syntax.Value, pages []file.Page) []
 			}
 		}
 	}
-	// Named destinations are looked up in a table made on first use.
-	var named map[string]syntax.Value
+	// Named destinations are in a name tree, or, in the form of PDF
+	// 1.1, in a dictionary. A tree is in order, so a name is found
+	// along one path; a tree that is not in order is read whole, once,
+	// when a name is not found that way.
+	dests := f.Resolve(catalog.Get("Names")).Get("Dests")
+	var all map[string]syntax.Value
 	lookup := func(name string) syntax.Value {
-		if named == nil {
-			named = map[string]syntax.Value{}
-			walkTree(f, f.Resolve(catalog.Get("Names")).Get("Dests"), "Names", func(key, val syntax.Value) bool {
+		if all == nil {
+			if v, ok := findName(f, dests, name); ok {
+				return v
+			}
+			all = map[string]syntax.Value{}
+			walkTree(f, dests, "Names", func(key, val syntax.Value) bool {
 				if key.Kind == syntax.String {
-					if _, dup := named[string(key.Data)]; !dup {
-						named[string(key.Data)] = val
+					if _, dup := all[string(key.Data)]; !dup {
+						all[string(key.Data)] = val
 					}
 				}
 				return true
 			})
 		}
-		if v, ok := named[name]; ok {
+		if v, ok := all[name]; ok {
 			return v
 		}
-		return f.Resolve(catalog.Get("Dests")).Get(name) // the form of PDF 1.1
+		return f.Resolve(catalog.Get("Dests")).Get(name)
 	}
 	target := func(item syntax.Value) (part int, y float64) {
 		dest := f.Resolve(item.Get("Dest"))

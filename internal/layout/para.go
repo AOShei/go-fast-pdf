@@ -1,7 +1,6 @@
 package layout
 
 import (
-	"sort"
 	"unicode"
 	"unicode/utf8"
 
@@ -63,8 +62,8 @@ func (b *builder) paragraphs(first int, hidden gofastcore.Hidden) {
 	for i := range lines {
 		b.sorted = append(b.sorted, int32(i))
 	}
-	sort.SliceStable(b.sorted, func(i, j int) bool {
-		a, c := &lines[b.sorted[i]], &lines[b.sorted[j]]
+	sortStable(b.sorted, func(i, j int32) bool {
+		a, c := &lines[i], &lines[j]
 		if a.v != c.v {
 			return a.v < c.v
 		}

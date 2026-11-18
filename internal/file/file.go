@@ -234,6 +234,14 @@ func (f *File) Trailer() syntax.Value { return f.trailer }
 // IsEncrypted reports whether the file has an encryption dictionary.
 func (f *File) IsEncrypted() bool { return f.trailer.Has("Encrypt") }
 
+// Catalog returns the document catalog, or null.
+func (f *File) Catalog() syntax.Value {
+	if c := f.Resolve(f.trailer.Get("Root")); c.IsDict() {
+		return c
+	}
+	return syntax.Value{}
+}
+
 // Info returns the document information dictionary, or null.
 func (f *File) Info() syntax.Value {
 	if info := f.Resolve(f.trailer.Get("Info")); info.IsDict() {

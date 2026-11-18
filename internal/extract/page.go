@@ -30,21 +30,53 @@ type Image struct {
 	Inline bool
 	// Name is the resource name of an image XObject, with its slash.
 	Name string
+	// Obj is the object number of an image XObject, 0 for an inline
+	// image or a direct object.
+	Obj int64
 	// Rect is [x, y, width, height] in the page's coordinate space.
 	Rect [4]float64
+	// Quad is the image's four corners on the page.
+	Quad Quad
 	// Width and Height are the image's size in pixels.
 	Width, Height float64
 	// ColorSpace is the name of the color space, with its slash, when it
 	// is a name.
 	ColorSpace string
+	// Seq is the number of things other than text painted on the page
+	// before the image, and After the number of runs drawn before it.
+	Seq, After int32
+	// Opaque is false for an image that lets what is under it show: one
+	// with a mask or a soft mask, a stencil, or one painted with an
+	// opacity below 1.
+	Opaque bool
+}
+
+// Content is what a page's content streams draw, as the interpreter
+// holds it. It is valid only inside Options.Use.
+type Content struct {
+	// Runs are the page's text runs in the order they are drawn, and
+	// Text holds their text: run r's is Text[r.Off : r.Off+r.Len].
+	Runs []Run
+	Text []byte
+	// Gaps are the spaces in Text that are not in the file, by position.
+	Gaps []Gap
+	// Forms are the boxes of the Form XObjects that text is drawn in;
+	// Run.Form is an index into it.
+	Forms []Quad
+	// Images are the images drawn, in order.
+	Images []Image
 }
 
 // Options says what to extract besides text.
 type Options struct {
-	// Images lists the images on the page.
+	// Images returns the images on the page in Result.Images.
 	Images bool
 	// Runs returns the page's runs in Result.Runs.
 	Runs bool
+	// Use, when set, is called with the page's content once it is read,
+	// before the buffers that hold it are reused. Result.Text is then
+	// not made.
+	Use func(*Content)
 	// MaxFormDepth bounds the nesting of Form XObjects; 0 means 16.
 	MaxFormDepth int
 	// MaxDecodedBytes bounds the content decoded for one page; 0 means
@@ -68,6 +100,18 @@ type Result struct {
 	Warnings []gofastcore.Warning
 	// Decoded is the number of bytes of content decoded for the page.
 	Decoded int64
+	// External is set when the page draws from outside the file: a
+	// content stream or an XObject whose data is in another file, or a
+	// reference XObject.
+	External bool
+	// Two facts that are counted for measurement and reported nowhere.
+	// ActualDiffers is the number of /ActualText sequences whose text is
+	// not the text of the glyphs they replace, letters and digits
+	// compared; ActualLonger is how many of them say at least 16 bytes
+	// more than their glyphs. LongGlyphText is the number of strings
+	// shown in a font in which one character code stands for more than
+	// 24 bytes of text.
+	ActualDiffers, ActualLonger, LongGlyphText int
 	// Err is set when the page could not be read at all.
 	Err error
 }
@@ -148,6 +192,8 @@ type interp struct {
 
 	text   []byte // the text of all runs
 	runs   []Run
+	gaps   []Gap
+	images []Image
 	forms  []Quad
 	form   int32 // the form being drawn, -1 on the page itself
 	seq    int32 // paint operations so far, text excluded
@@ -203,16 +249,32 @@ func Page(f *file.File, p *file.Page, opts Options) (res Result) {
 // finish turns what the interpreter collected into the result.
 func (in *interp) finish() {
 	res := in.res
-	out := assemble(in.str[:0], in.runs, in.text)
-	in.str = out
-	if !utf8.Valid(out) {
-		// Every text the fonts hand out is valid by construction; this
-		// is the final check that no caller ever receives a string that
-		// is not UTF-8.
-		out = bytes.ToValidUTF8(out, []byte("�"))
-		in.unmapped++
+	if in.opts.Use != nil {
+		if !utf8.Valid(in.text) {
+			// Every text the fonts hand out is valid by construction;
+			// this is the final check that no caller ever receives text
+			// that is not UTF-8. Nothing may move: runs and gaps point
+			// into the text by position.
+			for i, c := range in.text {
+				if c >= 0x80 {
+					in.text[i] = '?'
+				}
+			}
+			in.unmapped++
+		}
+		in.opts.Use(&Content{Runs: in.runs, Text: in.text, Gaps: in.gaps, Forms: in.forms, Images: in.images})
+	} else {
+		out := assemble(in.str[:0], in.runs, in.text)
+		in.str = out
+		if !utf8.Valid(out) {
+			out = bytes.ToValidUTF8(out, []byte("�"))
+			in.unmapped++
+		}
+		res.Text = string(out)
 	}
-	res.Text = string(out)
+	if in.opts.Images {
+		res.Images = append([]Image{}, in.images...)
+	}
 	if in.unmapped > 0 {
 		in.warn(gofastcore.SeverityWarning, gofastcore.WarnTextUnmappedGlyphs,
 			fmt.Sprintf("%d character codes on the page have no mapping to text and appear as U+FFFD", in.unmapped))
@@ -258,6 +320,12 @@ func (in *interp) trim() {
 	if cap(in.runs) > keep/64 {
 		in.runs = nil
 	}
+	if cap(in.gaps) > keep/8 {
+		in.gaps = nil
+	}
+	if cap(in.images) > 4096 {
+		in.images = nil
+	}
 	if cap(in.stack) > 256 {
 		in.stack = nil
 	}
@@ -279,12 +347,10 @@ func (in *interp) reset(f *file.File, p *file.Page, opts Options, res *Result) {
 	in.tm, in.tlm = identity, identity
 	in.mc, in.offDepth, in.actual, in.inActual = in.mc[:0], 0, in.actual[:0], 0
 	in.text, in.runs, in.forms = in.text[:0], in.runs[:0], in.forms[:0]
+	in.gaps, in.images = in.gaps[:0], in.images[:0]
 	in.form, in.seq, in.prev, in.full = -1, 0, lineEnd{}, false
 	in.unmapped, in.assumed, in.fontMissing = 0, 0, false
 	in.formActive, in.formCalls = in.formActive[:0], 0
-	if opts.Images {
-		res.Images = []Image{}
-	}
 }
 
 func (in *interp) resourcesAt(level int) *resources {
@@ -316,6 +382,10 @@ func (in *interp) warn(severity gofastcore.Severity, code, message string) {
 func (in *interp) decodeContent(bufs *[][]byte, i int, stm syntax.Value) []byte {
 	if stm.Kind != syntax.Stream {
 		return nil
+	}
+	if stm.Has("F") {
+		// The data is in another file. It is not fetched.
+		in.res.External = true
 	}
 	for len(*bufs) <= i {
 		*bufs = append(*bufs, nil)
@@ -562,10 +632,8 @@ func (in *interp) operator(scan *content.Scanner, op []byte, args []content.Oper
 	case "S", "s", "f", "F", "f*", "B", "B*", "b", "b*", "sh":
 		in.seq++
 	case "BI":
+		in.inlineImage(args)
 		in.seq++
-		if in.opts.Images {
-			in.inlineImage(args)
-		}
 	case "Do":
 		if a := last(args, 1); a != nil && a[0].Kind == content.Name {
 			in.drawXObject(a[0].Raw)
@@ -709,8 +777,40 @@ func (in *interp) popMarked() {
 	}
 	if m.actual {
 		in.inActual--
+		if in.inActual == 0 && m.emitted {
+			in.compareActual(in.actual[m.lo:m.hi])
+		}
 		in.actual = in.actual[:m.lo]
 	}
+}
+
+// compareActual counts a replacement text that says something other
+// than the glyphs it replaces, which are in in.silent.
+func (in *interp) compareActual(actual []byte) {
+	a, g := letters(actual), letters(in.silent)
+	if !bytes.Equal(a, g) {
+		in.res.ActualDiffers++
+		if len(actual) >= len(in.silent)+16 {
+			in.res.ActualLonger++
+		}
+	}
+}
+
+// letters returns b without what an ordinary replacement changes: white
+// space, hyphens and soft hyphens. It works in place on a copy when it
+// has to change anything.
+func letters(b []byte) []byte {
+	out := b[:0:0]
+	for i := 0; i < len(b); i++ {
+		switch c := b[i]; {
+		case c == ' ' || c == '-' || c == '\n' || c == '\t':
+		case c == 0xC2 && i+1 < len(b) && (b[i+1] == 0xAD || b[i+1] == 0xA0):
+			i++
+		default:
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // --- images and forms ---
@@ -720,18 +820,29 @@ func (in *interp) imageRect() [4]float64 {
 	return [4]float64{c[4], c[5], hypot(c[0], c[1]), hypot(c[2], c[3])}
 }
 
+// maxImagesPerPage bounds the images listed for one page. A page that
+// draws one image a million times is not asking for a million entries.
+const maxImagesPerPage = 100000
+
+// addImage records an image drawn now: where it is, and when in the
+// order of painting. It is called before the image is counted as
+// painted.
 func (in *interp) addImage(img Image) {
-	// A page that draws one image a million times is not asking for a
-	// million entries.
-	if len(in.res.Images) >= 100000 {
+	if len(in.images) >= maxImagesPerPage {
 		in.warn(gofastcore.SeverityError, gofastcore.WarnLimitExceeded, "more than 100000 images on the page; the rest are not listed")
 		return
 	}
-	in.res.Images = append(in.res.Images, img)
+	img.Rect = in.imageRect()
+	// An image fills the unit square of the coordinate system it is
+	// drawn in.
+	img.Quad = in.gs.ctm.quad([4]float64{0, 0, 1, 1})
+	img.Seq, img.After = in.seq, int32(len(in.runs))
+	img.Opaque = img.Opaque && in.gs.fillAlpha >= 1 && in.offDepth == 0
+	in.images = append(in.images, img)
 }
 
 func (in *interp) inlineImage(args []content.Operand) {
-	img := Image{Inline: true, Rect: in.imageRect()}
+	img := Image{Inline: true, Opaque: true}
 	for i := 0; i+1 < len(args); i += 2 {
 		key, val := args[i], args[i+1]
 		if key.Kind != content.Name {
@@ -745,6 +856,10 @@ func (in *interp) inlineImage(args []content.Operand) {
 		case "CS", "ColorSpace":
 			if val.Kind == content.Name {
 				img.ColorSpace = "/" + string(val.Raw)
+			}
+		case "IM", "ImageMask":
+			if val.Kind == content.Other && string(val.Raw) == "true" {
+				img.Opaque = false
 			}
 		}
 	}
@@ -762,18 +877,23 @@ func (in *interp) drawXObject(rawName []byte) {
 	}
 	switch subtype := in.f.Resolve(xobj.Get("Subtype")); {
 	case subtype.IsName("Image"):
-		in.seq++
-		if !in.opts.Images {
-			return
-		}
-		img := Image{Name: "/" + string(name), Rect: in.imageRect()}
+		img := Image{Name: "/" + string(name), Obj: int64(xobj.Obj)}
 		img.Width = in.f.Resolve(xobj.Get("Width")).Number()
 		img.Height = in.f.Resolve(xobj.Get("Height")).Number()
 		if cs := in.f.Resolve(xobj.Get("ColorSpace")); cs.Kind == syntax.Name {
 			img.ColorSpace = "/" + cs.NameString()
 		}
+		stencil := in.f.Resolve(xobj.Get("ImageMask"))
+		img.Opaque = !(stencil.Kind == syntax.Bool && stencil.N != 0) && !xobj.Has("SMask") && !xobj.Has("Mask")
+		if xobj.Has("F") {
+			in.res.External = true
+		}
 		in.addImage(img)
+		in.seq++
 	case subtype.IsName("Form"):
+		if xobj.Has("Ref") || xobj.Has("F") {
+			in.res.External = true
+		}
 		in.drawForm(xobj)
 	}
 }

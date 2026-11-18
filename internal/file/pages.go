@@ -3,6 +3,7 @@ package file
 import (
 	"errors"
 	"fmt"
+	"math"
 
 	gofastcore "github.com/AOShei/go-fast-core"
 	"github.com/AOShei/go-fast-pdf/internal/syntax"
@@ -22,8 +23,11 @@ type Page struct {
 	// is false when no box is given anywhere up the tree.
 	MediaBox, CropBox [4]float64
 	HasMediaBox       bool
-	// Rotate is the page rotation in degrees.
+	// Rotate is the page rotation in degrees: 0, 90, 180 or 270.
 	Rotate int
+	// UserUnit is the size of one unit of the page's coordinates in
+	// points; 1 unless the page says otherwise.
+	UserUnit float64
 	// Err is set when the entry in the page tree is not a readable page.
 	// The page still counts, so that page numbers stay true.
 	Err error
@@ -112,12 +116,61 @@ func (f *File) flattenPages(root syntax.Value) []Page {
 		if box, ok := f.rect(inh.cropBox); ok {
 			p.CropBox = box
 		}
-		if r, ok := f.Resolve(inh.rotate).Integer(); ok {
-			p.Rotate = int(((r % 360) + 360) % 360)
+		if r, ok := f.Resolve(inh.rotate).Float(); ok && r > -1e9 && r < 1e9 {
+			// A multiple of 90; anything else is taken to the nearest.
+			q := int64(math.Round(r / 90))
+			p.Rotate = int(((q%4)+4)%4) * 90
+		}
+		p.UserUnit = 1
+		if u, ok := f.Resolve(node.Get("UserUnit")).Float(); ok && u >= 0.01 && u <= 1e4 {
+			p.UserUnit = u
 		}
 		pages = append(pages, p)
 	}
 	return pages
+}
+
+// defaultBox is the page size used when a page has no /MediaBox: US
+// Letter, as other readers assume.
+var defaultBox = [4]float64{0, 0, 612, 792}
+
+// VisibleBox returns the part of the page that is displayed: the
+// /CropBox where it lies inside the /MediaBox.
+func (p *Page) VisibleBox() [4]float64 {
+	media := p.MediaBox
+	if !p.HasMediaBox || media[2] <= media[0] || media[3] <= media[1] {
+		media = defaultBox
+		if !p.HasMediaBox {
+			return media
+		}
+	}
+	box := [4]float64{max(p.CropBox[0], media[0]), max(p.CropBox[1], media[1]), min(p.CropBox[2], media[2]), min(p.CropBox[3], media[3])}
+	if box[2] <= box[0] || box[3] <= box[1] {
+		return media
+	}
+	return box
+}
+
+// Display returns the transformation [a b c d e f] from the page's
+// coordinates to the page as it is displayed, and the displayed size.
+// Displayed space is the visible box after /Rotate and /UserUnit, in
+// points, with its origin at the top left and y growing downwards.
+func (p *Page) Display() (m [6]float64, width, height float64) {
+	box := p.VisibleBox()
+	u := p.UserUnit
+	if u <= 0 {
+		u = 1
+	}
+	w, h := (box[2]-box[0])*u, (box[3]-box[1])*u
+	switch p.Rotate {
+	case 90:
+		return [6]float64{0, u, u, 0, -box[1] * u, -box[0] * u}, h, w
+	case 180:
+		return [6]float64{-u, 0, 0, u, box[2] * u, -box[1] * u}, w, h
+	case 270:
+		return [6]float64{0, -u, -u, 0, box[3] * u, box[2] * u}, h, w
+	}
+	return [6]float64{u, 0, 0, -u, -box[0] * u, box[3] * u}, w, h
 }
 
 // Rect reads a rectangle of four numbers, such as a /BBox, and puts its

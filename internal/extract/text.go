@@ -16,8 +16,12 @@ type Run struct {
 	Off, Len int32
 	// X0, Y0 is where the baseline starts and X1, Y1 where it ends.
 	X0, Y0, X1, Y1 float64
-	// Dx, Dy is the direction of writing, a unit vector.
-	Dx, Dy float64
+	// LX, LY is where the last string of the run starts. What separates
+	// the run from the next one depends on it (see Separator).
+	LX, LY float64
+	// Dx, Dy is the direction of writing, a unit vector. Nx, Ny is the
+	// unit vector across the line, towards the top of the glyphs.
+	Dx, Dy, Nx, Ny float64
 	// Size is the height the font is set at: the font size through the
 	// text matrix and the current transformation. SizeX is the same
 	// along the line, with horizontal scaling.
@@ -64,6 +68,54 @@ type Run struct {
 // the page before the run.
 func (r *Run) PaintedBefore() bool { return r.Seq > 0 }
 
+// Vertical reports whether the run is written from top to bottom.
+func (r *Run) Vertical() bool { return r.Font != nil && r.Font.Vertical }
+
+// Em is the font size along the line.
+func (r *Run) Em() float64 {
+	if r.Vertical() {
+		return r.Size
+	}
+	return r.SizeX
+}
+
+// Gap is a space that is not in the file: two strings of one run stand
+// apart by more than the threshold, and a space was put between their
+// texts.
+type Gap struct {
+	// Off is the position of the space in the page's text.
+	Off int32
+	// Width is how far apart the strings are, along the line.
+	Width float32
+}
+
+// Separator says what lies between two runs when next is drawn after
+// prev with nothing between them: 0 for nothing, ' ' or '\n'. gap is how
+// far along the line next starts after the end of prev; it means
+// something when the two are on one line.
+//
+// It is the decision the interpreter takes between two strings, made
+// again from what the runs record, for a reader that leaves runs out or
+// puts them in another order.
+func Separator(prev, next *Run) (sep byte, gap float64) {
+	p := lineEnd{
+		valid: true,
+		sx:    prev.LX, sy: prev.LY, ex: prev.X1, ey: prev.Y1,
+		dx: prev.Dx, dy: prev.Dy, nx: prev.Nx, ny: prev.Ny,
+		size: prev.Size, sizeX: prev.SizeX, space: prev.SpaceWidth,
+		vertical: prev.Vertical(),
+	}
+	sep = p.separator(next.X0, next.Y0, next.X1, next.Y1, next.Dx, next.Dy, next.Size)
+	return sep, (next.X0-prev.X1)*prev.Dx + (next.Y0-prev.Y1)*prev.Dy
+}
+
+// SpaceGap is the distance along the line from which two strings set at
+// the size and space width of r are apart by a space.
+func (r *Run) SpaceGap() float64 {
+	p := lineEnd{size: r.Size, sizeX: r.SizeX, space: r.SpaceWidth, vertical: r.Vertical()}
+	return p.gap()
+}
+
 // The thresholds that turn positions into spaces and line breaks. All
 // are fractions of the font size unless said otherwise.
 const (
@@ -102,6 +154,10 @@ const (
 	// are the same: about eight degrees.
 	sameDirection = 0.99
 )
+
+// longGlyphBytes is the length of text from which one character code
+// stands for a passage and not for a character or a ligature.
+const longGlyphBytes = 24
 
 // lineEnd is where the string shown last began and ended.
 type lineEnd struct {
@@ -256,17 +312,28 @@ func (in *interp) showCodes(f *font.Font, raw []byte) {
 	start := len(in.text)
 	var sh font.Shown
 	replaced, first := in.inActual > 0, false
+	if f.LongestText > longGlyphBytes {
+		in.res.LongGlyphText++
+	}
 	if replaced {
-		in.silent, sh = f.Append(in.silent[:0], raw)
 		for i := range in.mc {
 			if m := &in.mc[i]; m.actual {
 				// The outermost sequence replaces everything inside it.
 				if !m.emitted {
 					m.emitted, first = true, true
 					in.text = append(in.text, in.actual[m.lo:m.hi]...)
+					in.silent = in.silent[:0]
 				}
 				break
 			}
+		}
+		// The glyphs are kept only to be compared with the replacement.
+		if len(in.silent) < 1<<16 {
+			in.silent, sh = f.Append(in.silent, raw)
+		} else {
+			keep := len(in.silent)
+			in.silent, sh = f.Append(in.silent, raw)
+			in.silent = in.silent[:keep]
 		}
 	} else {
 		in.text, sh = f.Append(in.text, raw)
@@ -309,9 +376,13 @@ func (in *interp) showCodes(f *font.Font, raw []byte) {
 		in.unmapped -= sh.Unmapped
 		in.assumed -= sh.Assumed
 		p.sx, p.sy = x0, y0
+		if n := len(in.runs); n > 0 {
+			in.runs[n-1].LX, in.runs[n-1].LY = x0, y0
+		}
 		return
 	}
 	sep := p.separator(x0, y0, x1, y1, ge.dx, ge.dy, ge.size)
+	along := (x0-p.ex)*p.dx + (y0-p.ey)*p.dy
 	p.font, p.textLo, p.textHi = f, int32(start), int32(len(in.text))
 	p.sx, p.sy, p.ex, p.ey = x0, y0, x1, y1
 	if p.serial != ge.serial || !p.valid {
@@ -324,6 +395,7 @@ func (in *interp) showCodes(f *font.Font, raw []byte) {
 		// Part of a replaced sequence: it moved the position, no more.
 		if n := len(in.runs); n > 0 && in.runs[n-1].ActualText {
 			in.runs[n-1].X1, in.runs[n-1].Y1 = x1, y1
+			in.runs[n-1].LX, in.runs[n-1].LY = x0, y0
 			in.runs[n-1].Glyphs += int32(sh.Glyphs)
 		}
 		return
@@ -337,9 +409,11 @@ func (in *interp) showCodes(f *font.Font, raw []byte) {
 			in.text = append(in.text, 0)
 			copy(in.text[start+1:], in.text[start:])
 			in.text[start] = ' '
+			in.gaps = append(in.gaps, Gap{Off: int32(start), Width: float32(along)})
 		}
 		last.Len = int32(len(in.text)) - last.Off
 		last.X1, last.Y1 = x1, y1
+		last.LX, last.LY = x0, y0
 		last.Glyphs += int32(sh.Glyphs)
 		last.Unmapped += int32(sh.Unmapped)
 		last.Assumed += int32(sh.Assumed)
@@ -353,7 +427,7 @@ func (in *interp) showCodes(f *font.Font, raw []byte) {
 	}
 	in.runs = append(in.runs, Run{
 		Off: int32(start), Len: int32(len(in.text) - start),
-		X0: x0, Y0: y0, X1: x1, Y1: y1, Dx: ge.dx, Dy: ge.dy,
+		X0: x0, Y0: y0, X1: x1, Y1: y1, LX: x0, LY: y0, Dx: ge.dx, Dy: ge.dy, Nx: ge.nx, Ny: ge.ny,
 		Size: ge.size, SizeX: ge.sizeX, Rise: g.rise * ge.lenY, SpaceWidth: ge.space, Font: f,
 		Mode: g.mode, Fill: g.fill.color, Stroke: g.stroke.color, FillAlpha: g.fillAlpha, StrokeAlpha: g.strokeAlpha,
 		OptionalOff: in.offDepth > 0, Seq: in.seq, Form: in.form,

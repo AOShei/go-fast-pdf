@@ -69,9 +69,30 @@ e rc4-128-v4 "" 128 --use-aes=n --force-V4
 e aes-128 "" 128 --use-aes=y
 e aes-256 "" 256
 e aes-256-r5 "" 256 --force-R5
+# With a user password: the file does not open without it.
+e rc4-40-userpw user 40
 e rc4-128-userpw user 128 --use-aes=n
+e rc4-128-v4-userpw user 128 --use-aes=n --force-V4
 e aes-128-userpw user 128 --use-aes=y
 e aes-256-userpw user 256
+e aes-256-r5-userpw user 256 --force-R5
+# Metadata left in the clear, which changes how the key is derived.
+e aes-128-cleartext "" 128 --use-aes=y --cleartext-metadata
+e aes-256-cleartext "" 256 --cleartext-metadata
+# A password outside ASCII: Latin-1 bytes up to 128 bits, UTF-8 for 256.
+e aes-128-unicodepw "pässwörd" 128 --use-aes=y
+e aes-256-unicodepw "pässwörd" 256
+
+# The file key of every encrypted fixture as qpdf derives it, for the
+# key-derivation tests.
+: >"$out/KEYS.txt"
+for f in "$out"/enc-*.pdf; do
+	name=$(basename "$f" .pdf)
+	pw=""
+	case $name in *-unicodepw) pw="pässwörd" ;; *-userpw) pw="user" ;; esac
+	key=$(qpdf --show-encryption --show-encryption-key --password="$pw" "$f" | sed -n 's/^Encryption key = //p')
+	echo "$name $key" >>"$out/KEYS.txt"
+done
 
 (cd "$out" && sha256sum -- *.pdf >MANIFEST.sha256)
 ls -l "$out"

@@ -134,6 +134,20 @@ func checkContract(doc *gofastcore.Document, opts *gofastcore.Options) error {
 	if doc.Source.Format != gofastpdf.Format {
 		return fmt.Errorf("source format %q", doc.Source.Format)
 	}
+	// The rendered text holds the words of the blocks, all of them and
+	// in their order, and the Markdown is there when the text is.
+	var words []string
+	for _, b := range doc.AllBlocks() {
+		words = append(words, strings.Fields(b.Text)...)
+	}
+	text := doc.Text()
+	if got := strings.Fields(text); !reflect.DeepEqual(got, words) && len(got)+len(words) > 0 {
+		return fmt.Errorf("the rendered text has %d words and the blocks have %d, or they differ", len(got), len(words))
+	}
+	// Markdown shows an image where the plain text has nothing.
+	if opts.Images == gofastcore.ImagesNone && (strings.TrimSpace(doc.Markdown()) == "") != (strings.TrimSpace(text) == "") {
+		return fmt.Errorf("the Markdown is empty and the text is not, or the other way round")
+	}
 	if doc.HiddenChecked != defaultChecked {
 		return fmt.Errorf("hidden_checked is %s", doc.HiddenChecked)
 	}

@@ -5,7 +5,8 @@
 # to add a fixture or after changing a source text, then review the diff
 # and the scores in testdata/baseline.json.
 #
-# Needs: groff (with gropdf), qpdf, libreoffice.
+# Needs: groff (with gropdf), qpdf, libreoffice, ghostscript, firefox,
+# python3.
 #
 # Every program is run through "contained" (contain.sh): a time limit, a
 # limit on the size of any file it writes, and no process left behind.
@@ -21,7 +22,7 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$out"
 
-for tool in groff qpdf soffice sha256sum; do
+for tool in groff qpdf soffice gs firefox python3 sha256sum; do
 	command -v "$tool" >/dev/null || { echo "missing tool: $tool" >&2; exit 1; }
 done
 
@@ -56,6 +57,49 @@ cp "$tmp/multilingual.pdf" "$out/multilingual.pdf"
 
 # 4. Structural variants of the English file. Each must give the same
 #    text as english.pdf.
+# The same three paragraphs in five languages, each from three programs
+# that make PDF in different ways. The expected text of each is its
+# source, src/para-<language>.txt, so what is measured is accuracy, not
+# agreement with another reader.
+office() { # office <text file>: LibreOffice writes <name>.pdf beside it
+	contained 300 256 soffice --headless --norestore -env:UserInstallation="file://$tmp/lo-profile" \
+		--infilter="Text (encoded):UTF8,LF,Liberation Serif,en-US" \
+		--convert-to pdf --outdir "$tmp" "$1" >/dev/null
+}
+distill() { # distill <input> <output>: Ghostscript writes the PDF again
+	contained 120 64 gs -q -dBATCH -dNOPAUSE -dSAFER -sDEVICE=pdfwrite -o "$2" "$1"
+}
+for lang in en fr de ru el; do
+	cp "$src/para-$lang.txt" "$tmp/para-$lang.txt"
+	office "$tmp/para-$lang.txt"
+	cp "$tmp/para-$lang.pdf" "$out/para-$lang-libreoffice.pdf"
+
+	# Firefox prints a web page of the same text.
+	{
+		printf '<!doctype html>\n<html lang="%s"><head><meta charset="utf-8"><title>Sample document</title>\n' "$lang"
+		printf '<style>body { font-family: serif; font-size: 12pt; line-height: 1.4 }</style></head><body>\n'
+		awk 'BEGIN { RS = ""; FS = "\n" } NR == 1 { print "<h1>" $0 "</h1>"; next } { print "<p>" $0 "</p>" }' "$src/para-$lang.txt"
+		printf '</body></html>\n'
+	} >"$tmp/para-$lang.html"
+	contained 180 512 python3 -I ./browser-print.py "$tmp/para-$lang.html" "$out/para-$lang-firefox.pdf" "$tmp/firefox-$lang"
+
+	# Ghostscript: from groff's PostScript where groff's fonts have the
+	# letters, and from LibreOffice's PDF where they do not.
+	case $lang in
+	en | fr | de)
+		{
+			printf '.nr PS 12\n.nr VS 16\n.nr HY 0\n.nh\n.ds CH\n.na\n'
+			awk 'BEGIN { RS = ""; FS = "\n" } { print ".LP"; for (i = 1; i <= NF; i++) print $i }' "$src/para-$lang.txt"
+		} >"$tmp/para-$lang.ms"
+		contained 120 64 groff -k -ms -Tps "$tmp/para-$lang.ms" >"$tmp/para-$lang.ps"
+		distill "$tmp/para-$lang.ps" "$out/para-$lang-ghostscript.pdf"
+		;;
+	*)
+		distill "$tmp/para-$lang.pdf" "$out/para-$lang-ghostscript.pdf"
+		;;
+	esac
+done
+
 q() { contained 60 64 qpdf --deterministic-id "$@"; }
 q --object-streams=generate "$out/english.pdf" "$out/english-objstm.pdf"
 q --linearize "$out/english.pdf" "$out/english-linearized.pdf"

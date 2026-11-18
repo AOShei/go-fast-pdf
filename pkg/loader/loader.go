@@ -14,6 +14,7 @@ import (
 	"sync"
 
 	gofastcore "github.com/AOShei/go-fast-core"
+	"github.com/AOShei/go-fast-pdf/internal/charset"
 	"github.com/AOShei/go-fast-pdf/internal/extract"
 	"github.com/AOShei/go-fast-pdf/internal/file"
 	"github.com/AOShei/go-fast-pdf/internal/syntax"
@@ -62,7 +63,7 @@ func load(path string, workers int, images bool) (*model.Document, error) {
 	if info := f.Info(); info.IsDict() {
 		text := func(key string) string {
 			if v := f.Resolve(info.Get(key)); v.Kind == syntax.String {
-				return string(v.Data)
+				return charset.TextString(v.Data)
 			}
 			return ""
 		}

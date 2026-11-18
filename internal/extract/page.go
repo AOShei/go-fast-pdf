@@ -1,23 +1,23 @@
 // Package extract interprets a page's content streams and produces its
 // text and image list.
 //
-// In Phase 1 the text logic is that of v0.1.1, carried over to the new
-// engine without change in behaviour: positions are judged the same way
-// and text is decoded the same way, defects included (B2, B3, B5, B9 and
-// the F items of IMPLEMENTATION_PLAN.md, all closed in Phase 4). What is
-// new is underneath: nothing here can panic on malformed operands, one
-// bad byte does not cost the page, and a page allocates a handful of
-// times instead of thousands.
+// The text comes out as runs: stretches set in one font, size and colour
+// on one line. Each run carries where it is on the page and what its
+// visibility depends on (render mode, size, colour, opacity, optional
+// content). Result.Text joins the runs in the order the page draws them,
+// with a space or a line break where their positions call for one.
+// Arranging runs into reading order and blocks is the job of the layout
+// step that follows this package.
 package extract
 
 import (
+	"bytes"
 	"fmt"
-	"math"
-	"strings"
 	"sync"
 	"unicode/utf8"
 
 	gofastcore "github.com/AOShei/go-fast-core"
+	"github.com/AOShei/go-fast-pdf/internal/charset"
 	"github.com/AOShei/go-fast-pdf/internal/content"
 	"github.com/AOShei/go-fast-pdf/internal/file"
 	"github.com/AOShei/go-fast-pdf/internal/font"
@@ -43,6 +43,8 @@ type Image struct {
 type Options struct {
 	// Images lists the images on the page.
 	Images bool
+	// Runs returns the page's runs in Result.Runs.
+	Runs bool
 	// MaxFormDepth bounds the nesting of Form XObjects; 0 means 16.
 	MaxFormDepth int
 	// MaxDecodedBytes bounds the content decoded for one page; 0 means
@@ -53,6 +55,13 @@ type Options struct {
 // Result is what one page yields.
 type Result struct {
 	Text string
+	// Runs is nil unless Options.Runs is set. RunText holds their text:
+	// run r's is RunText[r.Off : r.Off+r.Len].
+	Runs    []Run
+	RunText []byte
+	// Forms are the boxes of the Form XObjects that text was drawn in;
+	// Run.Form is an index into it.
+	Forms []Quad
 	// Images is nil unless Options.Images is set.
 	Images []Image
 	// Warnings are the problems met on this page.
@@ -63,19 +72,48 @@ type Result struct {
 	Err error
 }
 
-type matrix [6]float64
+// Limits on what one page may produce. A content stream can show the
+// same string millions of times.
+const (
+	maxStateDepth   = 4096
+	maxMarkedDepth  = 4096
+	maxFormsPerPage = 10000
+)
 
-var identity = matrix{1, 0, 0, 1, 0, 0}
+// Variables so that a test can reach them with a small page.
+var (
+	maxRunsPerPage = 1 << 19
+	maxTextPerPage = 16 << 20
+)
 
-func (a matrix) mul(b matrix) matrix {
-	return matrix{
-		a[0]*b[0] + a[1]*b[2],
-		a[0]*b[1] + a[1]*b[3],
-		a[2]*b[0] + a[3]*b[2],
-		a[2]*b[1] + a[3]*b[3],
-		a[4]*b[0] + a[5]*b[2] + b[4],
-		a[4]*b[1] + a[5]*b[3] + b[5],
+// resources is one resource dictionary with the parts of it that have
+// been looked up.
+type resources struct {
+	dict                                     syntax.Value
+	fonts, xobjs, gstates, spaces, props     syntax.Value
+	hasFonts, hasXObjs, hasGS, hasCS, hasPrs bool
+	fontCache                                map[string]*font.Font
+}
+
+func (r *resources) reset(dict syntax.Value) {
+	*r = resources{dict: dict, fontCache: r.fontCache}
+	if r.fontCache == nil {
+		r.fontCache = map[string]*font.Font{}
 	}
+	clear(r.fontCache)
+}
+
+// marked is one open marked-content sequence.
+type marked struct {
+	// off is set when the sequence belongs to optional content that is
+	// switched off.
+	off bool
+	// actual is set when the sequence has /ActualText: what it draws is
+	// replaced by that text, at the first glyph drawn.
+	actual  bool
+	emitted bool
+	// The text is in interp.actual[lo:hi].
+	lo, hi int32
 }
 
 // interp holds the state of one page's interpretation. Its buffers are
@@ -85,37 +123,49 @@ type interp struct {
 	opts Options
 	res  *Result
 
-	scan   content.Scanner
-	bufs   [][]byte // decoded content streams of the current page
-	out    []byte   // the page's text
-	str    []byte   // scratch for one string operand
-	name   []byte   // scratch for a decoded name
-	fonts  map[string]*font.Font
-	fontRs syntax.Value // the page's /Font resources
-	xobjs  syntax.Value // the page's /XObject resources
+	scans    []*content.Scanner // one per nesting level of forms
+	pageBufs [][]byte           // the page's content streams, decoded
+	formBufs [][]byte           // decoded form content, one per level
+	rs       []resources        // one per level
+	level    int
+	// What the content of each level may not undo: the depth of the
+	// state stack and of the marked content when it began.
+	stackFloor, mcFloor []int
 
-	ctm   matrix
-	stack []matrix
+	gs    gstate
+	stack []gstate
+	// geom is derived from the state; geomValid is cleared by whatever
+	// changes what it is derived from.
+	geom      geometry
+	geomValid bool
+	// Text object state: not part of the graphics state.
+	tm, tlm matrix
 
-	// Text state.
-	font        *font.Font
-	fontSize    float64
-	charSpacing float64
-	wordSpacing float64
-	scale       float64
-	leading     float64
-	tm, tlm     matrix
+	mc       []marked
+	offDepth int    // marked sequences and forms that are switched off
+	actual   []byte // the /ActualText of the open sequences
+	inActual int    // open sequences with /ActualText
 
-	lastX, lastY float64
+	text   []byte // the text of all runs
+	runs   []Run
+	forms  []Quad
+	form   int32 // the form being drawn, -1 on the page itself
+	seq    int32 // paint operations so far, text excluded
+	prev   lineEnd
+	full   bool // a limit was reached: no more text is taken
+	str    []byte
+	name   []byte
+	silent []byte
 
-	// Form XObjects being read, for the image list.
-	formScans  []content.Scanner
-	formBufs   [][]byte
+	unmapped    int
+	assumed     int
+	fontMissing bool
+
 	formActive []uint32
 	formCalls  int
 }
 
-var interps = sync.Pool{New: func() any { return &interp{fonts: map[string]*font.Font{}} }}
+var interps = sync.Pool{New: func() any { return new(interp) }}
 
 // Page extracts one page. It never panics: a failure inside the
 // interpreter is returned in Result.Err, with whatever text was produced
@@ -136,8 +186,8 @@ func Page(f *file.File, p *file.Page, opts Options) (res Result) {
 			// A last line of defence. Fuzzing treats reaching it as a
 			// failure, so it does not hide defects.
 			res.Err = fmt.Errorf("%w: internal error on page %d: %v", gofastcore.ErrMalformed, p.Number, r)
-			res.Text = toValidUTF8(in.out)
-			interps.Put(&interp{fonts: map[string]*font.Font{}}) // do not reuse a state that failed
+			res.Text = string(bytes.ToValidUTF8(assemble(nil, in.runs, in.text), []byte("�")))
+			interps.Put(new(interp)) // do not reuse a state that failed
 			return
 		}
 		in.f, in.res = nil, nil
@@ -146,76 +196,109 @@ func Page(f *file.File, p *file.Page, opts Options) (res Result) {
 	}()
 	in.reset(f, p, opts, &res)
 	in.run(p)
-	res.Text = in.text()
+	in.finish()
 	return res
 }
 
-// text returns the page's text as valid UTF-8. The decoding carried over
-// from v0.1.1 can emit a raw byte for a code it has no mapping for; such
-// bytes become U+FFFD here, so that no caller ever receives a string
-// that is not UTF-8.
-func (in *interp) text() string {
-	if utf8.Valid(in.out) {
-		return string(in.out)
+// finish turns what the interpreter collected into the result.
+func (in *interp) finish() {
+	res := in.res
+	out := assemble(in.str[:0], in.runs, in.text)
+	in.str = out
+	if !utf8.Valid(out) {
+		// Every text the fonts hand out is valid by construction; this
+		// is the final check that no caller ever receives a string that
+		// is not UTF-8.
+		out = bytes.ToValidUTF8(out, []byte("�"))
+		in.unmapped++
 	}
-	in.warn(gofastcore.SeverityWarning, gofastcore.WarnTextUnmappedGlyphs,
-		"some character codes have no mapping to text and appear as U+FFFD")
-	return toValidUTF8(in.out)
-}
-
-// toValidUTF8 replaces every byte that is not part of valid UTF-8 with
-// U+FFFD, one replacement per byte, so that the number of unreadable
-// characters stays visible.
-func toValidUTF8(b []byte) string {
-	var sb strings.Builder
-	sb.Grow(len(b) + 16)
-	for len(b) > 0 {
-		r, size := utf8.DecodeRune(b)
-		if r == utf8.RuneError && size == 1 {
-			sb.WriteString("\uFFFD")
-		} else {
-			sb.Write(b[:size])
-		}
-		b = b[size:]
+	res.Text = string(out)
+	if in.unmapped > 0 {
+		in.warn(gofastcore.SeverityWarning, gofastcore.WarnTextUnmappedGlyphs,
+			fmt.Sprintf("%d character codes on the page have no mapping to text and appear as U+FFFD", in.unmapped))
 	}
-	return sb.String()
+	if in.assumed > 0 {
+		in.warn(gofastcore.SeverityInfo, "pdf.glyph_text_assumed",
+			fmt.Sprintf("%d characters on the page are set in fonts that do not say which characters their glyphs are; they were read as the characters their codes stand for", in.assumed))
+	}
+	if in.fontMissing {
+		in.warn(gofastcore.SeverityWarning, "pdf.font_missing",
+			"text on the page is set in a font that its resources do not define; it was read with the standard encoding")
+	}
+	if in.opts.Runs {
+		res.Runs = append([]Run{}, in.runs...)
+		res.RunText = append([]byte{}, in.text...)
+		res.Forms = append([]Quad{}, in.forms...)
+	}
 }
 
 // trim drops buffers that one unusually large page grew, so that the
 // pool does not hold on to them.
 func (in *interp) trim() {
 	const keep = 4 << 20
-	for _, bufs := range []*[][]byte{&in.bufs, &in.formBufs} {
-		for i := range *bufs {
-			if cap((*bufs)[i]) > keep {
-				(*bufs)[i] = nil
+	for _, bufs := range [][][]byte{in.pageBufs, in.formBufs} {
+		for i := range bufs {
+			if cap(bufs[i]) > keep {
+				bufs[i] = nil
 			}
 		}
 	}
-	if cap(in.out) > keep {
-		in.out = nil
+	if cap(in.text) > keep {
+		in.text = nil
 	}
 	if cap(in.str) > keep {
 		in.str = nil
+	}
+	if cap(in.silent) > keep {
+		in.silent = nil
+	}
+	if cap(in.actual) > keep {
+		in.actual = nil
+	}
+	if cap(in.runs) > keep/64 {
+		in.runs = nil
+	}
+	if cap(in.stack) > 256 {
+		in.stack = nil
+	}
+	// Fonts are kept alive by the file's cache, not by this one.
+	for i := range in.rs {
+		clear(in.rs[i].fontCache)
+		in.rs[i].dict = syntax.Value{}
 	}
 }
 
 func (in *interp) reset(f *file.File, p *file.Page, opts Options, res *Result) {
 	in.f, in.opts, in.res = f, opts, res
-	in.out, in.stack = in.out[:0], in.stack[:0]
-	clear(in.fonts)
-	in.fontRs = f.Resolve(p.Resources.Get("Font"))
-	in.xobjs = syntax.Value{}
+	in.level = 0
+	in.resourcesAt(0).reset(p.Resources)
+	in.stackFloor, in.mcFloor = append(in.stackFloor[:0], 0), append(in.mcFloor[:0], 0)
+	in.gs = initialState()
+	in.geomValid = false
+	in.stack = in.stack[:0]
+	in.tm, in.tlm = identity, identity
+	in.mc, in.offDepth, in.actual, in.inActual = in.mc[:0], 0, in.actual[:0], 0
+	in.text, in.runs, in.forms = in.text[:0], in.runs[:0], in.forms[:0]
+	in.form, in.seq, in.prev, in.full = -1, 0, lineEnd{}, false
+	in.unmapped, in.assumed, in.fontMissing = 0, 0, false
+	in.formActive, in.formCalls = in.formActive[:0], 0
 	if opts.Images {
-		in.xobjs = f.Resolve(p.Resources.Get("XObject"))
 		res.Images = []Image{}
 	}
-	in.ctm = identity
-	in.font, in.fontSize, in.charSpacing, in.wordSpacing, in.leading = nil, 0, 0, 0, 0
-	in.scale = 100
-	in.tm, in.tlm = identity, identity
-	in.lastX, in.lastY = 0, 0
-	in.formActive, in.formCalls = in.formActive[:0], 0
+}
+
+func (in *interp) resourcesAt(level int) *resources {
+	for len(in.rs) <= level {
+		in.rs = append(in.rs, resources{})
+	}
+	return &in.rs[level]
+}
+
+func (in *interp) scannerAt(level int) *content.Scanner {
+	for len(in.scans) <= level {
+		in.scans = append(in.scans, new(content.Scanner))
+	}
+	return in.scans[level]
 }
 
 func (in *interp) warn(severity gofastcore.Severity, code, message string) {
@@ -271,29 +354,37 @@ func (in *interp) run(p *file.Page) {
 	if contents.Kind == syntax.Array {
 		streams = contents.List
 	}
+	scan := in.scannerAt(0)
 	first := true
 	for i, ref := range streams {
-		data := in.decodeContent(&in.bufs, i, in.f.Resolve(ref))
+		// Each stream gets a buffer of its own: operands read from one
+		// stream may still be in use when the next is decoded.
+		data := in.decodeContent(&in.pageBufs, i, in.f.Resolve(ref))
 		if data == nil {
 			continue
 		}
 		if first {
-			in.scan.Reset(data)
+			scan.Reset(data)
 			first = false
 		} else {
-			in.scan.Feed(data)
+			scan.Feed(data)
 		}
-		for {
-			op, args, ok := in.scan.Next()
-			if !ok {
-				break
-			}
-			in.operator(op, args)
-		}
+		in.exec(scan)
 	}
-	if in.scan.Skipped > 0 {
+	if scan.Skipped > 0 {
 		in.warn(gofastcore.SeverityInfo, "pdf.content_bytes_skipped",
-			fmt.Sprintf("%d bytes of the content stream are not valid syntax and were skipped", in.scan.Skipped))
+			fmt.Sprintf("%d bytes of the content stream are not valid syntax and were skipped", scan.Skipped))
+	}
+}
+
+// exec runs the operators of a scanner to its end.
+func (in *interp) exec(scan *content.Scanner) {
+	for {
+		op, args, ok := scan.Next()
+		if !ok {
+			return
+		}
+		in.operator(scan, op, args)
 	}
 }
 
@@ -307,101 +398,177 @@ func last(args []content.Operand, n int) []content.Operand {
 }
 
 func toMatrix(a []content.Operand) matrix {
-	return matrix{a[0].Float(), a[1].Float(), a[2].Float(), a[3].Float(), a[4].Float(), a[5].Float()}
+	return matrix{finite(a[0].Float()), finite(a[1].Float()), finite(a[2].Float()), finite(a[3].Float()), finite(a[4].Float()), finite(a[5].Float())}
 }
 
-func (in *interp) operator(op []byte, args []content.Operand) {
+func (in *interp) operator(scan *content.Scanner, op []byte, args []content.Operand) {
+	g := &in.gs
 	switch string(op) {
+	// --- graphics state ---
 	case "q":
-		if len(in.stack) < 4096 {
-			in.stack = append(in.stack, in.ctm)
+		if len(in.stack) < maxStateDepth {
+			in.stack = append(in.stack, in.gs)
 		}
 	case "Q":
-		if n := len(in.stack); n > 0 {
-			in.ctm = in.stack[n-1]
+		if n := len(in.stack); n > in.stackFloor[in.level] {
+			in.gs = in.stack[n-1]
 			in.stack = in.stack[:n-1]
+			in.geomValid = false
 		}
 	case "cm":
 		if a := last(args, 6); a != nil {
-			in.ctm = toMatrix(a).mul(in.ctm)
+			g.ctm = toMatrix(a).mul(g.ctm)
+			in.geomValid = false
 		}
+	case "gs":
+		if a := last(args, 1); a != nil && a[0].Kind == content.Name {
+			in.extGState(a[0].Raw)
+			in.geomValid = false
+		}
+
+	// --- text state ---
 	case "BT":
 		in.tm, in.tlm = identity, identity
+		in.geomValid = false
 	case "Tc":
 		if a := last(args, 1); a != nil {
-			in.charSpacing = a[0].Float()
+			g.tc = finite(a[0].Float())
 		}
 	case "Tw":
 		if a := last(args, 1); a != nil {
-			in.wordSpacing = a[0].Float()
+			g.tw = finite(a[0].Float())
 		}
 	case "Tz":
 		if a := last(args, 1); a != nil {
-			in.scale = a[0].Float()
+			g.th = finite(a[0].Float()) / 100
+			in.geomValid = false
 		}
 	case "TL":
 		if a := last(args, 1); a != nil {
-			in.leading = a[0].Float()
+			g.tl = finite(a[0].Float())
+		}
+	case "Ts":
+		if a := last(args, 1); a != nil {
+			g.rise = finite(a[0].Float())
+		}
+	case "Tr":
+		if a := last(args, 1); a != nil {
+			if mode := a[0].Float(); mode >= 0 && mode <= 7 {
+				g.mode = uint8(mode)
+			}
 		}
 	case "Tf":
 		if a := last(args, 2); a != nil {
 			if a[0].Kind == content.Name {
-				if f := in.lookupFont(a[0].Raw); f != nil {
-					in.font = f
-				}
+				g.font = in.lookupFont(a[0].Raw)
+				g.fontSet = true
 			}
-			in.fontSize = a[1].Float()
+			g.size = finite(a[1].Float())
+			in.geomValid = false
 		}
+
+	// --- text position ---
 	case "Td":
 		if a := last(args, 2); a != nil {
-			in.moveLine(a[0].Float(), a[1].Float())
+			in.moveLine(finite(a[0].Float()), finite(a[1].Float()))
 		}
 	case "TD":
 		if a := last(args, 2); a != nil {
-			in.leading = -a[1].Float()
-			in.moveLine(a[0].Float(), a[1].Float())
+			g.tl = -finite(a[1].Float())
+			in.moveLine(finite(a[0].Float()), finite(a[1].Float()))
 		}
 	case "Tm":
 		if a := last(args, 6); a != nil {
 			in.tm = toMatrix(a)
 			in.tlm = in.tm
+			in.geomValid = false
 		}
 	case "T*":
-		in.moveLine(0, -in.leading)
+		in.moveLine(0, -g.tl)
+
+	// --- text showing ---
 	case "Tj":
 		if a := last(args, 1); a != nil {
-			in.showText(a[0])
+			in.show(a[0])
 		}
 	case "TJ":
 		if a := last(args, 1); a != nil && a[0].Kind == content.Array {
-			for _, e := range in.scan.Elems(a[0]) {
+			for _, e := range scan.Elems(a[0]) {
 				if e.IsNumber() {
-					shift := -e.Float() / 1000 * in.fontSize * (in.scale / 100)
-					in.tm[4] += shift * in.tm[0]
-					in.tm[5] += shift * in.tm[1]
+					// Thousandths of the font size, against the
+					// direction of writing.
+					shift := -finite(e.Float()) / 1000 * g.size
+					if g.font != nil && g.font.Vertical {
+						in.advance(0, shift)
+					} else {
+						in.advance(shift*g.th, 0)
+					}
 				} else {
-					in.showText(e)
+					in.show(e)
 				}
 			}
 		}
 	case "'":
-		in.moveLine(0, -in.leading)
+		in.moveLine(0, -g.tl)
 		if a := last(args, 1); a != nil {
-			in.showText(a[0])
+			in.show(a[0])
 		}
 	case "\"":
 		if a := last(args, 3); a != nil {
-			in.wordSpacing, in.charSpacing = a[0].Float(), a[1].Float()
-			in.moveLine(0, -in.leading)
-			in.showText(a[2])
+			g.tw, g.tc = finite(a[0].Float()), finite(a[1].Float())
+			in.moveLine(0, -g.tl)
+			in.show(a[2])
 		}
+
+	// --- colour ---
+	case "g":
+		in.setColor(&g.fill, csGray, last(args, 1))
+	case "G":
+		in.setColor(&g.stroke, csGray, last(args, 1))
+	case "rg":
+		in.setColor(&g.fill, csRGB, last(args, 3))
+	case "RG":
+		in.setColor(&g.stroke, csRGB, last(args, 3))
+	case "k":
+		in.setColor(&g.fill, csCMYK, last(args, 4))
+	case "K":
+		in.setColor(&g.stroke, csCMYK, last(args, 4))
+	case "cs":
+		if a := last(args, 1); a != nil && a[0].Kind == content.Name {
+			in.setSpace(&g.fill, a[0].Raw)
+		}
+	case "CS":
+		if a := last(args, 1); a != nil && a[0].Kind == content.Name {
+			in.setSpace(&g.stroke, a[0].Raw)
+		}
+	case "sc", "scn":
+		in.setComponents(&g.fill, args)
+	case "SC", "SCN":
+		in.setComponents(&g.stroke, args)
+
+	// --- marked content ---
+	case "BMC":
+		in.beginMarked(nil, content.Operand{})
+	case "BDC":
+		if a := last(args, 2); a != nil {
+			in.beginMarked(a[0].Raw, a[1])
+		} else {
+			in.beginMarked(nil, content.Operand{})
+		}
+	case "EMC":
+		in.endMarked()
+
+	// --- painting ---
+	case "S", "s", "f", "F", "f*", "B", "B*", "b", "b*", "sh":
+		in.seq++
 	case "BI":
+		in.seq++
 		if in.opts.Images {
 			in.inlineImage(args)
 		}
 	case "Do":
-		if a := last(args, 1); in.opts.Images && a != nil && a[0].Kind == content.Name {
-			in.drawXObject(in.xobjs, a[0].Raw, 0)
+		if a := last(args, 1); a != nil && a[0].Kind == content.Name {
+			in.drawXObject(a[0].Raw)
 		}
 	}
 }
@@ -409,6 +576,12 @@ func (in *interp) operator(op []byte, args []content.Operand) {
 func (in *interp) moveLine(tx, ty float64) {
 	in.tlm = matrix{1, 0, 0, 1, tx, ty}.mul(in.tlm)
 	in.tm = in.tlm
+}
+
+// advance moves the text position by a displacement in text space.
+func (in *interp) advance(tx, ty float64) {
+	in.tm[4] += tx*in.tm[0] + ty*in.tm[2]
+	in.tm[5] += tx*in.tm[1] + ty*in.tm[3]
 }
 
 // decodeName returns a name operand with its #xx escapes resolved.
@@ -424,123 +597,127 @@ func (in *interp) decodeName(raw []byte) []byte {
 	return raw
 }
 
+// Lookups in the current resource dictionary. Each part of it is
+// resolved once per page and level.
+
+func (in *interp) fontDict() syntax.Value {
+	r := &in.rs[in.level]
+	if !r.hasFonts {
+		r.fonts, r.hasFonts = in.f.Resolve(r.dict.Get("Font")), true
+	}
+	return r.fonts
+}
+
+func (in *interp) xobjectDict() syntax.Value {
+	r := &in.rs[in.level]
+	if !r.hasXObjs {
+		r.xobjs, r.hasXObjs = in.f.Resolve(r.dict.Get("XObject")), true
+	}
+	return r.xobjs
+}
+
+func (in *interp) gstateDict() syntax.Value {
+	r := &in.rs[in.level]
+	if !r.hasGS {
+		r.gstates, r.hasGS = in.f.Resolve(r.dict.Get("ExtGState")), true
+	}
+	return r.gstates
+}
+
+func (in *interp) spaceDict() syntax.Value {
+	r := &in.rs[in.level]
+	if !r.hasCS {
+		r.spaces, r.hasCS = in.f.Resolve(r.dict.Get("ColorSpace")), true
+	}
+	return r.spaces
+}
+
+func (in *interp) propertyDict() syntax.Value {
+	r := &in.rs[in.level]
+	if !r.hasPrs {
+		r.props, r.hasPrs = in.f.Resolve(r.dict.Get("Properties")), true
+	}
+	return r.props
+}
+
 func (in *interp) lookupFont(raw []byte) *font.Font {
 	name := in.decodeName(raw)
-	if f, ok := in.fonts[string(name)]; ok {
+	cache := in.rs[in.level].fontCache
+	if f, ok := cache[string(name)]; ok {
 		return f
 	}
 	var f *font.Font
-	if ref := in.fontRs.Get(string(name)); !ref.IsNull() {
+	if ref := in.fontDict().Get(string(name)); !ref.IsNull() {
 		f = font.Load(in.f, ref)
 	}
-	in.fonts[string(name)] = f
+	cache[string(name)] = f
 	return f
 }
 
-func endsWith(b []byte, c byte) bool { return len(b) > 0 && b[len(b)-1] == c }
+// --- marked content and optional content ---
 
-// showText is the text logic of v0.1.1: decide from the position whether
-// a line break or a space precedes the string, decode it, and advance by
-// its width.
-func (in *interp) showText(o content.Operand) {
-	if !o.IsString() {
+func (in *interp) beginMarked(tag []byte, props content.Operand) {
+	if len(in.mc) >= maxMarkedDepth {
 		return
 	}
-	in.str = o.AppendString(in.str[:0])
-	raw := in.str
-
-	fm := in.tm.mul(in.ctm)
-	x, y := fm[4], fm[5]
-
-	// A gap wider than half a space, or than 0.2 of the font size when
-	// the font gives no space width, is a space.
-	spaceWidth := 0.0
-	if in.font != nil {
-		spaceWidth = in.font.SpaceWidth / 1000 * in.fontSize * (in.scale / 100)
-	}
-	threshold := in.fontSize * 0.2
-	if spaceWidth > 0 {
-		threshold = spaceWidth * 0.5
-	}
-	if math.Abs(y-in.lastY) > in.fontSize*0.5 {
-		if len(in.out) > 0 {
-			in.out = append(in.out, '\n')
+	m := marked{}
+	// The property list is a dictionary in the stream or a name in the
+	// /Properties resources. Only two things in it matter here, and most
+	// lists have neither: look before parsing.
+	var dict syntax.Value
+	switch props.Kind {
+	case content.Dict:
+		if bytes.Contains(props.Raw, []byte("ActualText")) {
+			in.name = append(append(append(in.name[:0], "<<"...), props.Raw...), ">>"...)
+			parser := syntax.NewParser(in.name, 0, 64)
+			dict, _ = parser.Object()
 		}
-	} else if x-in.lastX > threshold {
-		if len(in.out) > 0 && !endsWith(in.out, '\n') && !endsWith(in.out, ' ') {
-			in.out = append(in.out, ' ')
+	case content.Name:
+		ref := in.propertyDict().Get(string(in.decodeName(props.Raw)))
+		if string(tag) == "OC" {
+			m.off = in.contentOff(ref)
+		} else {
+			dict = in.f.Resolve(ref)
 		}
 	}
-
-	// Decode.
-	start := len(in.out)
-	switch f := in.font; {
-	case f != nil && f.HasCMap:
-		for i := 0; i < len(raw); {
-			if i+1 < len(raw) {
-				if s, ok := f.Two(raw[i], raw[i+1]); ok {
-					in.out = append(in.out, s...)
-					i += 2
-					continue
-				}
-			}
-			if s, ok := f.One(raw[i]); ok {
-				in.out = append(in.out, s...)
-			} else {
-				in.out = append(in.out, raw[i])
-			}
-			i++
-		}
-	case f != nil && f.HasEncoding:
-		for _, b := range raw {
-			if s, ok := f.Encoded(b); ok {
-				in.out = append(in.out, s...)
-			} else {
-				in.out = append(in.out, b)
-			}
-		}
-	default:
-		// No mapping: keep printable ASCII and white space.
-		for _, b := range raw {
-			if b >= 0x20 && b <= 0x7E || b == '\t' || b == '\n' || b == '\r' {
-				in.out = append(in.out, b)
-			}
-		}
+	if text := in.f.Resolve(dict.Get("ActualText")); text.Kind == syntax.String {
+		m.actual = true
+		m.lo = int32(len(in.actual))
+		in.actual = append(in.actual, charset.TextString(text.Data)...)
+		m.hi = int32(len(in.actual))
+		in.inActual++
 	}
-	decoded := in.out[start:]
-
-	// Width.
-	var width float64
-	if in.font != nil && in.font.HasWidths {
-		for _, b := range raw {
-			if w, ok := in.font.Width(b); ok {
-				width += w
-			}
-		}
-		width = width / 1000 * in.fontSize
-		width += float64(len(raw)) * in.charSpacing
-		spaces := 0
-		for _, b := range decoded {
-			if b == ' ' {
-				spaces++
-			}
-		}
-		width += float64(spaces) * in.wordSpacing
-		width *= in.scale / 100
-	} else {
-		width = float64(len(decoded)) * in.fontSize * 0.5 * (in.scale / 100)
+	if m.off {
+		in.offDepth++
 	}
-
-	in.lastX, in.lastY = x+width, y
-	in.tm[4] += width * in.tm[0]
-	in.tm[5] += width * in.tm[1]
+	in.mc = append(in.mc, m)
 }
 
-// --- images ---
+func (in *interp) endMarked() {
+	// A form cannot close what its caller opened.
+	if n := len(in.mc); n > in.mcFloor[in.level] {
+		in.popMarked()
+	}
+}
+
+func (in *interp) popMarked() {
+	n := len(in.mc)
+	m := in.mc[n-1]
+	in.mc = in.mc[:n-1]
+	if m.off {
+		in.offDepth--
+	}
+	if m.actual {
+		in.inActual--
+		in.actual = in.actual[:m.lo]
+	}
+}
+
+// --- images and forms ---
 
 func (in *interp) imageRect() [4]float64 {
-	c := in.ctm
-	return [4]float64{c[4], c[5], math.Hypot(c[0], c[1]), math.Hypot(c[2], c[3])}
+	c := in.gs.ctm
+	return [4]float64{c[4], c[5], hypot(c[0], c[1]), hypot(c[2], c[3])}
 }
 
 func (in *interp) addImage(img Image) {
@@ -574,18 +751,22 @@ func (in *interp) inlineImage(args []content.Operand) {
 	in.addImage(img)
 }
 
-// drawXObject handles Do for the image list: an image is recorded, and a
-// form is searched for the images it draws. Nothing is decoded for an
-// image: its size is in its dictionary.
-func (in *interp) drawXObject(xobjs syntax.Value, rawName []byte, depth int) {
-	name := string(in.decodeName(rawName))
-	xobj := in.f.Resolve(xobjs.Get(name))
+// drawXObject handles Do: an image is counted as painted and, when
+// images are asked for, recorded; a form is interpreted. Nothing is
+// decoded for an image: its size is in its dictionary.
+func (in *interp) drawXObject(rawName []byte) {
+	name := in.decodeName(rawName)
+	xobj := in.f.Resolve(in.xobjectDict().Get(string(name)))
 	if !xobj.IsDict() {
 		return
 	}
 	switch subtype := in.f.Resolve(xobj.Get("Subtype")); {
 	case subtype.IsName("Image"):
-		img := Image{Name: "/" + name, Rect: in.imageRect()}
+		in.seq++
+		if !in.opts.Images {
+			return
+		}
+		img := Image{Name: "/" + string(name), Rect: in.imageRect()}
 		img.Width = in.f.Resolve(xobj.Get("Width")).Number()
 		img.Height = in.f.Resolve(xobj.Get("Height")).Number()
 		if cs := in.f.Resolve(xobj.Get("ColorSpace")); cs.Kind == syntax.Name {
@@ -593,19 +774,19 @@ func (in *interp) drawXObject(xobjs syntax.Value, rawName []byte, depth int) {
 		}
 		in.addImage(img)
 	case subtype.IsName("Form"):
-		in.form(xobj, depth)
+		in.drawForm(xobj)
 	}
 }
 
-// form reads a Form XObject's content for the images it draws. Depth,
-// the forms already open and the total number of forms are all bounded,
-// so a form that draws itself, or a tree of forms that doubles at every
-// level, ends.
-func (in *interp) form(xobj syntax.Value, depth int) {
+// drawForm interprets a Form XObject: its content, under its /Matrix,
+// with its own resources. Depth, the forms already open and the total
+// number of forms are all bounded, so a form that draws itself, or a
+// tree of forms that doubles at every level, ends.
+func (in *interp) drawForm(xobj syntax.Value) {
 	if xobj.Kind != syntax.Stream {
 		return
 	}
-	if depth >= in.opts.MaxFormDepth || in.formCalls >= 10000 {
+	if in.level >= in.opts.MaxFormDepth || in.formCalls >= maxFormsPerPage {
 		in.warn(gofastcore.SeverityError, gofastcore.WarnLimitExceeded, "Form XObjects are nested or repeated beyond the limit; the rest are not read")
 		return
 	}
@@ -616,27 +797,57 @@ func (in *interp) form(xobj syntax.Value, depth int) {
 	}
 	in.formCalls++
 	in.formActive = append(in.formActive, xobj.Obj)
-	defer func() { in.formActive = in.formActive[:len(in.formActive)-1] }()
 
-	data := in.decodeContent(&in.formBufs, depth, xobj)
-	if data == nil {
-		return
+	// What the form may change is put back when it ends: the graphics
+	// state, the text position, and the marked content it left open.
+	saved, savedTm, savedTlm, savedForm := in.gs, in.tm, in.tlm, in.form
+	in.geomValid = false
+	stackDepth, mcDepth := len(in.stack), len(in.mc)
+	off := in.contentOff(xobj.Get("OC"))
+	if off {
+		in.offDepth++
 	}
-	xobjs := in.f.Resolve(in.f.Resolve(xobj.Get("Resources")).Get("XObject"))
-	for len(in.formScans) <= depth {
-		in.formScans = append(in.formScans, content.Scanner{})
-	}
-	in.formScans[depth].Reset(data)
-	for {
-		// Index again on every round: a nested form may grow the slice.
-		op, args, ok := in.formScans[depth].Next()
-		if !ok {
-			break
+	if m := in.f.Resolve(xobj.Get("Matrix")).Elems(); len(m) == 6 {
+		var fm matrix
+		for i := range fm {
+			fm[i] = finite(in.f.Resolve(m[i]).Number())
 		}
-		if string(op) == "Do" {
-			if a := last(args, 1); a != nil && a[0].Kind == content.Name {
-				in.drawXObject(xobjs, a[0].Raw, depth+1)
-			}
-		}
+		in.gs.ctm = fm.mul(in.gs.ctm)
 	}
+	if box, ok := in.f.Rect(xobj.Get("BBox")); ok && len(in.forms) < maxFormsPerPage {
+		in.forms = append(in.forms, in.gs.ctm.quad(box))
+		in.form = int32(len(in.forms) - 1)
+	}
+
+	level := in.level + 1
+	// A form without resources of its own uses those of what draws it.
+	dict := in.f.Resolve(xobj.Get("Resources"))
+	if !dict.IsDict() {
+		dict = in.rs[in.level].dict
+	}
+	in.resourcesAt(level).reset(dict)
+	for len(in.stackFloor) <= level {
+		in.stackFloor = append(in.stackFloor, 0)
+		in.mcFloor = append(in.mcFloor, 0)
+	}
+	in.stackFloor[level], in.mcFloor[level] = stackDepth, mcDepth
+
+	if data := in.decodeContent(&in.formBufs, level, xobj); data != nil {
+		scan := in.scannerAt(level)
+		scan.Reset(data)
+		in.level = level
+		in.exec(scan)
+		in.level = level - 1
+	}
+
+	for len(in.mc) > mcDepth {
+		in.popMarked()
+	}
+	if off {
+		in.offDepth--
+	}
+	in.stack = in.stack[:min(len(in.stack), stackDepth)]
+	in.gs, in.tm, in.tlm, in.form = saved, savedTm, savedTlm, savedForm
+	in.geomValid = false
+	in.formActive = in.formActive[:len(in.formActive)-1]
 }

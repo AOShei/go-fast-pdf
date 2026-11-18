@@ -1,63 +1,223 @@
 // Package font turns a font dictionary into what text extraction needs:
-// a mapping from character codes to text, and glyph widths.
+// how a string splits into character codes, the text of each code, and
+// how far each glyph advances.
 //
-// In Phase 1 this is the font logic of v0.1.1 on the new engine, with the
-// same behaviour: one- and two-byte ToUnicode entries, /Differences with
-// a small glyph-name table, and /Widths for simple fonts. Its known
-// defects (F1 to F5, B3 in IMPLEMENTATION_PLAN.md) are closed in Phase 4,
-// which replaces most of this package.
+// Where the text comes from, in order of preference:
+//
+//   - the font's ToUnicode CMap;
+//   - for a simple font, its encoding: one of the encodings the
+//     specification names, changed by /Differences, whose glyph names
+//     are read by the rules of the Adobe Glyph List;
+//   - for a composite font whose character codes are Unicode already
+//     (the predefined CMaps with UCS2, UTF16 or UTF32 in their name),
+//     the codes themselves.
+//
+// A simple font can leave a glyph without any of these: its name is one
+// some program made up ("g23", "a192"), or it has none. Such a glyph is
+// read as the character its code stands for in ASCII, when the code is
+// one: fonts made by subsetting keep the codes of the characters far
+// more often than not, and every reader of PDF relies on it. A name
+// that is a number equal to the code extends this to Latin-1. These
+// characters are counted as assumed (Shown.Assumed), so that a caller
+// can say how much of a page rests on the assumption.
+//
+// A code with no text by any of these is reported as unmapped and
+// appears as U+FFFD. Font programs are not read.
 package font
 
 import (
-	"errors"
-	"io"
+	"math"
+	"sort"
 	"unicode/utf16"
+	"unicode/utf8"
 
+	"github.com/AOShei/go-fast-pdf/internal/charset"
 	"github.com/AOShei/go-fast-pdf/internal/file"
 	"github.com/AOShei/go-fast-pdf/internal/syntax"
 )
 
 // Font is immutable once loaded and is shared by every page that uses it.
 type Font struct {
+	// BaseFont is the font's name, with a subset tag if it has one.
 	BaseFont string
-
-	// ToUnicode entries with one-byte and two-byte codes. HasCMap is true
-	// when the font has any ToUnicode entry at all, of any code length.
-	one     [256]string
-	hasOne  [256]bool
-	two     map[uint16]string
-	HasCMap bool
-
-	// Text for the codes that /Differences names. HasEncoding is true
-	// when /Differences names any code.
-	enc         [256]string
-	hasEnc      [256]bool
-	HasEncoding bool
-
-	// Widths from /FirstChar and /Widths, in thousandths of the font
-	// size. HasWidths is true when the font gives any.
-	widths    [256]float64
-	hasWidth  [256]bool
-	HasWidths bool
-
-	// SpaceWidth is the width of code 32, or 250 when unknown.
+	// Composite is true for a Type0 font, whose codes can have several
+	// bytes.
+	Composite bool
+	// Vertical is true for a composite font that writes downwards.
+	Vertical bool
+	// Type3 is true for a font whose glyphs are content streams.
+	Type3 bool
+	// SpaceWidth is the advance of the space, as a fraction of the font
+	// size. It is 0.25 when the font does not say.
 	SpaceWidth float64
+	// Truncated is set when a table of the font was larger than is kept.
+	Truncated bool
+
+	// A simple font: the text and the advance of each of its 256 codes.
+	// An empty text is a code with no mapping, unless the code is blank:
+	// then the font has no glyph for it and draws nothing.
+	text    [256]string
+	one     [256]byte // the text of a code when it is one ASCII byte, else 0
+	blank   [256]bool
+	widths  [256]float32
+	assumed *[256]bool // codes read by the ASCII assumption; nil if none
+
+	// A composite font.
+	space   codespace
+	toUni   *cmap        // ToUnicode
+	cids    *cmap        // code to CID; nil when the CID is the code
+	noCIDs  bool         // the code to CID mapping is not known
+	unicode unicodeCodes // the codes are Unicode
+	dw      float32      // default advance
+	w       []cidWidth   // sorted by first
+	wArr    []float32
 }
 
-// One returns the ToUnicode text of a one-byte code.
-func (f *Font) One(code byte) (string, bool) { return f.one[code], f.hasOne[code] }
-
-// Two returns the ToUnicode text of a two-byte code.
-func (f *Font) Two(hi, lo byte) (string, bool) {
-	s, ok := f.two[uint16(hi)<<8|uint16(lo)]
-	return s, ok
+// cidWidth gives the advance of the CIDs first to last: all w, or, when
+// arr is not negative, wArr[arr], wArr[arr+1] and so on.
+type cidWidth struct {
+	first, last uint32
+	w           float32
+	arr         int32
 }
 
-// Encoded returns the text /Differences gives a code.
-func (f *Font) Encoded(code byte) (string, bool) { return f.enc[code], f.hasEnc[code] }
+// Shown describes a string after Append.
+type Shown struct {
+	// Advance is the sum of the glyph advances, as a fraction of the
+	// font size. For a vertical font it is negative: down the page.
+	Advance float64
+	// Glyphs is the number of character codes.
+	Glyphs int
+	// Spaces is the number of one-byte codes with the value 32, the only
+	// ones word spacing applies to.
+	Spaces int
+	// Unmapped is the number of codes with no text. Each is U+FFFD in
+	// the output.
+	Unmapped int
+	// Assumed is the number of codes whose text is taken from the code
+	// itself, because the font does not say what its glyph is.
+	Assumed int
+}
 
-// Width returns the width of a code and whether the font states it.
-func (f *Font) Width(code byte) (float64, bool) { return f.widths[code], f.hasWidth[code] }
+const replacement = "�"
+
+// Append appends the text of the string s, as shown in this font, to
+// dst. The result is valid UTF-8 whatever s holds.
+func (f *Font) Append(dst, s []byte) ([]byte, Shown) {
+	var sh Shown
+	if !f.Composite {
+		var adv float32
+		for _, c := range s {
+			if b := f.one[c]; b != 0 {
+				// Most text is this: one code, one ASCII character.
+				dst = append(dst, b)
+			} else if t := f.text[c]; t != "" {
+				dst = append(dst, t...)
+			} else if !f.blank[c] {
+				dst = append(dst, replacement...)
+				sh.Unmapped++
+			}
+			adv += f.widths[c]
+			if c == ' ' {
+				sh.Spaces++
+			}
+		}
+		sh.Advance, sh.Glyphs = float64(adv), len(s)
+		if f.assumed != nil {
+			for _, c := range s {
+				if f.assumed[c] {
+					sh.Assumed++
+				}
+			}
+		}
+		return dst, sh
+	}
+	for len(s) > 0 {
+		code, n := f.space.next(s)
+		s = s[n:]
+		sh.Glyphs++
+		if n == 1 && code == ' ' {
+			sh.Spaces++
+		}
+		ok := false
+		if f.toUni != nil {
+			dst, ok = f.toUni.appendText(dst, code, n)
+		}
+		if !ok && f.unicode != 0 {
+			dst, ok = appendUnicode(dst, code, n, f.unicode)
+		}
+		if !ok {
+			dst = append(dst, replacement...)
+			sh.Unmapped++
+		}
+		cid := code
+		if f.cids != nil {
+			cid = f.cids.cid(code, n)
+		}
+		if f.noCIDs {
+			sh.Advance += float64(f.dw)
+		} else {
+			sh.Advance += float64(f.cidWidth(cid))
+		}
+	}
+	return dst, sh
+}
+
+// CodeLen returns the number of bytes of the first character code of s,
+// which must not be empty.
+func (f *Font) CodeLen(s []byte) int {
+	if !f.Composite {
+		return 1
+	}
+	_, n := f.space.next(s)
+	return n
+}
+
+// appendUnicode appends a character code that is Unicode already.
+func appendUnicode(dst []byte, code uint32, n int, form unicodeCodes) ([]byte, bool) {
+	if form == asciiOneByte {
+		if n == 1 && code >= 0x20 && code <= 0x7E {
+			return append(dst, byte(code)), true
+		}
+		return dst, false
+	}
+	r := rune(code)
+	if form == unicodeUTF16 && n == 4 {
+		r = utf16.DecodeRune(rune(code>>16), rune(code&0xFFFF))
+	}
+	if r == 0 || r > utf8.MaxRune || r >= 0xD800 && r <= 0xDFFF || r == utf8.RuneError {
+		return dst, false
+	}
+	return utf8.AppendRune(dst, r), true
+}
+
+func (f *Font) cidWidth(cid uint32) float32 {
+	ws := f.w
+	i := sort.Search(len(ws), func(i int) bool { return ws[i].first > cid }) - 1
+	// Ranges are few and seldom overlap; look a little way back for one
+	// that reaches the CID.
+	for k := 0; i >= 0 && k < 4; i, k = i-1, k+1 {
+		if e := &ws[i]; cid <= e.last {
+			if e.arr >= 0 {
+				return f.wArr[e.arr+int32(cid-e.first)]
+			}
+			return e.w
+		}
+	}
+	return f.dw
+}
+
+// Default is the font used when a page names one that does not exist:
+// StandardEncoding and glyphs half as wide as they are high.
+var Default = func() *Font {
+	f := &Font{SpaceWidth: 0.25}
+	f.text = *charset.Standard()
+	for i := range f.widths {
+		f.widths[i] = 0.5
+	}
+	f.index()
+	return f
+}()
 
 type cacheKey struct{ obj int64 }
 
@@ -82,216 +242,415 @@ func Load(f *file.File, ref syntax.Value) *Font {
 	return font
 }
 
+// maxAdvance bounds a glyph advance, as a fraction of the font size. A
+// file can state any number; no glyph is a hundred times wider than it
+// is high.
+const maxAdvance = 100
+
+func advance(v float64) float32 {
+	if !(v > -maxAdvance) { // also catches NaN
+		return -maxAdvance
+	}
+	if v > maxAdvance {
+		return maxAdvance
+	}
+	return float32(v)
+}
+
 func parse(f *file.File, dict syntax.Value) *Font {
-	font := &Font{SpaceWidth: 250}
+	font := &Font{SpaceWidth: 0.25}
 	font.BaseFont = f.Resolve(dict.Get("BaseFont")).NameString()
 
-	// Widths of a simple font: /Widths[i] is the width of /FirstChar + i.
-	if first, ok := f.Resolve(dict.Get("FirstChar")).Float(); ok {
-		for i, w := range f.Resolve(dict.Get("Widths")).Elems() {
-			width, ok := w.Float()
-			if !ok {
-				continue
-			}
-			font.HasWidths = true
-			if code := int(first) + i; code >= 0 && code < 256 {
-				font.widths[code], font.hasWidth[code] = width, true
+	var toUni *cmap
+	tu := f.Resolve(dict.Get("ToUnicode"))
+	// /ToUnicode /Identity-H says that the codes are Unicode already.
+	font.unicode = 0
+	if tu.IsName("Identity-H") || tu.IsName("Identity-V") {
+		font.unicode = unicodeUCS2
+	}
+	if tu.Kind == syntax.Stream {
+		if data, err := f.Decode(tu, nil, 0); err == nil || len(data) > 0 {
+			if c := parseCMap(data); len(c.entries) > 0 {
+				toUni = c
+				font.Truncated = c.truncated
 			}
 		}
-	}
-	if font.hasWidth[32] {
-		font.SpaceWidth = font.widths[32]
 	}
 
-	// A ToUnicode CMap, when present and readable, is the only mapping
-	// used; otherwise /Differences is.
-	if tu := f.Resolve(dict.Get("ToUnicode")); tu.Kind == syntax.Stream {
-		if data, err := f.Decode(tu, nil, 0); err == nil || len(data) > 0 {
-			font.parseCMap(data)
-			return font
-		}
-	}
-	if enc := f.Resolve(dict.Get("Encoding")); enc.Kind == syntax.Dict {
-		code := 0
-		for _, item := range f.Resolve(enc.Get("Differences")).Elems() {
-			switch item.Kind {
-			case syntax.Int, syntax.Real:
-				code = int(item.F)
-			case syntax.Name:
-				font.HasEncoding = true
-				if code >= 0 && code < 256 {
-					font.enc[code], font.hasEnc[code] = glyphText(item.Data, byte(code)), true
-				}
-				code++
-			}
-		}
+	if f.Resolve(dict.Get("Subtype")).IsName("Type0") {
+		font.parseComposite(f, dict, toUni)
+	} else {
+		font.parseSimple(f, dict, toUni)
+		font.index()
 	}
 	return font
 }
 
-// glyphText returns the text for a glyph name: from the table, else the
-// name itself if it is a single character, else the code as a byte.
-func glyphText(name []byte, code byte) string {
-	if text, ok := glyphNames[string(name)]; ok {
-		return text
+// index fills the table of one-byte texts from the texts of the codes.
+func (f *Font) index() {
+	for code, t := range f.text {
+		f.one[code] = 0
+		if len(t) == 1 && t[0] < 0x80 && t[0] != 0 {
+			f.one[code] = t[0]
+		}
 	}
-	if len(name) == 1 {
-		return string(name)
-	}
-	return string([]byte{code})
 }
 
-// parseCMap reads the bfchar and bfrange sections of a ToUnicode CMap.
-// Everything else in it is PostScript that is stepped over.
-func (font *Font) parseCMap(data []byte) {
-	p := syntax.NewParser(data, 0, 0)
-	// next returns the next object, stepping over bytes that start none,
-	// such as the braces of a PostScript procedure.
-	next := func() (syntax.Value, bool) {
-		for {
-			v, err := p.Object()
-			if err == nil {
-				return v, true
+// --- simple fonts ---
+
+func (font *Font) parseSimple(f *file.File, dict syntax.Value, toUni *cmap) {
+	subtype := f.Resolve(dict.Get("Subtype"))
+	font.Type3 = subtype.IsName("Type3")
+	descriptor := f.Resolve(dict.Get("FontDescriptor"))
+	flags, _ := f.Resolve(descriptor.Get("Flags")).Integer()
+	const fixedPitch, symbolic = 1 << 0, 1 << 2
+	core := charset.Core(font.BaseFont)
+
+	// The encoding the differences apply to. A font that names none has
+	// the encoding built into its program, which is not read here: a
+	// standard font has the one the specification gives it, and for any
+	// other the usual one for its kind is assumed.
+	var base *charset.Encoding
+	enc := f.Resolve(dict.Get("Encoding"))
+	switch {
+	case enc.Kind == syntax.Name:
+		base = charset.Named(enc.NameString())
+	case enc.Kind == syntax.Dict:
+		base = charset.Named(f.Resolve(enc.Get("BaseEncoding")).NameString())
+	}
+	// certain: the encoding is the one the file names, or the one of a
+	// font that is not embedded and so can only be a standard one. A
+	// code it has no character for has no glyph and draws nothing. In an
+	// embedded font without a named encoding such a code may well have a
+	// glyph, of which nothing is known.
+	embedded := descriptor.Has("FontFile") || descriptor.Has("FontFile2") || descriptor.Has("FontFile3")
+	certain := base != nil || !embedded
+	glyphText := charset.GlyphText
+	if core != nil && core.Dingbats() {
+		glyphText = charset.DingbatText
+	}
+	var unknown [256]string // glyph names that say nothing
+	if base == nil {
+		// A Type 1 font program states its encoding in clear text.
+		if names, standard, ok := type1Encoding(f, descriptor); ok {
+			certain = true
+			if standard {
+				base = charset.Standard()
+			} else {
+				base = &charset.Encoding{}
+				for code, name := range names {
+					if name == "" || name == ".notdef" {
+						continue
+					}
+					t, ok := glyphText(name)
+					base[code] = t
+					if !ok {
+						unknown[code] = name
+					}
+				}
 			}
-			if err == io.EOF || !errors.Is(err, syntax.ErrSyntax) {
-				return syntax.Value{}, false
-			}
-			p.SetPos(p.Pos() + 1)
 		}
 	}
-	isHex := func(v syntax.Value) bool { return v.Kind == syntax.String && v.Hex }
-
-	for {
-		v, ok := next()
-		if !ok {
-			return
+	if base == nil {
+		switch {
+		case font.Type3:
+			base, certain = &charset.Encoding{}, true
+		case core != nil:
+			base = core.Builtin
+		case subtype.IsName("TrueType") && flags&symbolic == 0:
+			base = charset.WinAnsi()
+		default:
+			base = charset.Standard()
 		}
-		if v.Kind != syntax.Keyword {
+	}
+	font.text = *base
+	for code, t := range font.text {
+		font.blank[code] = certain && t == "" && unknown[code] == ""
+	}
+
+	// /Differences: a number sets the code, each name that follows is
+	// the glyph of the next code.
+	if enc.Kind == syntax.Dict {
+		code := -1
+		for _, item := range f.Resolve(enc.Get("Differences")).Elems() {
+			item = f.Resolve(item)
+			switch item.Kind {
+			case syntax.Int, syntax.Real:
+				code = -1
+				if item.F >= 0 && item.F < 256 {
+					code = int(item.F)
+				}
+			case syntax.Name:
+				if code >= 0 && code < 256 {
+					// .notdef is what producers write for a code they
+					// do not use; it changes nothing.
+					if name := string(item.Data); name != ".notdef" {
+						t, ok := glyphText(name)
+						font.text[code], font.blank[code], unknown[code] = t, false, ""
+						if !ok {
+							unknown[code] = name
+						}
+					}
+					code++
+				}
+			}
+		}
+	}
+
+	// Glyphs the font says nothing about: read by their codes.
+	for code := range font.text {
+		if font.text[code] != "" || !font.blank[code] && unknown[code] == "" {
 			continue
 		}
-		switch string(v.Data) {
-		case "beginbfchar":
-			for {
-				src, ok := next()
-				if !ok {
-					return
-				}
-				if src.Kind == syntax.Keyword {
-					if src.Equal("endbfchar") {
-						break
-					}
-					continue
-				}
-				dst, ok := next()
-				if !ok {
-					return
-				}
-				if isHex(src) && isHex(dst) {
-					font.add(src.Data, decodeUTF16BE(dst.Data))
-				}
+		t := ""
+		switch {
+		case code >= 0x20 && code <= 0x7E:
+			t = string(rune(code))
+		case code >= 0xA1 && unknown[code] != "" && nameNumber(unknown[code]) == code:
+			t = string(rune(code))
+		}
+		if t != "" {
+			if font.assumed == nil {
+				font.assumed = new([256]bool)
 			}
-		case "beginbfrange":
-			for {
-				lo, ok := next()
-				if !ok {
-					return
-				}
-				if lo.Kind == syntax.Keyword {
-					if lo.Equal("endbfrange") {
-						break
-					}
-					continue
-				}
-				hi, ok1 := next()
-				dst, ok2 := next()
-				if !ok1 || !ok2 {
-					return
-				}
-				if isHex(lo) && isHex(hi) {
-					font.addRange(lo.Data, hi.Data, dst)
+			font.text[code], font.blank[code], font.assumed[code] = t, false, true
+		}
+	}
+
+	// ToUnicode has the last word, code by code.
+	if toUni != nil {
+		var buf []byte
+		for code := range font.text {
+			// An entry with no text at all leaves the encoding's text.
+			if t, ok := toUni.appendText(buf[:0], uint32(code), 1); ok && len(t) > 0 {
+				buf = t
+				font.text[code] = string(t)
+				if font.assumed != nil {
+					font.assumed[code] = false
 				}
 			}
 		}
 	}
-}
 
-func (font *Font) add(code []byte, text string) {
-	font.HasCMap = true
-	switch len(code) {
-	case 1:
-		font.one[code[0]], font.hasOne[code[0]] = text, true
-	case 2:
-		if font.two == nil {
-			font.two = map[uint16]string{}
+	// Widths. /Widths is in units of a thousandth of the font size, or,
+	// for a Type3 font, in the units of its /FontMatrix.
+	unit := 0.001
+	if font.Type3 {
+		if m := f.Resolve(dict.Get("FontMatrix")).Elems(); len(m) == 6 {
+			if a, ok := f.Resolve(m[0]).Float(); ok && a != 0 && !math.IsNaN(a) {
+				unit = math.Abs(a)
+			}
 		}
-		font.two[uint16(code[0])<<8|uint16(code[1])] = text
 	}
-	// Codes of other lengths are never looked up by this version.
-}
-
-func bytesToInt(b []byte) (int64, bool) {
-	if len(b) > 7 {
-		return 0, false
-	}
-	var v int64
-	for _, c := range b {
-		v = v<<8 | int64(c)
-	}
-	return v, true
-}
-
-func intToBytes(v int64, n int) []byte {
-	out := make([]byte, n)
-	for i := n - 1; i >= 0; i-- {
-		out[i] = byte(v)
-		v >>= 8
-	}
-	return out
-}
-
-// addRange adds a bfrange entry: codes lo to hi map either to the
-// elements of an array, or to consecutive values starting at a string.
-func (font *Font) addRange(lo, hi []byte, dst syntax.Value) {
-	start, ok1 := bytesToInt(lo)
-	end, ok2 := bytesToInt(hi)
-	if !ok1 || !ok2 || end < start {
-		return
-	}
-	n := len(lo)
-	if n != 1 && n != 2 {
-		// Never looked up; only the fact that the font has a CMap counts.
-		if dst.Kind == syntax.Array && len(dst.List) > 0 || dst.Kind == syntax.String && dst.Hex {
-			font.HasCMap = true
-		}
-		return
-	}
-	// A code of n bytes has at most 256^n values, whatever the range says.
-	last := min(end, int64(1)<<(8*n)-1)
+	missing, _ := f.Resolve(descriptor.Get("MissingWidth")).Float()
+	widths := f.Resolve(dict.Get("Widths")).Elems()
+	first, hasFirst := f.Resolve(dict.Get("FirstChar")).Float()
+	var stated [256]bool // codes whose width the font states
 	switch {
-	case dst.Kind == syntax.Array:
-		for i, elem := range dst.List {
-			if code := start + int64(i); code <= last && elem.Kind == syntax.String && elem.Hex {
-				font.add(intToBytes(code, n), decodeUTF16BE(elem.Data))
+	case len(widths) > 0 && hasFirst:
+		for code := range font.widths {
+			font.widths[code] = advance(missing * unit)
+		}
+		for i, w := range widths {
+			width, ok := f.Resolve(w).Float()
+			if code := first + float64(i); ok && code >= 0 && code < 256 {
+				font.widths[int(code)] = advance(width * unit)
+				stated[int(code)] = true
 			}
 		}
-	case dst.Kind == syntax.String && dst.Hex:
-		base, ok := bytesToInt(dst.Data)
-		if !ok {
-			return
+	default:
+		// No widths: a standard font has known ones, and any other is
+		// taken to be of average width.
+		fallback := 500.0
+		if missing > 0 {
+			fallback = missing
+		} else if flags&fixedPitch != 0 {
+			fallback = 600
 		}
-		for code := start; code <= last; code++ {
-			font.add(intToBytes(code, n), decodeUTF16BE(intToBytes(base+code-start, len(dst.Data))))
+		for code := range font.widths {
+			width := fallback
+			if core != nil {
+				if w, ok := core.Width(byte(code), font.text[code]); ok {
+					width, stated[code] = w, true
+				} else if w, ok := core.Width(byte(code), base[code]); ok {
+					width, stated[code] = w, true
+				}
+			}
+			font.widths[code] = advance(width * 0.001)
+		}
+	}
+
+	// The space: code 32 if it is one, else whichever code is. Only a
+	// width the font states for it counts: many fonts have no space at
+	// all, and what stands in for a missing width says nothing.
+	space := -1
+	if font.text[' '] == " " {
+		space = ' '
+	} else {
+		for code, t := range font.text {
+			if t == " " {
+				space = code
+				break
+			}
+		}
+	}
+	if space >= 0 && stated[space] && font.widths[space] > 0 {
+		font.SpaceWidth = float64(font.widths[space])
+	}
+}
+
+// nameNumber returns the number a made-up glyph name ends in, when the
+// name is up to three letters followed by digits ("a192", "g65", "c7"),
+// or -1.
+func nameNumber(name string) int {
+	i := 0
+	for i < len(name) && i < 3 && (name[i] >= 'a' && name[i] <= 'z' || name[i] >= 'A' && name[i] <= 'Z') {
+		i++
+	}
+	if i == len(name) || len(name)-i > 5 {
+		return -1
+	}
+	n := 0
+	for ; i < len(name); i++ {
+		if name[i] < '0' || name[i] > '9' {
+			return -1
+		}
+		n = n*10 + int(name[i]-'0')
+	}
+	return n
+}
+
+// --- composite fonts ---
+
+func (font *Font) parseComposite(f *file.File, dict syntax.Value, toUni *cmap) {
+	font.Composite = true
+	font.toUni = toUni
+
+	// /Encoding names a predefined CMap or is a CMap stream.
+	known := false
+	switch enc := f.Resolve(dict.Get("Encoding")); enc.Kind {
+	case syntax.Name:
+		name := enc.NameString()
+		var codes unicodeCodes
+		font.space, codes, font.Vertical, known = predefined(name)
+		if codes != 0 {
+			font.unicode = codes
+		}
+		// Only for the identity CMaps is the CID the code.
+		font.noCIDs = name != "Identity-H" && name != "Identity-V"
+	case syntax.Stream:
+		if data, err := f.Decode(enc, nil, 0); err == nil || len(data) > 0 {
+			c := parseCMap(data)
+			font.Truncated = font.Truncated || c.truncated
+			font.Vertical = c.vertical
+			if wmode, ok := f.Resolve(enc.Get("WMode")).Integer(); ok {
+				font.Vertical = wmode == 1
+			}
+			font.space = c.space
+			known = len(c.space.ranges) > 0
+			parent := c.parent
+			if parent == "" {
+				parent = f.Resolve(enc.Get("UseCMap")).NameString()
+			}
+			if !known && parent != "" {
+				var codes unicodeCodes
+				font.space, codes, _, known = predefined(parent)
+				if codes != 0 {
+					font.unicode = codes
+				}
+			}
+			switch {
+			case len(c.entries) > 0:
+				font.cids = c
+			case parent != "Identity-H" && parent != "Identity-V":
+				font.noCIDs = true
+			}
+		}
+	}
+	if !known {
+		// The lengths of the codes are not known from the encoding. The
+		// ToUnicode CMap states them too; failing that, two bytes is by
+		// far the most common.
+		if toUni != nil && len(toUni.space.ranges) > 0 {
+			font.space = toUni.space
+		} else {
+			font.space = fixed(2)
+		}
+		font.noCIDs = font.cids == nil
+	}
+
+	// Advances are in the descendant CIDFont.
+	font.dw = 1
+	descendant := syntax.Value{}
+	if list := f.Resolve(dict.Get("DescendantFonts")).Elems(); len(list) > 0 {
+		descendant = f.Resolve(list[0])
+	}
+	if dw, ok := f.Resolve(descendant.Get("DW")).Float(); ok {
+		font.dw = advance(dw * 0.001)
+	}
+	if font.Vertical {
+		// Down the page by /DW2's second number, -1000 if absent. The
+		// individual vertical advances of /W2 are not read.
+		font.dw = -1
+		if dw2 := f.Resolve(descendant.Get("DW2")).Elems(); len(dw2) == 2 {
+			if v, ok := f.Resolve(dw2[1]).Float(); ok {
+				font.dw = advance(v * 0.001)
+			}
+		}
+		font.noCIDs = true
+	} else {
+		font.parseW(f, f.Resolve(descendant.Get("W")).Elems())
+	}
+
+	// The space: the code whose text is a space.
+	if toUni != nil {
+		if code, n, ok := toUni.codeFor(" "); ok {
+			cid := code
+			if font.cids != nil {
+				cid = font.cids.cid(code, n)
+			}
+			if w := font.cidWidth(cid); !font.noCIDs && w > 0 {
+				font.SpaceWidth = float64(w)
+			}
 		}
 	}
 }
 
-func decodeUTF16BE(b []byte) string {
-	if len(b)%2 != 0 {
-		return string(b)
+// parseW reads /W: "c [w1 w2 ...]" gives the advances of the CIDs from
+// c on, "first last w" gives one advance to a range.
+func (font *Font) parseW(f *file.File, items []syntax.Value) {
+	const maxWidths = 1 << 20
+	for i := 0; i < len(items); {
+		first, ok := f.Resolve(items[i]).Float()
+		if !ok || first < 0 || first > 0xFFFFFF || i+1 >= len(items) {
+			i++
+			continue
+		}
+		second := f.Resolve(items[i+1])
+		if second.Kind == syntax.Array {
+			start := len(font.wArr)
+			for _, w := range second.List {
+				width, _ := f.Resolve(w).Float()
+				font.wArr = append(font.wArr, advance(width*0.001))
+			}
+			if n := len(font.wArr) - start; n > 0 && len(font.wArr) <= maxWidths {
+				font.w = append(font.w, cidWidth{first: uint32(first), last: uint32(first) + uint32(n) - 1, arr: int32(start)})
+			} else {
+				font.wArr = font.wArr[:start]
+				font.Truncated = font.Truncated || n > 0
+			}
+			i += 2
+			continue
+		}
+		last, ok1 := second.Float()
+		if i+2 >= len(items) {
+			break
+		}
+		width, ok2 := f.Resolve(items[i+2]).Float()
+		if ok1 && ok2 && last >= first && last <= 0xFFFFFF && len(font.w) < maxWidths {
+			font.w = append(font.w, cidWidth{first: uint32(first), last: uint32(last), w: advance(width * 0.001), arr: -1})
+		}
+		i += 3
 	}
-	units := make([]uint16, len(b)/2)
-	for i := range units {
-		units[i] = uint16(b[2*i])<<8 | uint16(b[2*i+1])
-	}
-	return string(utf16.Decode(units))
+	sort.SliceStable(font.w, func(i, j int) bool { return font.w[i].first < font.w[j].first })
 }

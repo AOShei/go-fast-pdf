@@ -388,3 +388,34 @@ func TestRepairedInput(t *testing.T) {
 		t.Error("input.repaired on a sound file")
 	}
 }
+
+// TestAmbiguousInput: a file without usable cross-reference data that
+// defines an object twice can be read in two ways. The last definition
+// is read, and the document says that there was a choice.
+func TestAmbiguousInput(t *testing.T) {
+	data := onePage("BT /F1 12 Tf 72 720 Td (The first version of the page.) Tj ET").bytes()
+	body := string(data[:strings.Index(string(data), "\nxref\n")+1]) // the objects, without table and trailer
+	// The content stream of the page is object 4. A second definition
+	// follows the first, as a later revision of the file would add it.
+	again := "4 0 obj\n" + pdftest.Stream("", "BT /F1 12 Tf 72 720 Td (The second version of the page.) Tj ET") + "\nendobj\n"
+	doc := mustExtract(t, []byte(body+again), nil)
+	if w, ok := warning(doc.Warnings, gofastcore.WarnInputAmbiguous); !ok || w.Severity != gofastcore.SeverityWarning {
+		t.Errorf("warnings %+v", doc.Warnings)
+	}
+	if got := doc.Parts[0].Text(); got != "The second version of the page.\n" {
+		t.Errorf("text %q", got)
+	}
+	// Without a second definition there is no choice, and a sound file
+	// that redefines an object says in its cross-reference data which
+	// definition counts.
+	if _, ok := warning(mustExtract(t, []byte(body), nil).Warnings, gofastcore.WarnInputAmbiguous); ok {
+		t.Error("input.ambiguous on a file that defines every object once")
+	}
+	b := pdftest.Doc(pdftest.DocOptions{}, pdftest.PageSpec{Content: "BT /F1 12 Tf 72 720 Td (First) Tj ET"})
+	b.Update()
+	b.Set(4, pdftest.Stream("", "BT /F1 12 Tf 72 720 Td (Second) Tj ET"))
+	doc = mustExtract(t, b.Bytes(), nil)
+	if _, ok := warning(doc.Warnings, gofastcore.WarnInputAmbiguous); ok || doc.Parts[0].Text() != "Second\n" {
+		t.Errorf("a file saved in two steps: warnings %+v, text %q", doc.Warnings, doc.Parts[0].Text())
+	}
+}

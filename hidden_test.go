@@ -78,7 +78,21 @@ var hiddenCases = []hiddenCase{
 	{name: "white text on an unpainted page", before: "BT /F1 12 Tf 1 g 72 500 Td " + secret + " ET 0 g\n", want: gofastcore.HiddenLowContrast},
 	{name: "nearly white text on an unpainted page", before: "BT /F1 12 Tf 0.95 0.95 0.95 rg 72 500 Td " + secret + " ET 0 g\n", want: gofastcore.HiddenLowContrast},
 
+	{name: "clipping text with nothing painted through it",
+		after:     "q BT /F1 12 Tf 7 Tr 72 500 Td " + secret + " ET Q q 200 0 0 60 60 300 cm /Im1 Do Q",
+		objects:   []string{grayImage},
+		resources: "/XObject << /Im1 1 0 R >>",
+		want:      gofastcore.HiddenInvisible},
+
 	// --- text that must not be flagged ---
+	{name: "text that an image is painted through",
+		after:     "q BT /F1 12 Tf 7 Tr 72 500 Td " + secret + " ET 400 0 0 60 60 490 cm /Im1 Do Q",
+		objects:   []string{grayImage},
+		resources: "/XObject << /Im1 1 0 R >>"},
+	{name: "text that a filled shape is painted through",
+		after: "q BT /F1 12 Tf 7 Tr 72 500 Td " + secret + " ET 0.2 g 60 490 400 60 re f Q"},
+	{name: "text that other text is painted through",
+		after: "q BT /F1 12 Tf 7 Tr 72 500 Td " + secret + " ET BT /F1 40 Tf 0 Tr 60 495 Td (XXXXXXXX) Tj ET Q"},
 	{name: "white text after a background was painted",
 		before: "0.1 g 0 0 612 792 re f 1 g BT /F1 12 Tf 72 500 Td " + secret + " ET 0 g\n"},
 	{name: "a 6-point footnote", after: "BT /F1 6 Tf 72 500 Td " + secret + " ET"},
@@ -181,6 +195,35 @@ func TestHiddenText(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestFlattenedTransparency: a program that removes transparency from a
+// page draws text, covers it with a picture of that part of the page,
+// and draws the text again as the outline that the picture is painted
+// through. The reader sees the text once, and so does this library.
+func TestFlattenedTransparency(t *testing.T) {
+	words := "BT /F1 12 Tf %s 72 500 Td (Modified for the Web) Tj ET\n"
+	patch := "q 180 0 0 20 60 495 cm /Im1 Do Q\n"
+	content := visibleLines + strings.Replace(words, "%s", "", 1) + patch +
+		"q " + strings.Replace(words, "%s", "7 Tr", 1) + patch + "Q\n"
+	d := synthDoc{Objects: []string{grayImage}, Pages: []synthPage{{Content: content, Resources: "/XObject << /Im1 1 0 R >>"}}}
+	part := &mustExtract(t, d.bytes(), nil).Parts[0]
+	if got := texts(part); len(got) != 2 || got[0] != visibleText || got[1] != "Modified for the Web" {
+		t.Errorf("blocks %q", got)
+	}
+	if part.Has(gofastcore.WarnTextHidden) {
+		t.Errorf("warnings %v", codes(part.Warnings))
+	}
+
+	// A hidden copy goes only when what is in plain sight in the same
+	// place says the same. Other text under the picture stays, flagged.
+	other := visibleLines + "BT /F1 12 Tf 72 500 Td (Something else entirely) Tj ET\n" + patch +
+		"q " + strings.Replace(words, "%s", "7 Tr", 1) + patch + "Q\n"
+	d.Pages[0].Content = other
+	part = &mustExtract(t, d.bytes(), nil).Parts[0]
+	if got := texts(part); len(got) != 3 || got[1] != "occluded: Something else entirely" && got[2] != "occluded: Something else entirely" {
+		t.Errorf("blocks %q", got)
 	}
 }
 

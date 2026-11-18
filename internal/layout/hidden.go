@@ -155,7 +155,9 @@ func (b *builder) prepare() {
 // reasons returns why a reader cannot see the run, as far as the checks
 // that always run can tell.
 func (b *builder) reasons(r *extract.Run, p *piece, page box) gofastcore.Hidden {
-	unpainted := r.Mode == 3 || r.Mode == 7
+	// Text that only clips is drawn all the same when something is
+	// painted through it.
+	unpainted := r.Mode == 3 || r.Mode == 7 && !r.ClipPainted
 	cx, cy := (p.x0+p.x1)/2, (p.y0+p.y1)/2
 	me := box{p.x0, p.y0, p.x1, p.y1}
 
@@ -173,6 +175,11 @@ func (b *builder) reasons(r *extract.Run, p *piece, page box) gofastcore.Hidden 
 			covered = true
 			coveredByPage = coveredByPage || o.page
 		}
+	}
+
+	// Text that clips is not covered by what is painted through it.
+	if r.Mode == 7 && r.ClipPainted {
+		covered, coveredByPage = false, false
 	}
 
 	// What lies wholly outside the page is off the page, whatever else
@@ -275,16 +282,30 @@ func (b *builder) markDuplicates() {
 				break
 			}
 			ro := &b.c.Runs[o.run]
-			if o.dup || a.dup || o.hidden != a.hidden || ro.Font != ra.Font || ro.Len != ra.Len ||
+			if o.dup || a.dup || ro.Font != ra.Font || ro.Len != ra.Len ||
 				math.Abs(o.sy-a.sy) > slack || math.Abs(o.size-a.size) > 0.001*a.size ||
 				o.dx*a.dx+o.dy*a.dy < 0.999 || string(b.runText(o.run)) != string(b.runText(a.run)) {
 				continue
 			}
-			later := o
-			if a.run > o.run {
-				later = a
+			// Of two copies, the later one goes. Of a copy a reader can
+			// see and one he cannot, the hidden one goes: it hides
+			// nothing that is not in plain sight in the same place. Two
+			// copies hidden for different reasons both stay.
+			var drop *piece
+			switch {
+			case o.hidden == a.hidden:
+				drop = o
+				if a.run > o.run {
+					drop = a
+				}
+			case a.hidden == 0:
+				drop = o
+			case o.hidden == 0:
+				drop = a
+			default:
+				continue
 			}
-			later.dup = true
+			drop.dup = true
 			b.stats.Duplicates++
 		}
 	}

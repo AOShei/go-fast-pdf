@@ -1,0 +1,69 @@
+Counts over the public corpus, pages extracted with default options.
+Scripts and actions outside the pages (catalog, form fields) are not in the active/external counts.
+
+                                                             tuning held-out
+files in the set                                               1089      561
+files opened without a password                                1066      550
+pages                                                          4533     2431
+pages with text                                                4027     2163
+pages with images and no text (part.image_only)                 176       90
+pages with neither (part.no_text)                               310      171
+pages that failed (part.failed)                                  20        7
+
+Hidden text
+pages with text.hidden at info (a text layer only)               64       10
+pages with text.hidden at warning                               343      391
+  invisible: files                                               17        9
+  invisible: pages                                              225       21
+  invisible: blocks                                            3071      309
+  text_layer: files                                               9        4
+  text_layer: pages                                              64       10
+  text_layer: blocks                                           2037      154
+  tiny: files                                                    19       12
+  tiny: pages                                                    23       17
+  tiny: blocks                                                   54       32
+  low_contrast: files                                             7        3
+  low_contrast: pages                                            63        3
+  low_contrast: blocks                                           74        4
+  off_page: files                                                13        8
+  off_page: pages                                                45      362
+  off_page: blocks                                               84     1157
+  clipped: files                                                  0        0
+  clipped: pages                                                  0        0
+  clipped: blocks                                                 0        0
+  occluded: files                                                 5        1
+  occluded: pages                                                 8        2
+  occluded: blocks                                               24        3
+  transparent: files                                              2        0
+  transparent: pages                                              2        0
+  transparent: blocks                                             6        0
+  invisible_chars: files                                          0        0
+  invisible_chars: pages                                          0        0
+  invisible_chars: blocks                                         0        0
+pages with visible text drawn after something was painted      2216     1494
+pages with a text layer and visible text                          9        1
+
+Proposal E
+/ActualText that says other letters than its glyphs: uses       677       38
+  pages with one                                                 21        9
+  uses that say 16 bytes more than their glyphs                   0        0
+  pages with one of those                                         0        0
+pages using a font in which one code is over 24 bytes of text        0        0
+
+Layout
+pages with a tab                                               1083      924
+tabs                                                          20283    20172
+pages with a line whose letters were closed up                   34       21
+such lines                                                      257       35
+pages with text printed twice                                    39       49
+runs left out as printed twice                                  272      132
+pages with a line put together from pieces drawn apart           81       46
+pages whose blocks are not in the order drawn                  1310     1043
+pages with right-to-left text (pdf.rtl_visual_order)             11        9
+
+Files
+files read through repair (input.repaired)                       47       22
+  of them, read by scanning for objects                          38       16
+  of those, with an object defined more than once                 1        0
+files with a script or launch action on a page                   38       17
+files with an external reference on a page                        4        3

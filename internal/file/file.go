@@ -106,6 +106,10 @@ type File struct {
 	stms     objStmCache
 	pages    []Page
 	rec      recovery
+	// rebuilt and redefined describe a file read by scanning; see
+	// Rebuilt.
+	rebuilt   bool
+	redefined int
 
 	mu       sync.Mutex
 	warnings []gofastcore.Warning

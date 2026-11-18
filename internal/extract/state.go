@@ -105,6 +105,10 @@ type gstate struct {
 
 	fill, stroke           paint
 	fillAlpha, strokeAlpha float32
+
+	// clip is the number of the text object whose text, shown in a
+	// clipping render mode, is part of the clipping path; 0 if none.
+	clip int32
 }
 
 func initialState() gstate {

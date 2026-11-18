@@ -38,6 +38,13 @@ type Run struct {
 	// Mode is the text render mode (Tr): 0 fill, 1 stroke, 2 both, 3
 	// neither, 4 to 7 the same with the text added to the clip path.
 	Mode uint8
+	// Clip numbers the text object of a run shown in a clipping mode (4
+	// to 7), 0 for any other run. ClipPainted is set when something was
+	// painted while that text clipped: the text then shows as what was
+	// painted through it, which is how text filled with an image or a
+	// shading is drawn.
+	Clip        int32
+	ClipPainted bool
 	// Fill and Stroke are the colours, and FillAlpha and StrokeAlpha
 	// the opacities from the graphics state (1 is opaque).
 	Fill, Stroke           Color
@@ -341,6 +348,20 @@ func (in *interp) showCodes(f *font.Font, raw []byte) {
 		in.assumed += sh.Assumed
 	}
 
+	// Text in a clipping mode belongs to the clip of its text object;
+	// text that is painted while other text clips paints through it.
+	var clip int32
+	if g.mode >= 4 {
+		if in.textClip == 0 {
+			in.clips++
+			in.textClip = in.clips
+		}
+		clip = in.textClip
+	}
+	if g.mode != 3 && g.mode != 7 {
+		in.paintedThroughClip()
+	}
+
 	// The advance in text space, and the text position after it.
 	var tx, ty float64
 	spacing := float64(sh.Glyphs)*g.tc + float64(sh.Spaces)*g.tw
@@ -371,7 +392,10 @@ func (in *interp) showCodes(f *font.Font, raw []byte) {
 	p := &in.prev
 	// The same string printed again where it was printed last: the way
 	// bold type and shadows are faked. It is the same text once.
-	if !replaced && p.valid && p.serial == ge.serial && p.font == f && in.printedAgain(x0, y0, start) {
+	// Only a copy that is drawn the same way is left out here: one that a
+	// reader would see differently is for the layout to judge.
+	if n := len(in.runs); !replaced && n > 0 && p.valid && p.serial == ge.serial && p.font == f &&
+		in.runs[n-1].Clip == clip && in.sameVisibility(&in.runs[n-1]) && in.printedAgain(x0, y0, start) {
 		in.text = in.text[:start]
 		in.unmapped -= sh.Unmapped
 		in.assumed -= sh.Assumed
@@ -407,7 +431,7 @@ func (in *interp) showCodes(f *font.Font, raw []byte) {
 	// A gap wider than the font size ends the run: what follows may be
 	// another entry of a row, or text that leaves room for a word drawn
 	// later, and a reader of the runs has to see the gap.
-	if n := len(in.runs); n > 0 && sep != '\n' && !replaced && !(sep == ' ' && along > ge.size) && in.continues(&in.runs[n-1], f) {
+	if n := len(in.runs); n > 0 && sep != '\n' && !replaced && !(sep == ' ' && along > ge.size) && in.runs[n-1].Clip == clip && in.continues(&in.runs[n-1], f) {
 		last := &in.runs[n-1]
 		if sep == ' ' && start > 0 && in.text[start-1] != ' ' && len(in.text) > start && in.text[start] != ' ' {
 			in.text = append(in.text, 0)
@@ -433,7 +457,7 @@ func (in *interp) showCodes(f *font.Font, raw []byte) {
 		Off: int32(start), Len: int32(len(in.text) - start),
 		X0: x0, Y0: y0, X1: x1, Y1: y1, LX: x0, LY: y0, Dx: ge.dx, Dy: ge.dy, Nx: ge.nx, Ny: ge.ny,
 		Size: ge.size, SizeX: ge.sizeX, Rise: g.rise * ge.lenY, SpaceWidth: ge.space, Font: f,
-		Mode: g.mode, Fill: g.fill.color, Stroke: g.stroke.color, FillAlpha: g.fillAlpha, StrokeAlpha: g.strokeAlpha,
+		Mode: g.mode, Clip: clip, Fill: g.fill.color, Stroke: g.stroke.color, FillAlpha: g.fillAlpha, StrokeAlpha: g.strokeAlpha,
 		OptionalOff: in.offDepth > 0, Seq: in.seq, Form: in.form,
 		Sep: sep, ActualText: replaced, Glyphs: int32(sh.Glyphs), Unmapped: int32(sh.Unmapped), Assumed: int32(sh.Assumed),
 	})
@@ -522,11 +546,18 @@ func (in *interp) measure(f *font.Font) {
 // is the same.
 func (in *interp) continues(last *Run, f *font.Font) bool {
 	g, ge := &in.gs, &in.geom
-	return last.Font == f && last.Mode == g.mode && last.Fill == g.fill.color && last.Stroke == g.stroke.color &&
-		last.FillAlpha == g.fillAlpha && last.StrokeAlpha == g.strokeAlpha &&
-		last.OptionalOff == (in.offDepth > 0) && last.Seq == in.seq && last.Form == in.form && !last.ActualText &&
+	return last.Font == f && in.sameVisibility(last) && !last.ActualText &&
 		closeTo(last.Size, ge.size) && closeTo(last.SizeX, ge.sizeX) && last.Rise == g.rise*ge.lenY &&
 		last.Dx*ge.dx+last.Dy*ge.dy > 0.9999
+}
+
+// sameVisibility reports whether a string shown now is drawn as the run
+// last is, in everything that decides whether a reader sees it.
+func (in *interp) sameVisibility(last *Run) bool {
+	g := &in.gs
+	return last.Mode == g.mode && last.Fill == g.fill.color && last.Stroke == g.stroke.color &&
+		last.FillAlpha == g.fillAlpha && last.StrokeAlpha == g.strokeAlpha &&
+		last.OptionalOff == (in.offDepth > 0) && last.Seq == in.seq && last.Form == in.form
 }
 
 func (in *interp) checkTextLimit() {

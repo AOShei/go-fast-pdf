@@ -209,6 +209,14 @@ type interp struct {
 
 	formActive []uint32
 	formCalls  int
+
+	// Text shown in a clipping render mode. clips counts the text
+	// objects that have such text, textClip is the number of the one
+	// being drawn (0 if it has none yet), and clipPainted says of each
+	// whether anything was painted while its text clipped.
+	clips       int32
+	textClip    int32
+	clipPainted []bool
 }
 
 var interps = sync.Pool{New: func() any { return new(interp) }}
@@ -249,6 +257,13 @@ func Page(f *file.File, p *file.Page, opts Options) (res Result) {
 // finish turns what the interpreter collected into the result.
 func (in *interp) finish() {
 	res := in.res
+	if in.clips > 0 {
+		for i := range in.runs {
+			if r := &in.runs[i]; r.Clip != 0 && int(r.Clip) < len(in.clipPainted) && in.clipPainted[r.Clip] {
+				r.ClipPainted = true
+			}
+		}
+	}
 	if in.opts.Use != nil {
 		if !utf8.Valid(in.text) {
 			// Every text the fonts hand out is valid by construction;
@@ -351,6 +366,7 @@ func (in *interp) reset(f *file.File, p *file.Page, opts Options, res *Result) {
 	in.form, in.seq, in.prev, in.full = -1, 0, lineEnd{}, false
 	in.unmapped, in.assumed, in.fontMissing = 0, 0, false
 	in.formActive, in.formCalls = in.formActive[:0], 0
+	in.clips, in.textClip, in.clipPainted = 0, 0, in.clipPainted[:0]
 }
 
 func (in *interp) resourcesAt(level int) *resources {
@@ -504,6 +520,14 @@ func (in *interp) operator(scan *content.Scanner, op []byte, args []content.Oper
 	case "BT":
 		in.tm, in.tlm = identity, identity
 		in.geomValid = false
+		in.textClip = 0
+	case "ET":
+		// Text shown in a clipping mode becomes part of the clipping
+		// path when its text object ends.
+		if in.textClip != 0 {
+			g.clip = in.textClip
+			in.textClip = 0
+		}
 	case "Tc":
 		if a := last(args, 1); a != nil {
 			g.tc = finite(a[0].Float())
@@ -634,14 +658,33 @@ func (in *interp) operator(scan *content.Scanner, op []byte, args []content.Oper
 
 	// --- painting ---
 	case "S", "s", "f", "F", "f*", "B", "B*", "b", "b*", "sh":
-		in.seq++
+		in.painted()
 	case "BI":
 		in.inlineImage(args)
-		in.seq++
+		in.painted()
 	case "Do":
 		if a := last(args, 1); a != nil && a[0].Kind == content.Name {
 			in.drawXObject(a[0].Raw)
 		}
+	}
+}
+
+// painted counts something other than text that is painted, and notes
+// that it is painted through the text that clips it, if text does.
+func (in *interp) painted() {
+	in.seq++
+	in.paintedThroughClip()
+}
+
+// paintedThroughClip notes that the text of the clipping path in force
+// has been painted through: such text is drawn after all, in whatever
+// is painted while it clips.
+func (in *interp) paintedThroughClip() {
+	if id := in.gs.clip; id != 0 {
+		for int(id) >= len(in.clipPainted) {
+			in.clipPainted = append(in.clipPainted, false)
+		}
+		in.clipPainted[id] = true
 	}
 }
 
@@ -893,7 +936,7 @@ func (in *interp) drawXObject(rawName []byte) {
 			in.res.External = true
 		}
 		in.addImage(img)
-		in.seq++
+		in.painted()
 	case subtype.IsName("Form"):
 		if xobj.Has("Ref") || xobj.Has("F") {
 			in.res.External = true

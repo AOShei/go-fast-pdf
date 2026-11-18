@@ -159,6 +159,10 @@ func (e *Extractor) Extract(ctx context.Context, r io.ReaderAt, size int64, opts
 	// depend on which worker found it.
 	found := f.Warnings()
 	doc.Warnings = append(found, doc.Warnings...)
+	if rebuilt, redefined := f.Rebuilt(); rebuilt && redefined > 0 {
+		doc.Warn(gofastcore.SeverityWarning, gofastcore.WarnInputAmbiguous,
+			fmt.Sprintf("the cross-reference data is unusable and %d objects are defined more than once; the last definition of each was read", redefined))
+	}
 	if m.active {
 		doc.Warn(gofastcore.SeverityInfo, gofastcore.WarnInputActiveContent, "the document has scripts or actions that start a program; none was read or run")
 	}
@@ -231,7 +235,10 @@ type pageOut struct {
 	active, external bool
 	// attachments are the files attached to the page by annotations.
 	attachments []attachment
-	stats       layout.Stats
+	// What the layout and the interpreter counted. It is for
+	// measurement and goes into no document.
+	stats                                  layout.Stats
+	actualDiffers, actualLonger, longGlyph int
 }
 
 type imageRef struct {
@@ -266,6 +273,7 @@ func (e *Extractor) page(f *file.File, p *file.Page, opts *gofastcore.Options) (
 		}
 	}})
 	out.decoded, out.external, out.stats = res.Decoded, res.External, lay.Stats
+	out.actualDiffers, out.actualLonger, out.longGlyph = res.ActualDiffers, res.ActualLonger, res.LongGlyphText
 	part.Blocks = lay.Blocks
 	part.Warnings = append(part.Warnings, res.Warnings...)
 

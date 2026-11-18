@@ -23,6 +23,10 @@ import (
 //     cannot write a file larger than maxFileBytes. Shells count the
 //     limit in blocks of 512 or of 1024 bytes; the limit is set so that
 //     the larger reading gives maxFileBytes and the smaller half of it.
+//     Linux holds the limit for every write. macOS was seen not to hold
+//     it for a file that is opened again and again to append a little
+//     (see TestFileSizeLimitAndAppending); there the time limit and the
+//     kill of the group are what bound such a writer.
 //   - It runs under a processor-time limit. That is what stops it if the
 //     harness itself is killed and nobody is left to enforce the time
 //     limit: a program that loops is ended by the kernel.

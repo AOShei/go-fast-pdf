@@ -53,7 +53,7 @@ func runBounded(timeout time.Duration, maxFileBytes int64, maxStdout int, name s
 	case err != nil:
 		err = fmt.Errorf("%s: %v: %s", name, err, firstLine(se.sb.String()))
 	case so.full:
-		err = fmt.Errorf("%s: more than %d MB of output", name, maxStdout>>20)
+		err = fmt.Errorf("%s: more than %d KB of output", name, maxStdout>>10)
 	}
 	return so.sb.String(), se.sb.String(), err
 }

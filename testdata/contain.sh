@@ -10,7 +10,9 @@
 #     would otherwise leave the child running.
 #   - No file it writes can exceed the size limit, and it cannot use more
 #     processor time than its time limit. The kernel enforces both, so
-#     they hold even if this script is killed.
+#     they hold even if this script is killed. (macOS was seen not to
+#     hold the size limit for a file that is appended to in small pieces;
+#     the time limit still ends such a writer.)
 #
 # The command's output and exit status pass through unchanged. A command
 # that was stopped returns a status above 128.

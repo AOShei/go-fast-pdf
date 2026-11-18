@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -51,6 +52,12 @@ func readPid(t *testing.T, path string) int {
 	}
 }
 
+// runawayLauncher is a launcher that starts a child and waits for it.
+// The child writes to a file without end; when the file-size limit stops
+// the writing, the child stays alive, so that only the kill of the
+// process group ends it. The child's process id is left in $1/pid.
+const runawayLauncher = `( cat /dev/zero > "$1/big" 2>/dev/null; sleep 600 ) & echo $! > "$1/pid"; wait`
+
 // A program run by the harness must not outlive its time limit or fill
 // the disk. The stand-in behaves the way LibreOffice did on a hostile
 // file in another library of this series: a launcher starts a child, and
@@ -58,9 +65,8 @@ func readPid(t *testing.T, path string) int {
 func TestRunStopsALauncherAndItsChild(t *testing.T) {
 	const fileLimit = 4 << 20
 	dir := t.TempDir()
-	script := `( while :; do head -c 65536 /dev/zero >> "$1/big" 2>/dev/null; done ) & echo $! > "$1/pid"; wait`
 	start := time.Now()
-	_, _, err := runBounded(2*time.Second, fileLimit, 1<<20, "sh", "-c", script, "sh", dir)
+	_, _, err := runBounded(2*time.Second, fileLimit, 1<<20, "sh", "-c", runawayLauncher, "sh", dir)
 	if err == nil || !strings.Contains(err.Error(), "no result after") {
 		t.Errorf("a program that never ends returned %v", err)
 	}
@@ -74,7 +80,7 @@ func TestRunStopsALauncherAndItsChild(t *testing.T) {
 		t.Fatalf("the launcher's child (pid %d) is still running after the call returned", pid)
 	}
 	// It could not write past the file-size limit while it ran, and it
-	// did reach the limit: two seconds are enough for far more.
+	// did reach the limit: writing a few megabytes takes no time.
 	info, err := os.Stat(filepath.Join(dir, "big"))
 	if err != nil {
 		t.Fatal(err)
@@ -107,22 +113,64 @@ func TestRunFileSizeLimitStopsAWriter(t *testing.T) {
 }
 
 func TestRunOutputIsCapped(t *testing.T) {
-	// A program that prints without end, as a tool does with error
-	// messages on a damaged file. An earlier version of the corpus test
-	// held 35 GB of such output in memory.
+	// A program that prints far more than is kept, as a tool does with
+	// error messages on a damaged file. An earlier version of the corpus
+	// test held 35 GB of such output in memory.
+	const keep = 64 << 10
 	var out, errOut string
 	var err error
 	n := AllocBytes(func() {
-		out, errOut, err = runBounded(time.Second, 1<<20, 64<<10, "sh", "-c", `while :; do echo out; echo err >&2; done`)
+		out, errOut, err = runBounded(time.Minute, 1<<20, keep, "sh", "-c",
+			`head -c 8388608 /dev/zero; head -c 8388608 /dev/zero >&2`)
 	})
-	if err == nil {
-		t.Error("no error")
+	if err == nil || !strings.Contains(err.Error(), "of output") {
+		t.Errorf("output past the cap returned %v", err)
 	}
-	if len(out) != 64<<10 || len(errOut) != toolMaxStderr {
-		t.Errorf("kept %d bytes of output and %d of errors; the caps are %d and %d", len(out), len(errOut), 64<<10, toolMaxStderr)
+	if len(out) != keep || len(errOut) != toolMaxStderr {
+		t.Errorf("kept %d bytes of output and %d of errors; the caps are %d and %d", len(out), len(errOut), keep, toolMaxStderr)
 	}
 	if n > 16<<20 {
 		t.Errorf("allocated %d MB while capturing", n>>20)
+	}
+	// A program that prints without end is stopped at its time limit,
+	// and no more than the caps is kept of what it printed.
+	out, errOut, err = runBounded(time.Second, 1<<20, keep, "sh", "-c", `while :; do echo out; echo err >&2; done`)
+	if err == nil || !strings.Contains(err.Error(), "no result after") {
+		t.Errorf("endless output returned %v", err)
+	}
+	if len(out) > keep || len(errOut) > toolMaxStderr {
+		t.Errorf("kept %d bytes of output and %d of errors; the caps are %d and %d", len(out), len(errOut), keep, toolMaxStderr)
+	}
+}
+
+// The file-size limit and a file that is opened again and again to
+// append a little. Linux holds the limit. macOS was seen not to (CI,
+// 2026-11-18: 7.7 MB written against a limit of 4 MB, by two different
+// shells), although it holds it for a file kept open, as the tests above
+// show. Where the limit does not hold, the time limit and the kill of
+// the process group are what bound such a writer.
+func TestFileSizeLimitAndAppending(t *testing.T) {
+	const fileLimit = 4 << 20
+	big := filepath.Join(t.TempDir(), "big")
+	script := `while :; do head -c 65536 /dev/zero >> "$1" 2>/dev/null; done`
+	if _, _, err := runBounded(2*time.Second, fileLimit, 1<<20, "sh", "-c", script, "sh", big); err == nil {
+		t.Error("a program that never ends returned without error")
+	}
+	info, err := os.Stat(big)
+	if err != nil {
+		t.Fatal(err)
+	}
+	switch {
+	case info.Size() <= fileLimit:
+	case runtime.GOOS == "linux":
+		t.Errorf("appending wrote %d KB; the limit is %d KB", info.Size()>>10, fileLimit>>10)
+	default:
+		t.Logf("on %s appending wrote %d KB past a limit of %d KB: the limit does not hold for appended writes here", runtime.GOOS, info.Size()>>10, fileLimit>>10)
+	}
+	size := info.Size()
+	time.Sleep(300 * time.Millisecond)
+	if again, _ := os.Stat(big); again.Size() != size {
+		t.Error("the file is still growing after the call returned")
 	}
 }
 
@@ -299,9 +347,8 @@ func TestShellContainment(t *testing.T) {
 
 	t.Run("a launcher and its child are stopped", func(t *testing.T) {
 		dir := t.TempDir()
-		launcher := `( while :; do head -c 65536 /dev/zero >> "$1/big" 2>/dev/null; done ) & echo $! > "$1/pid"; wait`
 		start := time.Now()
-		out, _, err := run(30*time.Second, `contained 2 4 sh -c "$1" sh "$2" || echo "stopped with status $?"`, launcher, dir)
+		out, _, err := run(30*time.Second, `contained 2 4 sh -c "$1" sh "$2" || echo "stopped with status $?"`, runawayLauncher, dir)
 		if err != nil || !strings.HasPrefix(out, "stopped with status") {
 			t.Errorf("%q, %v", out, err)
 		}

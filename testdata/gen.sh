@@ -6,8 +6,14 @@
 # and the scores in testdata/baseline.json.
 #
 # Needs: groff (with gropdf), qpdf, libreoffice.
+#
+# Every program is run through "contained" (contain.sh): a time limit, a
+# limit on the size of any file it writes, and no process left behind.
+# LibreOffice in particular works through a child process that a plain
+# timeout would not stop.
 set -euo pipefail
 cd "$(dirname "$0")"
+. ./contain.sh
 
 src=src
 out=fixtures
@@ -33,24 +39,24 @@ txt2ms() {
 
 # 1. English text, Core-14 fonts without embedded widths (groff).
 txt2ms "$src/english.txt" 15 22 >"$tmp/english.ms"
-groff -ms -Tpdf "$tmp/english.ms" >"$out/english.pdf"
+contained 120 64 groff -ms -Tpdf "$tmp/english.ms" >"$out/english.pdf"
 
 # 2. Western European text through the same route: simple fonts whose
 #    encodings use /Differences.
 txt2ms "$src/latin1.txt" 12 16 >"$tmp/latin1.ms"
-groff -k -ms -Tpdf "$tmp/latin1.ms" >"$out/latin1.pdf"
+contained 120 64 groff -k -ms -Tpdf "$tmp/latin1.ms" >"$out/latin1.pdf"
 
 # 3. Five languages through LibreOffice: embedded TrueType subsets,
 #    composite fonts, ToUnicode CMaps.
 cp "$src/multilingual.txt" "$tmp/multilingual.txt"
-soffice --headless --norestore -env:UserInstallation="file://$tmp/lo-profile" \
+contained 300 256 soffice --headless --norestore -env:UserInstallation="file://$tmp/lo-profile" \
 	--infilter="Text (encoded):UTF8,LF,Liberation Serif,en-US" \
 	--convert-to pdf --outdir "$tmp" "$tmp/multilingual.txt" >/dev/null
 cp "$tmp/multilingual.pdf" "$out/multilingual.pdf"
 
 # 4. Structural variants of the English file. Each must give the same
 #    text as english.pdf.
-q() { qpdf --deterministic-id "$@"; }
+q() { contained 60 64 qpdf --deterministic-id "$@"; }
 q --object-streams=generate "$out/english.pdf" "$out/english-objstm.pdf"
 q --linearize "$out/english.pdf" "$out/english-linearized.pdf"
 q --stream-data=uncompress --object-streams=disable "$out/english.pdf" "$out/english-uncompressed.pdf"
@@ -61,7 +67,7 @@ q --object-streams=generate --linearize "$out/multilingual.pdf" "$out/multilingu
 e() { # e <name> <user password> <bits> <options...>
 	local name=$1 user=$2 bits=$3
 	shift 3
-	qpdf --static-id --allow-weak-crypto "$out/english.pdf" "$out/enc-$name.pdf" --encrypt "$user" owner "$bits" "$@" --
+	contained 60 64 qpdf --static-id --allow-weak-crypto "$out/english.pdf" "$out/enc-$name.pdf" --encrypt "$user" owner "$bits" "$@" --
 }
 e rc4-40 "" 40
 e rc4-128 "" 128 --use-aes=n
@@ -90,7 +96,7 @@ for f in "$out"/enc-*.pdf; do
 	name=$(basename "$f" .pdf)
 	pw=""
 	case $name in *-unicodepw) pw="pässwörd" ;; *-userpw) pw="user" ;; esac
-	key=$(qpdf --show-encryption --show-encryption-key --password="$pw" "$f" | sed -n 's/^Encryption key = //p')
+	key=$(contained 60 64 qpdf --show-encryption --show-encryption-key --password="$pw" "$f" | sed -n 's/^Encryption key = //p')
 	echo "$name $key" >>"$out/KEYS.txt"
 done
 

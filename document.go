@@ -115,7 +115,13 @@ func text(f *file.File, v syntax.Value) string {
 	if v = f.Resolve(v); v.Kind != syntax.String {
 		return ""
 	}
-	return cleanString(charset.TextString(v.Data))
+	data := v.Data
+	if !(len(data) >= 2 && (data[0] == 0xFE && data[1] == 0xFF || data[0] == 0xFF && data[1] == 0xFE)) {
+		// Zero bytes at the end are what a C program leaves there. In
+		// UTF-16 they are found after decoding.
+		data = bytes.TrimRight(data, "\x00")
+	}
+	return cleanString(charset.TextString(data))
 }
 
 // cleanString makes a string from outside the pages fit the shared

@@ -1,0 +1,364 @@
+%PDF-1.7
+%¿÷¢þ
+1 0 obj
+<< /Pages 3 0 R /Type /Catalog >>
+endobj
+2 0 obj
+<< /Author (go-fast-pdf tests) /CreationDate (D:20251118000000Z00'00') /Creator (groff version 1.24.2) /ModDate (D:20251118000000Z00'00') /Producer (gropdf version 1.24.2) /Title (Sample document) >>
+endobj
+3 0 obj
+<< /Count 3 /Kids [ 4 0 R 5 0 R 6 0 R ] /MediaBox [ 0 0 595 842 ] /Resources << /Font << /F5 7 0 R >> /ProcSet [ /PDF /Text /ImageB /ImageC /ImageI ] >> /Rotate 0 /Type /Pages >>
+endobj
+4 0 obj
+<< /Contents [ 8 0 R ] /Group << /CS /DeviceRGB /S /Transparency >> /Parent 3 0 R /Type /Page >>
+endobj
+5 0 obj
+<< /Contents [ 9 0 R ] /Group << /CS /DeviceRGB /S /Transparency >> /Parent 3 0 R /Type /Page >>
+endobj
+6 0 obj
+<< /Contents [ 10 0 R ] /Group << /CS /DeviceRGB /S /Transparency >> /Parent 3 0 R /Type /Page >>
+endobj
+7 0 obj
+<< /BaseFont /Times-Roman /Encoding 11 0 R /FirstChar 32 /FontDescriptor 12 0 R /LastChar 128 /Subtype /Type1 /Type /Font /Widths [ 250 0 0 0 0 0 0 0 0 0 0 0 250 0 250 0 0 0 0 0 0 0 0 0 0 0 278 0 0 0 0 0 0 722 0 667 722 611 556 722 722 0 0 0 0 889 722 722 0 0 667 556 611 722 0 944 0 0 0 0 0 0 0 0 0 444 500 444 500 444 333 500 500 278 278 500 278 778 500 500 500 500 333 389 278 500 500 722 500 500 444 0 0 0 0 0 556 ] >>
+endobj
+8 0 obj
+<< /Length 4437 >>
+stream
+q 1 0 0 1 0 0 cm
+1 J
+1 j
+0.4 w
+q BT
+1 0 0 1 0.000 842.000 Tm
+0 Tc
+0 g
+ET Q
+0 G
+0 g
+q BT
+1 0 0 1 72.000 748.000 Tm
+0 Tc
+/F5 15 Tf
+0.000 Tw [ (Extracting te) 15.000 (xt from documents)] TJ
+0.000 0 Td
+1 0 0 1 72.000 719.400 Tm
+0 Tc
+0.000 Tw [ (A document that looks simple on screen is rarely simple inside. The page a)] TJ
+0.000 0 Td
+1 0 0 1 72.000 697.400 Tm
+0 Tc
+0.000 Tw [ (reader sees is the result of man) 15.000 (y small dra) 15.000 (wing instructions, and the €le)] TJ
+0.000 0 Td
+1 0 0 1 72.000 675.400 Tm
+0 Tc
+0.000 Tw [ (records those instructions in whate) 25.000 (v) 15.000 (er order the producing program found)] TJ
+0.000 0 Td
+1 0 0 1 72.000 653.400 Tm
+0 Tc
+0.000 Tw [ (con) 40.000 (v) 15.000 (enient. A library that w) 10.000 (ants the te) 15.000 (xt back has to replay the instructions,)] TJ
+0.000 0 Td
+1 0 0 1 72.000 631.400 Tm
+0 Tc
+0.000 Tw [  (w) 10.000 (ork out where e) 25.000 (v) 15.000 (ery glyph landed, and only then decide which glyphs form)] TJ
+0.000 0 Td
+1 0 0 1 72.000 609.400 Tm
+0 Tc
+0.000 Tw [ (a w) 10.000 (ord and which w) 10.000 (ords form a line.)] TJ
+0.000 0 Td
+1 0 0 1 72.000 580.800 Tm
+0 Tc
+0.000 Tw [ (Speed matters because e) 15.000 (xtraction is the €rst step of e) 25.000 (v) 15.000 (ery pipeline that)] TJ
+0.000 0 Td
+1 0 0 1 72.000 558.800 Tm
+0 Tc
+0.000 Tw [ (follo) 25.000 (ws. A retrie) 25.000 (v) 25.000 (al system cannot inde) 15.000 (x a page it has not read, and a)] TJ
+0.000 0 Td
+1 0 0 1 72.000 536.800 Tm
+0 Tc
+0.000 Tw [ (kno) 25.000 (wledge graph cannot link an entity it has not seen. When a collection)] TJ
+0.000 0 Td
+1 0 0 1 72.000 514.800 Tm
+0 Tc
+0.000 Tw [ (holds se) 25.000 (v) 15.000 (eral million €les, a dif) 25.000 (ference of a fe) 25.000 (w milliseconds per page)] TJ
+0.000 0 Td
+1 0 0 1 72.000 492.800 Tm
+0 Tc
+0.000 Tw [ (decides whether the whole job €nishes o) 15.000 (v) 15.000 (ernight or runs for a week.)] TJ
+0.000 0 Td
+1 0 0 1 72.000 464.200 Tm
+0 Tc
+0.000 Tw [ (Correctness matters more than speed. A f) 10.000 (ast e) 15.000 (xtractor that drops the accented)] TJ
+0.000 0 Td
+1 0 0 1 72.000 442.200 Tm
+0 Tc
+0.000 Tw [ (letters of a French contract, or joins tw) 10.000 (o columns of a scienti€c paper into)] TJ
+0.000 0 Td
+1 0 0 1 72.000 420.200 Tm
+0 Tc
+0.000 Tw [ (one stream of nonsense, produces output that is w) 10.000 (orse than no output at all,)] TJ
+0.000 0 Td
+1 0 0 1 72.000 398.200 Tm
+0 Tc
+0.000 Tw [ (because nobody do) 25.000 (wnstream can tell that something went wrong. The €rst)] TJ
+0.000 0 Td
+1 0 0 1 72.000 376.200 Tm
+0 Tc
+0.000 Tw [ (duty of the library is therefore to report what it could not read.)] TJ
+0.000 0 Td
+1 0 0 1 72.000 347.600 Tm
+0 Tc
+0.000 Tw [  (F) 15.000 (onts are the hardest part. The bytes in a te) 15.000 (xt string are not characters. The) 15.000 (y)] TJ
+0.000 0 Td
+1 0 0 1 72.000 325.600 Tm
+0 Tc
+0.000 Tw [ (are codes that select glyphs in a font, and the mapping from code to character)] TJ
+0.000 0 Td
+1 0 0 1 72.000 303.600 Tm
+0 Tc
+0.000 Tw [ (can be gi) 25.000 (v) 15.000 (en in three dif) 25.000 (ferent w) 10.000 (ays, or not gi) 25.000 (v) 15.000 (en at all. Some €les carry a)] TJ
+0.000 0 Td
+1 0 0 1 72.000 281.600 Tm
+0 Tc
+0.000 Tw [ (table that maps e) 25.000 (v) 15.000 (ery code to its Unicode v) 25.000 (alue. Others name each glyph and)] TJ
+0.000 0 Td
+1 0 0 1 72.000 259.600 Tm
+0 Tc
+0.000 Tw [  (e) 15.000 (xpect the reader to kno) 25.000 (w that the name Eacute means a capital letter E with)] TJ
+0.000 0 Td
+1 0 0 1 72.000 237.600 Tm
+0 Tc
+0.000 Tw [ (an acute accent. Man) 15.000 (y old €les rely on one of four standard encodings that)] TJ
+0.000 0 Td
+1 0 0 1 72.000 215.600 Tm
+0 Tc
+0.000 Tw [  (e) 25.000 (v) 15.000 (ery reader is supposed to ha) 20.000 (v) 15.000 (e b) 20.000 (uilt in.)] TJ
+0.000 0 Td
+1 0 0 1 72.000 187.000 Tm
+0 Tc
+0.000 Tw [ (Spacing is the second hard part. Most €les contain no space characters)] TJ
+0.000 0 Td
+1 0 0 1 72.000 165.000 Tm
+0 Tc
+0.000 Tw [ (between w) 10.000 (ords. The producing program simply mo) 15.000 (v) 15.000 (es the pen a little further)] TJ
+0.000 0 Td
+1 0 0 1 72.000 143.000 Tm
+0 Tc
+0.000 Tw [ (before the ne) 15.000 (xt w) 10.000 (ord, and the reader has to notice the g) 5.000 (ap. T) 80.000 (o judge whether a)] TJ
+0.000 0 Td
+1 0 0 1 72.000 121.000 Tm
+0 Tc
+0.000 Tw [  (g) 5.000 (ap is a space, the reader must kno) 25.000 (w ho) 25.000 (w wide each glyph is, which ag) 5.000 (ain)] TJ
+468.000 0 Td
+1 0 0 1 540.000 76.000 Tm
+0 Tc
+1 0 0 1 540.000 50.000 Tm
+0 Tc
+ET Q
+Q
+endstream
+endobj
+9 0 obj
+<< /Length 4232 >>
+stream
+q 1 0 0 1 0 0 cm
+1 J
+1 j
+0.4 w
+0 G
+q BT
+1 0 0 1 540.000 784.000 Tm
+0 g
+0 Tc
+-468.000 0 Td
+1 0 0 1 72.000 748.000 Tm
+0 Tc
+/F5 15 Tf
+0.000 Tw [ (depends on the font, on the font size, and on e) 25.000 (v) 15.000 (ery transformation applied to)] TJ
+0.000 0 Td
+1 0 0 1 72.000 726.000 Tm
+0 Tc
+0.000 Tw [ (the page.)] TJ
+0.000 0 Td
+1 0 0 1 72.000 697.400 Tm
+0 Tc
+0.000 Tw [ (Damaged €les are normal. A table near the end of the €le says where e) 25.000 (v) 15.000 (ery)] TJ
+0.000 0 Td
+1 0 0 1 72.000 675.400 Tm
+0 Tc
+0.000 Tw [ (object starts, and a single edit with the wrong tool mak) 10.000 (es that table wrong.)] TJ
+0.000 0 Td
+1 0 0 1 72.000 653.400 Tm
+0 Tc
+0.000 Tw [ (Good readers notice when an object is not where the table says and reb) 20.000 (uild)] TJ
+0.000 0 Td
+1 0 0 1 72.000 631.400 Tm
+0 Tc
+0.000 Tw [ (the table by scanning the whole €le. Users do not care wh) 5.000 (y a €le is damaged.)] TJ
+0.000 0 Td
+1 0 0 1 72.000 609.400 Tm
+0 Tc
+0.000 Tw [ (The) 15.000 (y care that the te) 15.000 (xt comes out.)] TJ
+0.000 0 Td
+1 0 0 1 72.000 580.800 Tm
+0 Tc
+0.000 Tw [ (Hostile €les are also normal. A stream of one hundred kilobytes can claim to)] TJ
+0.000 0 Td
+1 0 0 1 72.000 558.800 Tm
+0 Tc
+0.000 Tw [ (hold one hundred me) 15.000 (g) 5.000 (abytes after decompression, and a page tree can refer to)] TJ
+0.000 0 Td
+1 0 0 1 72.000 536.800 Tm
+0 Tc
+0.000 Tw [ (itself. A library that runs inside a service must put a limit on e) 25.000 (v) 15.000 (ery quantity)] TJ
+0.000 0 Td
+1 0 0 1 72.000 514.800 Tm
+0 Tc
+0.000 Tw [ (that the €le controls: the depth of nesting, the size of a decoded stream, the)] TJ
+0.000 0 Td
+1 0 0 1 72.000 492.800 Tm
+0 Tc
+0.000 Tw [ (number of pages, and the time spent on an) 15.000 (y one of them.)] TJ
+0.000 0 Td
+1 0 0 1 72.000 464.200 Tm
+0 Tc
+0.000 Tw [ (Encryption is common in b) 20.000 (usiness documents, and most encrypted €les open)] TJ
+0.000 0 Td
+1 0 0 1 72.000 442.200 Tm
+0 Tc
+0.000 Tw [ (with an empty passw) 10.000 (ord. The reader deri) 25.000 (v) 15.000 (es a k) 10.000 (e) 15.000 (y from v) 25.000 (alues stored in the)] TJ
+0.000 0 Td
+1 0 0 1 72.000 420.200 Tm
+0 Tc
+0.000 Tw [ (€le, checks that the k) 10.000 (e) 15.000 (y is right, and then decrypts each string and each)] TJ
+0.000 0 Td
+1 0 0 1 72.000 398.200 Tm
+0 Tc
+0.000 Tw [ (stream with a k) 10.000 (e) 15.000 (y of its o) 25.000 (wn. When the check f) 10.000 (ails the reader must stop and)] TJ
+0.000 0 Td
+1 0 0 1 72.000 376.200 Tm
+0 Tc
+0.000 Tw [ (say that a passw) 10.000 (ord is needed. Guessing and returning noise is the w) 10.000 (orst)] TJ
+0.000 0 Td
+1 0 0 1 72.000 354.200 Tm
+0 Tc
+0.000 Tw [ (possible answer) 55.000 (.)] TJ
+0.000 0 Td
+1 0 0 1 72.000 325.600 Tm
+0 Tc
+0.000 Tw [ (A page is more than a string of w) 10.000 (ords. Headings, paragraphs, lists and tables)] TJ
+0.000 0 Td
+1 0 0 1 72.000 303.600 Tm
+0 Tc
+0.000 Tw [ (carry meaning that a language model can use, and a position on the page lets)] TJ
+0.000 0 Td
+1 0 0 1 72.000 281.600 Tm
+0 Tc
+0.000 Tw [ (an answer point back to its source. Ev) 15.000 (en so, structure that the €le does not)] TJ
+0.000 0 Td
+1 0 0 1 72.000 259.600 Tm
+0 Tc
+0.000 Tw [ (declare can only be estimated, and an honest e) 15.000 (xtractor says which parts of its)] TJ
+0.000 0 Td
+1 0 0 1 72.000 237.600 Tm
+0 Tc
+0.000 Tw [ (output are declared and which are estimated.)] TJ
+0.000 0 Td
+1 0 0 1 72.000 209.000 Tm
+0 Tc
+0.000 Tw [  (T) 70.000 (esting ties all of this together) 55.000 (. Ev) 15.000 (ery defect gets a test before it gets a €x.)] TJ
+0.000 0 Td
+1 0 0 1 72.000 187.000 Tm
+0 Tc
+0.000 Tw [ (Ev) 15.000 (ery €le in the test collection is compared with the output of an independent)] TJ
+0.000 0 Td
+1 0 0 1 72.000 165.000 Tm
+0 Tc
+0.000 Tw [ (reader) 40.000 (, and the score for each €le may rise b) 20.000 (ut may ne) 25.000 (v) 15.000 (er f) 10.000 (all without a)] TJ
+0.000 0 Td
+1 0 0 1 72.000 143.000 Tm
+0 Tc
+0.000 Tw [ (written reason. Random input is thro) 25.000 (wn at e) 25.000 (v) 15.000 (ery parser for hours, and an) 15.000 (y)] TJ
+0.000 0 Td
+1 0 0 1 72.000 121.000 Tm
+0 Tc
+0.000 Tw [ (input that causes a crash is k) 10.000 (ept fore) 25.000 (v) 15.000 (er as a re) 15.000 (gression test.)] TJ
+468.000 0 Td
+1 0 0 1 540.000 86.000 Tm
+0 Tc
+1 0 0 1 540.000 50.000 Tm
+0 Tc
+ET Q
+Q
+endstream
+endobj
+10 0 obj
+<< /Length 1017 >>
+stream
+q 1 0 0 1 0 0 cm
+1 J
+1 j
+0.4 w
+0 G
+q BT
+1 0 0 1 540.000 784.000 Tm
+0 g
+0 Tc
+-468.000 0 Td
+1 0 0 1 72.000 748.000 Tm
+0 Tc
+/F5 15 Tf
+0.000 Tw [ (None of this needs an) 15.000 (ything be) 15.000 (yond the standard library) 65.000 (. Decompression,)] TJ
+0.000 0 Td
+1 0 0 1 72.000 726.000 Tm
+0 Tc
+0.000 Tw [ (hashing and the ciphers are all there. What remains is careful reading of the)] TJ
+0.000 0 Td
+1 0 0 1 72.000 704.000 Tm
+0 Tc
+0.000 Tw [ (speci€cation, a lar) 18.000 (ge collection of real €les, and the patience to treat e) 25.000 (v) 15.000 (ery)] TJ
+0.000 0 Td
+1 0 0 1 72.000 682.000 Tm
+0 Tc
+0.000 Tw [ (strange €le as a lesson and not as an anno) 10.000 (yance.)] TJ
+0.000 0 Td
+1 0 0 1 72.000 653.400 Tm
+0 Tc
+0.000 Tw [ (The result is a small tool with one job: gi) 25.000 (v) 15.000 (en a €le, return what it says, where)] TJ
+0.000 0 Td
+1 0 0 1 72.000 631.400 Tm
+0 Tc
+0.000 Tw [ (it says it, and ho) 25.000 (w sure we are.)] TJ
+468.000 0 Td
+1 0 0 1 540.000 86.000 Tm
+0 Tc
+1 0 0 1 540.000 50.000 Tm
+0 Tc
+ET Q
+Q
+endstream
+endobj
+11 0 obj
+<< /Differences [ 32 /space 44 /comma 46 /period 58 /colon 65 /A 67 /C /D /E /F /G /H 77 /M /N /O 82 /R /S /T /U 87 /W 97 /a /b /c /d /e /f /g /h /i /j /k /l /m /n /o /p /q /r /s /t /u /v /w /x /y /z 128 /fi ] /Type /Encoding >>
+endobj
+12 0 obj
+<< /Ascent 782 /CapHeight 676 /CharSet (/E/x/t/r/a/c/i/n/g/e/f/o/m/d/u/s/A/h/l/k/p/y/period/T/w/comma/fi/v/b/S/W/j/C/F/U/O/M/z/D/G/H/q/colon/R/N) /Descent -218 /Flags 32 /FontBBox [ 0 -218 1000 898 ] /FontName /Times-Roman /ItalicAngle 0 /StemV 0 /Type /FontDescriptor >>
+endobj
+xref
+0 13
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000279 00000 n 
+0000000473 00000 n 
+0000000585 00000 n 
+0000000697 00000 n 
+0000000810 00000 n 
+0000001248 00000 n 
+0000005736 00000 n 
+0000010019 00000 n 
+0000011088 00000 n 
+0000011333 00000 n 
+trailer << /Info 2 0 R /Root 1 0 R /Size 13 /ID [<4e3e07dc08b9fd4f81983298cad7226a><4e3e07dc08b9fd4f81983298cad7226a>] >>
+startxref
+11621
+%%EOF

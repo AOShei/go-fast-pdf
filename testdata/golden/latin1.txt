@@ -1,11 +1,11 @@
 Texte en français et en allemand
-Le français utilise des lettres accentu�es � chaque phrase : un �l�ve z�l�, une for�t profonde, le
-ma�s dor�, un cœur l�ger et une œuvre achev�e. O� est pass� le garçon qui a reçu ce cadeau �
-No�l ? Il co�te dix euros, soit 10 �.
-Die deutsche Sprache kennt Umlaute und das Eszett: Gr��e, �bermut, �rger, �l und s��e �pfel.
-F�nf B�ren a�en zw�lf Br�tchen, w�hrend die M�dchen �ber die Stra�e liefen.
-El espa�ol a�ade la e�e y los signos invertidos: �Cu�ntos a�os tiene el ni�o? �Ma�ana ser� otro
-d�a!
-Typographic marks also matter: �double quotes�, `single quotes', an en dash � and an em dash �
-as well as an ellipsis� and the section sign �, the degree sign �, the pound � and the micro sign
-μ.
+Le français utilise des lettres accentuées à chaque phrase : un élève zélé, une forêt profonde, le
+maïs doré, un cœur léger et une œuvre achevée. Où est passé le garçon qui a reçu ce cadeau à
+Noël ? Il coûte dix euros, soit 10 €.
+Die deutsche Sprache kennt Umlaute und das Eszett: Größe, Übermut, Ärger, Öl und süße Äpfel.
+Fünf Bären aßen zwölf Brötchen, während die Mädchen über die Straße liefen.
+El español añade la eñe y los signos invertidos: ¿Cuántos años tiene el niño? ¡Mañana será otro
+día!
+Typographic marks also matter: “double quotes”, ‘single quotes’, an en dash – and an em dash —
+as well as an ellipsis… and the section sign §, the degree sign °, the pound £ and the micro sign
+µ.

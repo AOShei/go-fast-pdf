@@ -1,0 +1,7 @@
+Three duties of a document reader
+
+A library that reads documents has one duty above all others: it must return the words that the author wrote. A reader who opens the same file sees letters, spaces and lines; the program sees only instructions for drawing them.
+
+Speed comes second, but it is not a luxury. An archive of 3,500,000 files is read in a night at 2 milliseconds per page — and in a month at 200. “Fast enough” depends on the size of the pile.
+
+The third quality is honesty. When a page cannot be read, the program says so; it does not guess, and it does not hide the damage. A user who was told the truth can decide what to do next.

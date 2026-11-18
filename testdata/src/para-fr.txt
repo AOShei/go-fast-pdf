@@ -1,0 +1,7 @@
+Trois devoirs d’un lecteur de documents
+
+Une bibliothèque qui lit des documents a un devoir avant tous les autres : elle doit rendre les mots que l’auteur a écrits. Le lecteur qui ouvre le même fichier voit des lettres, des espaces et des lignes ; le programme ne voit que des instructions pour les dessiner.
+
+La vitesse vient en second, mais ce n’est pas un luxe. Une archive de 3 500 000 fichiers se lit en une nuit à 2 millisecondes par page — et en un mois à 200. « Assez rapide » dépend de la taille de la pile.
+
+La troisième qualité est l’honnêteté. Quand une page ne peut pas être lue, le programme le dit ; il ne devine pas et il ne cache pas les dégâts. Un utilisateur à qui l’on a dit la vérité peut décider de la suite, où qu’il soit.

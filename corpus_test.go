@@ -70,6 +70,13 @@ func readJSON(t *testing.T, path string, v any) {
 
 func round4(x float64) float64 { return math.Round(x*1e4) / 1e4 }
 
+// tierFloor is the word-level F1 every file of a tier must reach
+// (IMPLEMENTATION_PLAN.md, section 4.3). Tier A is text in Latin script
+// from the common producers; tier B is other scripts with a ToUnicode
+// mapping. Tier C, which needs tables or font programs this library does
+// not read yet, has no floor.
+var tierFloor = map[string]float64{"A": 0.98, "B": 0.95}
+
 func TestCorpus(t *testing.T) {
 	var files []corpusFile
 	readJSON(t, "testdata/corpus.json", &files)
@@ -124,6 +131,11 @@ func TestCorpus(t *testing.T) {
 				WantWords: score.Want, Pages: len(got.Pages), Reference: reference}
 			t.Logf("tier %s: F1 %.4f, order %.4f, %d of %d words, %d pages (against %s)",
 				f.Tier, now.F1, now.Order, now.Words, now.WantWords, now.Pages, reference)
+
+			// The floor of the file's tier holds whatever the baseline says.
+			if floor, ok := tierFloor[f.Tier]; ok && score.F1 < floor {
+				t.Errorf("F1 %.4f is under the floor of tier %s, %.2f", score.F1, f.Tier, floor)
+			}
 
 			old, known := baseline[f.Name]
 			lower := known && (now.F1 < old.F1-1e-9 || now.Order < old.Order-1e-9)

@@ -1,0 +1,7 @@
+Drei Pflichten eines Dokumentenlesers
+
+Eine Bibliothek, die Dokumente liest, hat vor allen anderen eine Pflicht: Sie muss die Wörter zurückgeben, die der Autor geschrieben hat. Wer dieselbe Datei öffnet, sieht Buchstaben, Abstände und Zeilen; das Programm sieht nur Anweisungen, sie zu zeichnen.
+
+Geschwindigkeit kommt an zweiter Stelle, aber sie ist kein Luxus. Ein Archiv mit 3.500.000 Dateien wird bei 2 Millisekunden pro Seite in einer Nacht gelesen – und bei 200 in einem Monat. „Schnell genug“ hängt von der Größe des Stapels ab.
+
+Die dritte Eigenschaft ist Ehrlichkeit. Wenn eine Seite nicht gelesen werden kann, sagt das Programm es; es rät nicht, und es verbirgt den Schaden nicht. Ein Nutzer, dem die Wahrheit gesagt wurde, kann über den nächsten Schritt entscheiden.

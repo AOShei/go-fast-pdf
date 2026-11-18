@@ -24,13 +24,20 @@ func (f *File) rawStream(stm syntax.Value, depth int) ([]byte, error) {
 		return nil, errors.New("not a stream")
 	}
 	length, ok := f.resolve(stm.Get("Length"), depth+1).Integer()
-	if ok && length >= 0 && start+length <= int64(len(f.data)) {
-		return f.data[start : start+length], nil
+	declared := ok && length >= 0 && start+length <= int64(len(f.data))
+	if declared {
+		// The length is right if endstream follows the data.
+		if end := syntax.SkipSpace(f.data, int(start+length)); syntax.HasPrefixAt(f.data, end, "endstream") {
+			return f.data[start : start+length], nil
+		}
 	}
-	// /Length is missing, not a number, or points past the end of the
-	// file: the stream ends where endstream says it does.
+	// /Length is missing, not a number, or wrong: the stream ends where
+	// endstream says it does.
 	end := bytes.Index(f.data[start:], []byte("endstream"))
 	if end < 0 {
+		if declared {
+			return f.data[start : start+length], nil // the file is cut off; nothing better is known
+		}
 		return nil, errors.New("stream has no usable /Length and no endstream")
 	}
 	raw := f.data[start : start+int64(end)]
@@ -40,6 +47,10 @@ func (f *File) rawStream(stm syntax.Value, depth int) ([]byte, error) {
 	}
 	if n := len(raw); n > 0 && raw[n-1] == '\r' {
 		raw = raw[:n-1]
+	}
+	if declared {
+		f.Warn(gofastcore.SeverityInfo, gofastcore.WarnInputRepaired,
+			"some streams have a wrong /Length; their end was found by their endstream keyword")
 	}
 	return raw, nil
 }
@@ -111,17 +122,39 @@ func (f *File) decode(stm syntax.Value, dst []byte, limit int64, decrypt bool, d
 		if last {
 			out, start = dst, len(dst)
 		}
-		switch {
-		case name.IsName("FlateDecode"):
+		predict := false
+		switch filterName(name) {
+		case "FlateDecode":
 			out, err = inflate(out, data, limit)
-			if parm.IsDict() {
-				var perr error
-				if out, perr = f.unpredict(out, start, parm, depth); err == nil {
-					err = perr
-				}
+			predict = true
+		case "LZWDecode":
+			early := true
+			if e, ok := f.resolve(parm.Get("EarlyChange"), depth+1).Integer(); ok && e == 0 {
+				early = false
 			}
+			out, err = lzwDecode(out, data, limit, early)
+			predict = true
+		case "ASCIIHexDecode":
+			out, err = asciiHexDecode(out, data, limit)
+		case "ASCII85Decode":
+			out, err = ascii85Decode(out, data, limit)
+		case "RunLengthDecode":
+			out, err = runLengthDecode(out, data, limit)
+		case "Crypt":
+			// The Identity crypt filter leaves the data as it is. A named
+			// one is the job of the encryption handler (Phase 3).
+			if n := f.resolve(parm.Get("Name"), depth+1); !n.IsNull() && !n.IsName("Identity") {
+				return dst, fmt.Errorf("%w: crypt filter /%s on a stream", gofastcore.ErrUnsupported, n.NameString())
+			}
+			out = append(out, data...)
 		default:
 			return dst, fmt.Errorf("%w: stream filter /%s", gofastcore.ErrUnsupported, name.NameString())
+		}
+		if predict && parm.IsDict() {
+			var perr error
+			if out, perr = f.unpredict(out, start, parm, depth); err == nil {
+				err = perr
+			}
 		}
 		if err != nil {
 			if last {
@@ -132,6 +165,26 @@ func (f *File) decode(stm syntax.Value, dst []byte, limit int64, decrypt bool, d
 		data = out
 	}
 	return data, nil
+}
+
+// filterName returns the full name of a stream filter. The abbreviations
+// are defined for inline images only, but occur on streams and are
+// accepted by other readers.
+func filterName(v syntax.Value) string {
+	switch name := v.NameString(); name {
+	case "Fl":
+		return "FlateDecode"
+	case "LZW":
+		return "LZWDecode"
+	case "AHx":
+		return "ASCIIHexDecode"
+	case "A85":
+		return "ASCII85Decode"
+	case "RL":
+		return "RunLengthDecode"
+	default:
+		return name
+	}
 }
 
 var zlibReaders sync.Pool
@@ -196,15 +249,12 @@ func inflate(dst, src []byte, limit int64) ([]byte, error) {
 	}
 }
 
-// unpredict undoes a PNG predictor on data[start:], in place, and
-// returns the shortened slice.
+// unpredict undoes the predictor named in a filter's parameters on
+// data[start:], in place, and returns the possibly shortened slice.
 func (f *File) unpredict(data []byte, start int, parm syntax.Value, depth int) ([]byte, error) {
 	predictor, _ := f.resolve(parm.Get("Predictor"), depth+1).Integer()
 	if predictor <= 1 {
 		return data, nil
-	}
-	if predictor < 10 {
-		return data, fmt.Errorf("%w: predictor %d", gofastcore.ErrUnsupported, predictor)
 	}
 	intParm := func(key string, def int64) int64 {
 		if n, ok := f.resolve(parm.Get(key), depth+1).Integer(); ok && n > 0 {
@@ -215,6 +265,12 @@ func (f *File) unpredict(data []byte, start int, parm syntax.Value, depth int) (
 	columns, colors, bpc := intParm("Columns", 1), intParm("Colors", 1), intParm("BitsPerComponent", 8)
 	if columns > 1<<20 || colors > 32 || bpc > 16 {
 		return data, fmt.Errorf("%w: predictor parameters out of range", gofastcore.ErrMalformed)
+	}
+	if predictor == 2 {
+		return untiff(data, start, columns, colors, bpc)
+	}
+	if predictor < 10 {
+		return data, fmt.Errorf("%w: predictor %d", gofastcore.ErrUnsupported, predictor)
 	}
 	bpp := int((colors*bpc + 7) / 8)            // bytes per pixel, rounded up
 	rowLen := int((columns*colors*bpc + 7) / 8) // bytes per row, without the tag
@@ -300,30 +356,29 @@ type objStmCache struct {
 	bytes int64
 }
 
-func (f *File) loadObjStm(num int64, depth int) (*objStm, error) {
+// loadObjStm returns the object stream with the given cache key. get
+// fetches the stream object when it is not cached.
+func (f *File) loadObjStm(key int64, depth int, get func() syntax.Value) (*objStm, error) {
 	c := &f.stms
 	c.mu.Lock()
-	if s := c.stms[num]; s != nil {
+	if s := c.stms[key]; s != nil {
 		c.mu.Unlock()
 		return s, nil
 	}
 	c.mu.Unlock()
 
-	if num < 0 || num >= int64(len(f.xref)) || f.xref[num].kind != entryOffset {
-		return nil, fmt.Errorf("object stream %d is not an object at an offset", num)
-	}
-	stm := f.object(num, depth+1)
+	stm := get()
 	if stm.Kind != syntax.Stream {
-		return nil, fmt.Errorf("object stream %d is a %s", num, stm.Kind)
+		return nil, fmt.Errorf("an object stream is a %s", stm.Kind)
 	}
 	data, err := f.decode(stm, nil, f.limits.MaxStreamBytes, true, depth+1)
 	if err != nil && len(data) == 0 {
-		return nil, fmt.Errorf("object stream %d: %v", num, err)
+		return nil, fmt.Errorf("object stream %d: %v", stm.Obj, err)
 	}
 	n, _ := f.resolve(stm.Get("N"), depth+1).Integer()
 	first, _ := f.resolve(stm.Get("First"), depth+1).Integer()
 	if n < 0 || first < 0 || first > int64(len(data)) || n > int64(len(data)) {
-		return nil, fmt.Errorf("object stream %d has /N %d and /First %d for %d bytes", num, n, first, len(data))
+		return nil, fmt.Errorf("object stream %d has /N %d and /First %d for %d bytes", stm.Obj, n, first, len(data))
 	}
 	s := &objStm{data: data, first: int(first), nums: make([]int64, 0, n), offs: make([]int32, 0, n)}
 	// The header is N pairs of object number and offset.
@@ -344,11 +399,11 @@ func (f *File) loadObjStm(num int64, depth int) (*objStm, error) {
 	if c.stms == nil {
 		c.stms = map[int64]*objStm{}
 	}
-	if existing := c.stms[num]; existing != nil {
+	if existing := c.stms[key]; existing != nil {
 		return existing, nil
 	}
-	c.stms[num] = s
-	c.order = append(c.order, num)
+	c.stms[key] = s
+	c.order = append(c.order, key)
 	c.bytes += int64(len(data))
 	for c.bytes > f.limits.ObjStmCacheBytes && len(c.order) > 1 {
 		oldest := c.order[0]
@@ -362,10 +417,15 @@ func (f *File) loadObjStm(num int64, depth int) (*objStm, error) {
 // fromObjStm reads object num, expected at index idx of object stream
 // stmNum.
 func (f *File) fromObjStm(stmNum, num int64, idx, depth int) (syntax.Value, error) {
-	s, err := f.loadObjStm(stmNum, depth)
+	s, err := f.loadObjStm(stmNum, depth, func() syntax.Value { return f.object(stmNum, depth+1) })
 	if err != nil {
 		return syntax.Value{}, err
 	}
+	return s.object(f, num, idx)
+}
+
+// object reads object num from the stream, expected at index idx.
+func (s *objStm) object(f *File, num int64, idx int) (syntax.Value, error) {
 	if idx < 0 || idx >= len(s.nums) || s.nums[idx] != num {
 		// The index is wrong; the header still says where the object is.
 		idx = -1
@@ -376,12 +436,12 @@ func (f *File) fromObjStm(stmNum, num int64, idx, depth int) (syntax.Value, erro
 			}
 		}
 		if idx < 0 {
-			return syntax.Value{}, fmt.Errorf("object stream %d does not hold object %d", stmNum, num)
+			return syntax.Value{}, fmt.Errorf("the object stream does not hold object %d", num)
 		}
 	}
 	pos := s.first + int(s.offs[idx])
 	if pos > len(s.data) {
-		return syntax.Value{}, fmt.Errorf("object %d lies outside object stream %d", num, stmNum)
+		return syntax.Value{}, fmt.Errorf("object %d lies outside its object stream", num)
 	}
 	p := syntax.NewParser(s.data, pos, f.limits.MaxNesting)
 	v, err := p.Object()

@@ -134,7 +134,7 @@ func TestDamagedContent(t *testing.T) {
 	})
 	t.Run("unsupported filter", func(t *testing.T) {
 		b := pdftest.Doc(pdftest.DocOptions{}, pdftest.PageSpec{})
-		b.Set(4, pdftest.Stream("/Filter /LZWDecode", "xx"))
+		b.Set(4, pdftest.Stream("/Filter /JBIG2Decode", "xx"))
 		res := extractAll(t, open(t, b.Bytes(), file.Limits{}), Options{})[0]
 		if res.Text != "" || codes(res.Warnings) != "pdf.content_stream_unreadable" {
 			t.Errorf("text %q, warnings %s", res.Text, codes(res.Warnings))

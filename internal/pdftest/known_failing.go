@@ -35,18 +35,4 @@ var KnownFailing = map[string]string{
 	"F4/suffix":   "phase 4",
 	"F4/u":        "phase 4",
 	"F4/uni":      "phase 4",
-
-	"X1/bad-startxref": "phase 2",
-	"X1/no-xref":       "phase 2",
-	"X1/wrong-offsets": "phase 2",
-	"X2":               "phase 2",
-	"X5/short":         "phase 2",
-	"X5/zero":          "phase 2",
-	"X6":               "phase 2",
-	"X7/abbreviated":   "phase 2",
-	"X7/ascii85":       "phase 2",
-	"X7/asciihex":      "phase 2",
-	"X7/chain":         "phase 2",
-	"X7/lzw":           "phase 2",
-	"X7/runlength":     "phase 2",
 }

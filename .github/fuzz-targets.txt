@@ -7,5 +7,7 @@
 ./internal/content FuzzScanner
 ./internal/font FuzzCMap
 ./internal/file FuzzOpen
+./internal/file FuzzRebuild
+./internal/file FuzzFilters
 ./internal/extract FuzzExtract
 . FuzzOpen

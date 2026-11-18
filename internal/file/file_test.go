@@ -159,20 +159,6 @@ func TestMissingFreeAndCyclicObjects(t *testing.T) {
 	}
 }
 
-func TestObjectAtWrongOffset(t *testing.T) {
-	// The table says object 3 is where object 4 is.
-	data := doc(nil, "x").Bytes()
-	f := open(t, data)
-	f.xref[3].off = f.xref[4].off
-	f.objs[3].Store(nil)
-	if v := f.Object(3); !v.IsNull() {
-		t.Errorf("object read from another object's offset: %v", v)
-	}
-	if w := f.Warnings(); len(w) != 1 || w[0].Code != "pdf.object_unreadable" {
-		t.Errorf("warnings %v, want one pdf.object_unreadable", w)
-	}
-}
-
 func pageTree(t *testing.T, edit func(b *pdftest.Builder)) *File {
 	t.Helper()
 	b := doc(nil, "a", "b", "c")
@@ -299,44 +285,16 @@ func TestPageTree(t *testing.T) {
 	})
 }
 
-func TestDamagedXRefEntry(t *testing.T) {
-	// One entry of the table is garbage. The object it describes is lost;
-	// the rest of the file is read.
-	data := doc(nil, "kept").Bytes()
-	table := bytes.Index(data, []byte("\nxref\n")) + 1
-	// The entry of object 3 (the font): third line after the free entry.
-	entry := table + len("xref\n0 6\n") + 20*3
-	bad := append([]byte{}, data...)
-	copy(bad[entry:], "00000/0377")
-	f := open(t, bad)
-	if len(f.Pages()) != 1 || content(t, f, 0) != "kept" {
-		t.Fatalf("%d pages", len(f.Pages()))
-	}
-	if !f.Object(3).IsNull() {
-		t.Errorf("the object with the damaged entry is %v, want null", f.Object(3))
-	}
-	if w := f.Warnings(); len(w) != 1 || w[0].Code != "pdf.xref_entry_unreadable" {
-		t.Errorf("warnings %v", w)
-	}
-}
-
 func TestOpenErrors(t *testing.T) {
-	good := doc(nil, "x").Bytes()
+	// Files with nothing in them to recover.
+	hexCatalog := doc(nil, "x")
+	hexCatalog.Set(1, "<feedbeef>")
 	cases := map[string][]byte{
 		"empty":               nil,
 		"not a pdf":           []byte("hello world"),
-		"no startxref":        good[:bytes.LastIndex(good, []byte("startxref"))],
-		"startxref beyond":    append(append([]byte{}, good[:bytes.LastIndex(good, []byte("startxref"))]...), "startxref\n99999999\n%%EOF"...),
-		"startxref negative":  append(append([]byte{}, good[:bytes.LastIndex(good, []byte("startxref"))]...), "startxref\n-5\n%%EOF"...),
-		"startxref no number": append(append([]byte{}, good[:bytes.LastIndex(good, []byte("startxref"))]...), "startxref\n%%EOF"...),
+		"header only":         []byte("%PDF-1.7\n%%EOF\n"),
+		"catalog is a string": hexCatalog.Bytes(),
 	}
-	notDict := doc(nil, "x")
-	notDict.Set(40, "42")
-	notDict.Root = 40
-	cases["root is a number"] = notDict.Bytes()
-	bad := doc(nil, "x")
-	bad.Root = 99
-	cases["root missing"] = bad.Bytes()
 	for name, data := range cases {
 		_, err := Open(data, Limits{})
 		if !errors.Is(err, gofastcore.ErrMalformed) {
@@ -402,7 +360,7 @@ func TestStreamLimits(t *testing.T) {
 	})
 	t.Run("unsupported filter", func(t *testing.T) {
 		b := doc(nil, "")
-		b.Set(4, pdftest.Stream("/Filter /LZWDecode", "xx"))
+		b.Set(4, pdftest.Stream("/Filter /JBIG2Decode", "xx"))
 		f := open(t, b.Bytes())
 		_, err := f.Decode(f.Resolve(f.Pages()[0].Dict.Get("Contents")), nil, 0)
 		if !errors.Is(err, gofastcore.ErrUnsupported) {

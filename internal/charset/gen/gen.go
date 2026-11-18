@@ -2,7 +2,7 @@
 
 // Command gen writes the tables of package charset from their sources:
 //
-//	go run internal/charset/gen/gen.go -agl DIR -afm DIR -pdfjs FILE -out internal/charset
+//	go run internal/charset/gen/gen.go -agl DIR -afm DIR -spec FILE -out internal/charset
 //
 // The sources are not kept in this repository. They are:
 //
@@ -13,9 +13,15 @@
 //     and f6394e3cb8a447e84a1dad75d4baaf2aa7f45dc104faf369f4720e1a774ef2dc.
 //   - The Adobe Font Metrics files of the 14 standard PDF fonts, as
 //     Adobe published them ("Font Metrics for the 14 PDF Core Fonts").
-//   - src/core/encodings.js of Mozilla pdf.js at commit 74b5f3ee
-//     (Apache-2.0), for the code assignments of the encodings named in
-//     the PDF specification (Annex D).
+//     They give the widths of the glyphs and the built-in encodings of
+//     Symbol and ZapfDingbats.
+//   - The text of the PDF specification, for the code assignments of
+//     the encodings it defines in Annex D: PDF 32000-1:2008 as Adobe
+//     publishes it (PDF32000_2008.pdf, SHA-256
+//     9de0ca9e8570d6209e8bd48a355be8eb6ec376acfc3fc3ae97cd8730351417ff),
+//     made into text with "pdftotext -layout" (Poppler 26.10). The
+//     tables are checked as they are read: a different extraction that
+//     loses a row or a column stops the program.
 //
 // The notices these sources ask to be kept are in NOTICE at the root of
 // the repository.
@@ -31,6 +37,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -39,7 +46,7 @@ import (
 func main() {
 	aglDir := flag.String("agl", "", "directory with glyphlist.txt and zapfdingbats.txt")
 	afmDir := flag.String("afm", "", "directory with the AFM files of the 14 standard fonts")
-	pdfjs := flag.String("pdfjs", "", "path of pdf.js src/core/encodings.js")
+	specText := flag.String("spec", "", "the PDF specification as text, from pdftotext -layout")
 	out := flag.String("out", ".", "directory of package charset")
 	flag.Parse()
 	log.SetFlags(0)
@@ -120,92 +127,7 @@ func main() {
 		return 0
 	}
 
-	// --- encodings ---
-	js, err := os.ReadFile(*pdfjs)
-	if err != nil {
-		log.Fatal(err)
-	}
-	encoding := func(jsName string) [256]string {
-		re := regexp.MustCompile(`(?s)const ` + jsName + ` = \[(.*?)\];`)
-		m := re.FindSubmatch(js)
-		if m == nil {
-			log.Fatalf("%s not found in %s", jsName, *pdfjs)
-		}
-		var enc [256]string
-		items := regexp.MustCompile(`"([^"]*)"`).FindAllSubmatch(m[1], -1)
-		if len(items) != 256 {
-			log.Fatalf("%s has %d entries", jsName, len(items))
-		}
-		for i, it := range items {
-			enc[i] = string(it[1])
-		}
-		return enc
-	}
-	var e bytes.Buffer
-	header(&e, "the encodings named in the PDF specification, Annex D")
-	runeTable := func(goName, doc string, enc [256]string) {
-		fmt.Fprintf(&e, "// %s\nvar %s = [256]uint16{", doc, goName)
-		for code, name := range enc {
-			sep(&e, code, 12)
-			r := one(name)
-			if name != "" && r == 0 {
-				log.Fatalf("%s: code %d: glyph %q has no single character", goName, code, name)
-			}
-			if r > 0xFFFF {
-				log.Fatalf("%s: code %d: outside the basic plane", goName, code)
-			}
-			fmt.Fprintf(&e, "%#04x,", r)
-		}
-		fmt.Fprint(&e, "\n}\n\n")
-	}
-	std := encoding("StandardEncoding")
-	symbol := encoding("SymbolSetEncoding")
-	zapf := encoding("ZapfDingbatsEncoding")
-	runeTable("standardEncoding", "standardEncoding is StandardEncoding: the character of each code, 0 where there is none.", std)
-	runeTable("winAnsiEncoding", "winAnsiEncoding is WinAnsiEncoding.", encoding("WinAnsiEncoding"))
-	runeTable("macRomanEncoding", "macRomanEncoding is MacRomanEncoding.", encoding("MacRomanEncoding"))
-	runeTable("symbolEncoding", "symbolEncoding is the built-in encoding of the Symbol font.", symbol)
-	runeTable("zapfDingbatsEncoding", "zapfDingbatsEncoding is the built-in encoding of the ZapfDingbats font.", zapf)
-
-	// MacExpertEncoding names small capitals, old-style figures and the
-	// like, which have no character of their own. The names are kept and
-	// resolved by GlyphText when a font asks for the encoding.
-	fmt.Fprint(&e, "// macExpertNames is MacExpertEncoding: the glyph name of each code.\nvar macExpertNames = [256]string{")
-	for code, name := range encoding("MacExpertEncoding") {
-		sep(&e, code, 6)
-		fmt.Fprintf(&e, "%q,", name)
-	}
-	fmt.Fprint(&e, "\n}\n\n")
-
-	// PDFDocEncoding (PDF 32000-1, Table D.2): Latin-1 with the range
-	// 0x18 to 0x1F and 0x80 to 0xA0 filled as below. Control codes other
-	// than tab, line feed and carriage return are undefined.
-	var pdfDoc [256]rune
-	for c := 0x20; c < 0x7F; c++ {
-		pdfDoc[c] = rune(c)
-	}
-	for c := 0xA1; c <= 0xFF; c++ {
-		pdfDoc[c] = rune(c)
-	}
-	pdfDoc[0xAD] = 0
-	pdfDoc[0x09], pdfDoc[0x0A], pdfDoc[0x0D] = 0x09, 0x0A, 0x0D
-	for i, r := range []rune{0x02D8, 0x02C7, 0x02C6, 0x02D9, 0x02DD, 0x02DB, 0x02DA, 0x02DC} {
-		pdfDoc[0x18+i] = r
-	}
-	for i, r := range []rune{0x2022, 0x2020, 0x2021, 0x2026, 0x2014, 0x2013, 0x0192, 0x2044, 0x2039, 0x203A, 0x2212, 0x2030,
-		0x201E, 0x201C, 0x201D, 0x2018, 0x2019, 0x201A, 0x2122, 0xFB01, 0xFB02, 0x0141, 0x0152, 0x0160, 0x0178, 0x017D,
-		0x0131, 0x0142, 0x0153, 0x0161, 0x017E, 0, 0x20AC} {
-		pdfDoc[0x80+i] = r
-	}
-	fmt.Fprint(&e, "// pdfDocEncoding is PDFDocEncoding, the encoding of text strings outside\n// content streams.\nvar pdfDocEncoding = [256]uint16{")
-	for code, r := range pdfDoc {
-		sep(&e, code, 12)
-		fmt.Fprintf(&e, "%#04x,", r)
-	}
-	fmt.Fprint(&e, "\n}\n")
-	write(filepath.Join(*out, "encodings_gen.go"), e.Bytes())
-
-	// --- widths of the standard fonts ---
+	// --- the metrics files ---
 	type metric struct {
 		code  int
 		width int
@@ -239,19 +161,239 @@ func main() {
 		}
 		return ms
 	}
-	// The AFM files give the built-in encodings too; they must agree with
-	// the tables above.
-	agree := func(font string, enc [256]string) {
-		for _, m := range afm(font) {
-			if m.code >= 0 && enc[m.code] != m.name {
-				log.Fatalf("%s: code %d is %q in the metrics and %q in the encoding table", font, m.code, m.name, enc[m.code])
+
+	// --- encodings ---
+	// Annex D of the specification, as text. A table is the lines from
+	// its heading to the next heading, without the page headers and
+	// footers.
+	spec := lines(*specText)
+	section := func(from, to string) []string {
+		var out []string
+		in := false
+		for _, l := range spec {
+			switch {
+			case l == from:
+				in, out = true, nil
+			case l == to && in:
+				return out
+			case in && !strings.Contains(l, "Adobe Systems Incorporated") && !strings.HasPrefix(l, "PDF 32000-1:2008"):
+				out = append(out, l)
+			}
+		}
+		log.Fatalf("%s: no section from %q to %q", *specText, from, to)
+		return nil
+	}
+	octal := func(s string) int {
+		if s == "\u2014" { // a dash: the encoding does not have the character
+			return -1
+		}
+		v, err := strconv.ParseUint(s, 8, 8)
+		if err != nil {
+			log.Fatalf("bad code %q", s)
+		}
+		return int(v)
+	}
+
+	// D.2: of each character of the Latin character set, its name and
+	// its code in StandardEncoding, MacRomanEncoding, WinAnsiEncoding
+	// and PDFDocEncoding. The table is two such columns side by side; a
+	// name can be followed by the number of a footnote.
+	const code = `(\x{2014}|[0-7]{3})`
+	latinRow := regexp.MustCompile(`([A-Za-z]+)(?: [1-6])? +` + code + ` +` + code + ` +` + code + ` +` + code + `(?: |$)`)
+	var std, mac, win, pdfDocNames [256]string
+	latin := map[string]bool{}
+	for _, l := range section("D.2 Latin Character Set and Encodings", "D.3 PDFDocEncoding Character Set") {
+		for _, m := range latinRow.FindAllStringSubmatch(l, -1) {
+			name := m[1]
+			if latin[name] {
+				log.Fatalf("D.2: %s is listed twice", name)
+			}
+			latin[name] = true
+			for i, enc := range []*[256]string{&std, &mac, &win, &pdfDocNames} {
+				c := octal(m[2+i])
+				if c < 0 {
+					continue
+				}
+				if enc[c] != "" {
+					log.Fatalf("D.2: code %o is both %s and %s", c, enc[c], name)
+				}
+				enc[c] = name
 			}
 		}
 	}
-	agree("Helvetica", std)
-	agree("Symbol", symbol)
-	agree("ZapfDingbats", zapf)
+	// The character set has 229 characters, and the table is in the
+	// order of their names.
+	if len(latin) != 229 {
+		log.Fatalf("D.2: %d characters read, not 229", len(latin))
+	}
+	// The footnotes of the table, which add codes to it:
+	//
+	//	3. In WinAnsiEncoding, all unused codes greater than 40 map to
+	//	   the bullet character.
+	//	5. The hyphen character is also encoded as 255 in
+	//	   WinAnsiEncoding.
+	//	6. The space character shall also be encoded as 312 in
+	//	   MacRomanEncoding and as 240 in WinAnsiEncoding.
+	also := func(enc *[256]string, c int, name string) {
+		if enc[c] != "" {
+			log.Fatalf("code %o is %s already", c, enc[c])
+		}
+		enc[c] = name
+	}
+	also(&win, 0o255, "hyphen")
+	also(&win, 0o240, "space")
+	also(&mac, 0o312, "space")
+	for c := 0o41; c < 256; c++ {
+		if win[c] == "" {
+			win[c] = "bullet"
+		}
+	}
 
+	// Table 115 (9.6.6.4): "The standard Roman encoding that is used on
+	// Mac OS is the same as the MacRomanEncoding described in Annex D,
+	// with the addition of 15 entries and the replacement of the currency
+	// glyph with the Euro glyph". A TrueType font shows these 15 codes,
+	// and a font that has no glyph for them shows nothing, so they are
+	// read in MacRomanEncoding as well. The currency sign stays: of that
+	// code the annex says that it "shall continue to map" to it.
+	macRow := regexp.MustCompile(`^([A-Za-z]+) +([0-7]{3}) +([0-9]{3})$`)
+	added := 0
+	const table115 = "Table 115 \u2013 Differences between MacRomanEncoding and Mac OS Roman encoding"
+	at := slices.Index(spec, table115)
+	if at < 0 {
+		log.Fatalf("%s: no %q", *specText, table115)
+	}
+	// The table is short and on one page; a blank line follows each row.
+	for _, l := range spec[at+1 : at+40] {
+		m := macRow.FindStringSubmatch(l)
+		if m == nil {
+			continue
+		}
+		c := octal(m[2])
+		if strconv.Itoa(c) != m[3] {
+			log.Fatalf("Table 115: %s: octal %s is not decimal %s", m[1], m[2], m[3])
+		}
+		if m[1] == "Euro" {
+			if mac[c] != "currency" {
+				log.Fatalf("Table 115: Euro is not at the code of currency")
+			}
+			continue
+		}
+		also(&mac, c, m[1])
+		added++
+	}
+	if added != 15 {
+		log.Fatalf("Table 115: %d additions read, not 15", added)
+	}
+
+	// D.4: the expert character set and MacExpertEncoding, as names and
+	// codes in two columns side by side.
+	expertRow := regexp.MustCompile(`([A-Za-z]+) +([0-7]{3})(?: |$)`)
+	var expert [256]string
+	expertCount := 0
+	for _, l := range section("D.4 Expert Set and MacExpertEncoding", "D.5 Symbol Set and Encoding") {
+		for _, m := range expertRow.FindAllStringSubmatch(l, -1) {
+			c := octal(m[2])
+			if expert[c] != "" {
+				log.Fatalf("D.4: code %o is both %s and %s", c, expert[c], m[1])
+			}
+			expert[c] = m[1]
+			expertCount++
+		}
+	}
+	if expertCount != 165 {
+		log.Fatalf("D.4: %d characters read, not 165", expertCount)
+	}
+
+	// The built-in encodings of Symbol and ZapfDingbats are in their
+	// metrics files.
+	builtin := func(font string) [256]string {
+		var enc [256]string
+		for _, m := range afm(font) {
+			if m.code >= 0 {
+				enc[m.code] = m.name
+			}
+		}
+		return enc
+	}
+	symbol, zapf := builtin("Symbol"), builtin("ZapfDingbats")
+	// The metrics files of the text fonts state StandardEncoding as
+	// well; it must be the one of the specification.
+	for _, font := range []string{"Helvetica", "Times-Roman", "Courier"} {
+		if builtin(font) != std {
+			log.Fatalf("%s.afm and the specification differ on StandardEncoding", font)
+		}
+	}
+
+	var e bytes.Buffer
+	header(&e, "the encodings named in the PDF specification, Annex D")
+	runeTable := func(goName, doc string, enc [256]string) {
+		fmt.Fprintf(&e, "// %s\nvar %s = [256]uint16{", doc, goName)
+		for code, name := range enc {
+			sep(&e, code, 12)
+			r := one(name)
+			if name != "" && r == 0 {
+				log.Fatalf("%s: code %d: glyph %q has no single character", goName, code, name)
+			}
+			if r > 0xFFFF {
+				log.Fatalf("%s: code %d: outside the basic plane", goName, code)
+			}
+			fmt.Fprintf(&e, "%#04x,", r)
+		}
+		fmt.Fprint(&e, "\n}\n\n")
+	}
+	runeTable("standardEncoding", "standardEncoding is StandardEncoding: the character of each code, 0 where there is none.", std)
+	runeTable("winAnsiEncoding", "winAnsiEncoding is WinAnsiEncoding.", win)
+	runeTable("macRomanEncoding", "macRomanEncoding is MacRomanEncoding.", mac)
+	runeTable("symbolEncoding", "symbolEncoding is the built-in encoding of the Symbol font.", symbol)
+	runeTable("zapfDingbatsEncoding", "zapfDingbatsEncoding is the built-in encoding of the ZapfDingbats font.", zapf)
+
+	// MacExpertEncoding names small capitals, old-style figures and the
+	// like, which have no character of their own. The names are kept and
+	// resolved by GlyphText when a font asks for the encoding.
+	fmt.Fprint(&e, "// macExpertNames is MacExpertEncoding: the glyph name of each code.\nvar macExpertNames = [256]string{")
+	for code, name := range expert {
+		sep(&e, code, 6)
+		fmt.Fprintf(&e, "%q,", name)
+	}
+	fmt.Fprint(&e, "\n}\n\n")
+
+	// PDFDocEncoding (PDF 32000-1, Table D.2): Latin-1 with the range
+	// 0x18 to 0x1F and 0x80 to 0xA0 filled as below. Control codes other
+	// than tab, line feed and carriage return are undefined.
+	var pdfDoc [256]rune
+	for c := 0x20; c < 0x7F; c++ {
+		pdfDoc[c] = rune(c)
+	}
+	for c := 0xA1; c <= 0xFF; c++ {
+		pdfDoc[c] = rune(c)
+	}
+	pdfDoc[0xAD] = 0
+	pdfDoc[0x09], pdfDoc[0x0A], pdfDoc[0x0D] = 0x09, 0x0A, 0x0D
+	for i, r := range []rune{0x02D8, 0x02C7, 0x02C6, 0x02D9, 0x02DD, 0x02DB, 0x02DA, 0x02DC} {
+		pdfDoc[0x18+i] = r
+	}
+	for i, r := range []rune{0x2022, 0x2020, 0x2021, 0x2026, 0x2014, 0x2013, 0x0192, 0x2044, 0x2039, 0x203A, 0x2212, 0x2030,
+		0x201E, 0x201C, 0x201D, 0x2018, 0x2019, 0x201A, 0x2122, 0xFB01, 0xFB02, 0x0141, 0x0152, 0x0160, 0x0178, 0x017D,
+		0x0131, 0x0142, 0x0153, 0x0161, 0x017E, 0, 0x20AC} {
+		pdfDoc[0x80+i] = r
+	}
+	// The table of D.2 gives PDFDocEncoding by name for the characters of
+	// the Latin set; the two must agree.
+	for c, name := range pdfDocNames {
+		if name != "" && one(name) != pdfDoc[c] {
+			log.Fatalf("PDFDocEncoding: code %o is %s in D.2 and U+%04X here", c, name, pdfDoc[c])
+		}
+	}
+	fmt.Fprint(&e, "// pdfDocEncoding is PDFDocEncoding, the encoding of text strings outside\n// content streams.\nvar pdfDocEncoding = [256]uint16{")
+	for code, r := range pdfDoc {
+		sep(&e, code, 12)
+		fmt.Fprintf(&e, "%#04x,", r)
+	}
+	fmt.Fprint(&e, "\n}\n")
+	write(filepath.Join(*out, "encodings_gen.go"), e.Bytes())
+
+	// --- widths of the standard fonts ---
 	var w bytes.Buffer
 	header(&w, "glyph widths of the 14 standard fonts, in thousandths of the font size")
 	fmt.Fprint(&w, "// runeWidth is the width of the glyph for one character.\ntype runeWidth struct {\n\tr rune\n\tw uint16\n}\n\n")

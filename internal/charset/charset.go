@@ -8,6 +8,7 @@
 package charset
 
 import (
+	"bytes"
 	"sort"
 	"strings"
 	"sync"
@@ -33,25 +34,83 @@ func lookup(name string) (string, bool) {
 	return string(glyphSeqs[pos : pos+count]), true
 }
 
-// letters returns a character as text. The f-ligatures, to which the
-// glyph list and the encodings give the presentation forms U+FB00 to
-// U+FB04, are returned as their letters: "fi" is what a reader sees and
-// what a search looks for, and the single glyph is how a font happens to
-// draw it.
+// --- ligatures ---
+
+// ligatures are the letters of the Latin ligatures U+FB00 to U+FB06.
+// Text leaves this library with the letters and never with the ligature
+// character, whichever of the two a file states: "fi" is what a reader
+// sees and what a search looks for, and the single glyph is how a font
+// happens to draw it. None is longer than the three bytes of the
+// character it replaces.
+var ligatures = [...]string{"ff", "fi", "fl", "ffi", "ffl", "st", "st"}
+
+const ligatureFirst, ligatureLast = 0xFB00, 0xFB06
+
+// letters returns a character as text, a ligature as its letters.
 func letters(r rune) string {
-	switch r {
-	case 0xFB00:
-		return "ff"
-	case 0xFB01:
-		return "fi"
-	case 0xFB02:
-		return "fl"
-	case 0xFB03:
-		return "ffi"
-	case 0xFB04:
-		return "ffl"
+	if r >= ligatureFirst && r <= ligatureLast {
+		return ligatures[r-ligatureFirst]
 	}
 	return string(r)
+}
+
+// ligatureAt reports whether b starts with one of the ligatures, which
+// are EF AC 80 to EF AC 86 in UTF-8, and which.
+func ligatureAt[T string | []byte](b T) (int, bool) {
+	if len(b) >= 3 && b[0] == 0xEF && b[1] == 0xAC && b[2] >= 0x80 && b[2] <= 0x86 {
+		return int(b[2] - 0x80), true
+	}
+	return 0, false
+}
+
+// Letters returns s with the Latin ligatures written as their letters.
+func Letters(s string) string {
+	i := strings.Index(s, "\xef\xac")
+	if i < 0 {
+		return s
+	}
+	var sb strings.Builder
+	sb.Grow(len(s))
+	sb.WriteString(s[:i])
+	for i < len(s) {
+		if k, ok := ligatureAt(s[i:]); ok {
+			sb.WriteString(ligatures[k])
+			i += 3
+			continue
+		}
+		sb.WriteByte(s[i])
+		i++
+	}
+	return sb.String()
+}
+
+// LettersIn does to b[from:] what Letters does to a string, in place,
+// and returns b, which can have become shorter.
+func LettersIn(b []byte, from int) []byte {
+	i := from
+	for {
+		k := bytes.IndexByte(b[i:], 0xEF)
+		if k < 0 {
+			return b
+		}
+		i += k
+		if _, ok := ligatureAt(b[i:]); ok {
+			break
+		}
+		i++
+	}
+	w := i
+	for i < len(b) {
+		if k, ok := ligatureAt(b[i:]); ok {
+			w += copy(b[w:], ligatures[k])
+			i += 3
+			continue
+		}
+		b[w] = b[i]
+		w++
+		i++
+	}
+	return b[:w]
 }
 
 // isPrivateUse reports whether text is in the private use area, where
@@ -90,13 +149,13 @@ func component(name string, dingbats bool) (string, bool) {
 		if units != nil {
 			// Half of a surrogate pair by itself is no character.
 			if text := string(utf16.Decode(units)); !strings.ContainsRune(text, utf8.RuneError) {
-				return text, true
+				return Letters(text), true
 			}
 		}
 	}
 	if rest, ok := strings.CutPrefix(name, "u"); ok && len(rest) >= 4 && len(rest) <= 6 {
 		if v, ok := upperHex(rest); ok && v <= unicode.MaxRune && (v < 0xD800 || v > 0xDFFF) {
-			return string(rune(v)), true
+			return letters(rune(v)), true
 		}
 	}
 	// A variant of a character: "Asmall" is a small capital A, set in
@@ -328,8 +387,13 @@ func Core(baseFont string) *CoreFont {
 // TextString decodes a text string as PDF stores it outside content
 // streams, in the document information and in /ActualText: UTF-16 with a
 // byte order mark, UTF-8 with one, or PDFDocEncoding. The result is
-// valid UTF-8; a byte with no character becomes U+FFFD.
+// valid UTF-8; a byte with no character becomes U+FFFD, and a ligature
+// is written as its letters.
 func TextString(b []byte) string {
+	return Letters(textString(b))
+}
+
+func textString(b []byte) string {
 	switch {
 	case len(b) >= 2 && b[0] == 0xFE && b[1] == 0xFF:
 		return decodeUTF16(b[2:], true)

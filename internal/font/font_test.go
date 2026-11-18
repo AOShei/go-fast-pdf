@@ -8,6 +8,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/AOShei/go-fast-pdf/internal/charset"
 	"github.com/AOShei/go-fast-pdf/internal/file"
 	"github.com/AOShei/go-fast-pdf/internal/pdftest"
 	"github.com/AOShei/go-fast-pdf/internal/syntax"
@@ -377,6 +378,13 @@ func TestSimpleFontEncodings(t *testing.T) {
 			t.Errorf("%q", got)
 		}
 	})
+	t.Run("a ligature stated by ToUnicode", func(t *testing.T) {
+		f := load(t, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /ToUnicode 1 0 R >>",
+			pdftest.Stream("", "2 beginbfchar <41> <FB01> <42> <0066FB02> endbfchar 1 beginbfrange <61> <67> <FB00> endbfrange"))
+		if got, sh := show(f, "A B abcdefg"); got != "fi ffl fffiflffifflstst" || sh.Unmapped != 0 {
+			t.Errorf("%q, %+v", got, sh)
+		}
+	})
 	t.Run("ToUnicode wins, code by code", func(t *testing.T) {
 		f := load(t, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /ToUnicode 1 0 R /Encoding << /Differences [65 /B 67 /X] >> >>",
 			pdftest.Stream("", "2 beginbfchar <41> <005A> <0044> <0051> endbfchar"))
@@ -494,6 +502,19 @@ func TestCompositeFont(t *testing.T) {
 		// Word spacing applies to a one-byte 32 only.
 		if _, sh := show(f, "\x00\x20"); sh.Spaces != 0 {
 			t.Error("a two-byte code counts as a space for word spacing")
+		}
+	})
+	t.Run("ligatures", func(t *testing.T) {
+		// Stated by ToUnicode, alone and in a range.
+		dict, extra := type0("/Identity-H", "/DW 500", "1 begincodespacerange <0000> <FFFF> endcodespacerange 2 beginbfchar <0001> <FB03> <0002> <006F> endbfchar 1 beginbfrange <0010> <0016> <FB00> endbfrange")
+		got, sh := show(load(t, dict, extra...), "\x00\x02\x00\x01\x00\x02\x00\x10\x00\x15\x00\x16")
+		if got != "offioffstst" || sh.Glyphs != 6 || sh.Unmapped != 0 {
+			t.Errorf("%q, %+v", got, sh)
+		}
+		// The code is the ligature character itself.
+		dict, extra = type0("/UniJIS-UCS2-H", "/DW 1000", "")
+		if got, _ := show(load(t, dict, extra...), "\x00o\xfb\x03\x00c\x00e"); got != "office" {
+			t.Errorf("%q", got)
 		}
 	})
 	t.Run("codes stay aligned", func(t *testing.T) {
@@ -667,6 +688,9 @@ func FuzzCMap(f *testing.F) {
 		if !utf8.Valid(out) {
 			t.Fatalf("invalid UTF-8: %q", out)
 		}
+		if s := string(out); charset.Letters(s) != s {
+			t.Fatalf("a ligature character in %q", out)
+		}
 		if sh.Glyphs > len(shown) || len(shown) > 0 && sh.Glyphs == 0 {
 			t.Fatalf("%d glyphs for %d bytes", sh.Glyphs, len(shown))
 		}
@@ -685,6 +709,8 @@ func FuzzFont(f *testing.F) {
 	f.Add("/Subtype /Type0 /Encoding 1 0 R /DescendantFonts [<< /DW2 [880 -900] >>]", "begincodespacerange <00> <80> <8140> <FCFC> endcodespacerange /WMode 1 def", []byte("A\x81\x40"))
 	f.Add("/Subtype /Type3 /FontMatrix [0.01 0 0 0.01 0 0] /FirstChar 0 /Widths [1e30] /Encoding << /Differences [0 /a] >>", "", []byte("\x00"))
 	f.Add("/Subtype /Type0 /Encoding /UniJIS-UTF16-H /DescendantFonts [1 0 R]", "", []byte("\xd8\x3d\xde\x00"))
+	f.Add("/Subtype /Type0 /Encoding /Identity-H /DescendantFonts [1 0 R] /ToUnicode 1 0 R", "beginbfrange <0000> <FFFF> <FB00> endbfrange", []byte("\x00\x01\x00\x09"))
+	f.Add("/Subtype /Type1 /ToUnicode 1 0 R", "beginbfchar <41> <FB01> endbfchar", []byte("A"))
 	f.Fuzz(func(t *testing.T, dict, stream string, shown []byte) {
 		if strings.Contains(dict, "endobj") || strings.Contains(stream, "endstream") {
 			t.Skip()
@@ -704,6 +730,9 @@ func FuzzFont(f *testing.F) {
 		out, sh := fnt.Append(nil, shown)
 		if !utf8.Valid(out) {
 			t.Fatalf("invalid UTF-8: %q", out)
+		}
+		if s := string(out); charset.Letters(s) != s {
+			t.Fatalf("a ligature character in %q", out)
 		}
 		if sh.Glyphs > len(shown) || len(shown) > 0 && sh.Glyphs == 0 {
 			t.Fatalf("%d glyphs for %d bytes", sh.Glyphs, len(shown))

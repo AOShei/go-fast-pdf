@@ -23,6 +23,9 @@
 //
 // A code with no text by any of these is reported as unmapped and
 // appears as U+FFFD. Font programs are not read.
+//
+// A ligature (U+FB00 to U+FB06) is written as its letters, whether the
+// text comes from a glyph name or a CMap states the ligature character.
 package font
 
 import (
@@ -132,6 +135,7 @@ func (f *Font) Append(dst, s []byte) ([]byte, Shown) {
 		}
 		return dst, sh
 	}
+	start := len(dst)
 	for len(s) > 0 {
 		code, n := f.space.next(s)
 		s = s[n:]
@@ -160,7 +164,7 @@ func (f *Font) Append(dst, s []byte) ([]byte, Shown) {
 			sh.Advance += float64(f.cidWidth(cid))
 		}
 	}
-	return dst, sh
+	return charset.LettersIn(dst, start), sh
 }
 
 // CodeLen returns the number of bytes of the first character code of s,
@@ -289,6 +293,9 @@ func parse(f *file.File, dict syntax.Value) *Font {
 // index fills the table of one-byte texts from the texts of the codes.
 func (f *Font) index() {
 	for code, t := range f.text {
+		// A ToUnicode map can state a ligature character.
+		t = charset.Letters(t)
+		f.text[code] = t
 		f.one[code] = 0
 		if len(t) == 1 && t[0] < 0x80 && t[0] != 0 {
 			f.one[code] = t[0]

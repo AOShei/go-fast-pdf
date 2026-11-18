@@ -7,6 +7,12 @@ others. The tables are in internal/charset (files ending in _gen.go) and
 are made by internal/charset/gen/gen.go, which names the sources. The
 notices those sources ask to be kept follow.
 
+The encodings that the PDF specification defines (StandardEncoding,
+WinAnsiEncoding, MacRomanEncoding, MacExpertEncoding and
+PDFDocEncoding) are read from the specification itself, ISO 32000-1:2008
+Annex D and Table 115: which code stands for which character. No other
+part of the specification is in this module.
+
 ------------------------------------------------------------------------
 1. Adobe Glyph List and ITC Zapf Dingbats glyph list
 
@@ -76,27 +82,3 @@ AFM files.
 Helvetica and Times are trademarks of Linotype-Hell AG and/or its
 subsidiaries. ITC Zapf Dingbats is a registered trademark of
 International Typeface Corporation.
-
-------------------------------------------------------------------------
-3. Encoding tables from Mozilla pdf.js
-
-Source: src/core/encodings.js of pdf.js,
-https://github.com/mozilla/pdf.js, commit 74b5f3ee.
-Used for: internal/charset/encodings_gen.go (which glyph each code of
-StandardEncoding, WinAnsiEncoding, MacRomanEncoding and
-MacExpertEncoding has, as the PDF specification lists them in its
-Annex D).
-
-Copyright 2012 Mozilla Foundation.
-
-Licensed under the Apache License, Version 2.0 (the "License"); you may
-not use this file except in compliance with the License. You may obtain
-a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.

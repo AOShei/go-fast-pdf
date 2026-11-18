@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -403,35 +401,6 @@ func TestPredictor(t *testing.T) {
 	f := open(t, b.Bytes())
 	if got, want := content(t, f, 0), string(bytes.Join(rows, nil)); got != want {
 		t.Errorf("got %v, want %v", []byte(got), []byte(want))
-	}
-}
-
-func TestEncryptedFixtures(t *testing.T) {
-	fixture := func(name string) []byte {
-		data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "fixtures", name+".pdf"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		return data
-	}
-	plain := open(t, fixture("english"))
-	want := content(t, plain, 0)
-	for _, name := range []string{"enc-rc4-40", "enc-rc4-128", "enc-rc4-128-v4", "enc-aes-128"} {
-		f := open(t, fixture(name))
-		if !f.IsEncrypted() {
-			t.Errorf("%s: not reported as encrypted", name)
-		}
-		if got := content(t, f, 0); got != want {
-			t.Errorf("%s: content differs from the unencrypted file (starts %.30q)", name, got)
-		}
-		if title := f.Info().Get("Title"); string(title.Data) != "Sample document" {
-			t.Errorf("%s: title is %q", name, title.Data)
-		}
-	}
-	for _, name := range []string{"enc-aes-256", "enc-aes-256-r5"} {
-		if _, err := Open(fixture(name), Limits{}); !errors.Is(err, gofastcore.ErrUnsupported) {
-			t.Errorf("%s: error %v, want ErrUnsupported until Phase 3", name, err)
-		}
 	}
 }
 

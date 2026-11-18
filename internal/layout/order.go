@@ -299,7 +299,7 @@ func (b *builder) placeImages(res *Result) {
 		block := gofastcore.Block{
 			Kind:  gofastcore.KindImage,
 			Image: &gofastcore.Image{Width: int(img.Width), Height: int(img.Height)},
-			Loc:   gofastcore.Location{BBox: gofastcore.Rect{X0: bb.x0, Y0: bb.y0, X1: bb.x1, Y1: bb.y1}},
+			Loc:   gofastcore.Location{BBox: rect(bb.x0, bb.y0, bb.x1, bb.y1)},
 		}
 		if img.ColorSpace != "" || img.Inline {
 			block.Attrs = map[string]string{}

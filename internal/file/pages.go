@@ -186,10 +186,13 @@ func (f *File) rect(v syntax.Value) ([4]float64, bool) {
 	var r [4]float64
 	for i := range r {
 		n, ok := f.Resolve(elems[i]).Float()
-		if !ok {
+		if !ok || n != n {
 			return [4]float64{}, false
 		}
-		r[i] = n
+		// A file can state any number. No page or form is a billion
+		// points across, and sizes computed from larger numbers would
+		// not be numbers any more.
+		r[i] = min(max(n, -1e9), 1e9)
 	}
 	if r[0] > r[2] {
 		r[0], r[2] = r[2], r[0]

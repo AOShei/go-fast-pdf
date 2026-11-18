@@ -190,7 +190,7 @@ func Build(page Page, c *extract.Content, opts Options) Result {
 			Text:   bl.text,
 			Origin: gofastcore.OriginInferred,
 			Hidden: bl.hidden,
-			Loc:    gofastcore.Location{BBox: gofastcore.Rect{X0: bl.x0, Y0: bl.y0, X1: bl.x1, Y1: bl.y1}},
+			Loc:    gofastcore.Location{BBox: rect(bl.x0, bl.y0, bl.x1, bl.y1)},
 		})
 	}
 	res.HasText = len(res.Blocks) > 0
@@ -199,6 +199,30 @@ func Build(page Page, c *extract.Content, opts Options) Result {
 		b.placeImages(&res)
 	}
 	return res
+}
+
+// farAway bounds the coordinates of a box. A page can place text a
+// trillion points from its corner, or nowhere at all; a box that far
+// away says nothing more than that it is off the page, and numbers
+// without bound do not survive every way of writing a document down.
+const farAway = 1e9
+
+// rect makes the box of a block from its corners.
+func rect(x0, y0, x1, y1 float64) gofastcore.Rect {
+	clamp := func(v float64) float64 {
+		switch {
+		case v != v: // not a number
+			return 0
+		case v > farAway:
+			return farAway
+		case v < -farAway:
+			return -farAway
+		}
+		return v
+	}
+	r := gofastcore.Rect{X0: clamp(x0), Y0: clamp(y0), X1: clamp(x1), Y1: clamp(y1)}
+	r.X1, r.Y1 = max(r.X0, r.X1), max(r.Y0, r.Y1)
+	return r
 }
 
 func btoi(v bool) int {

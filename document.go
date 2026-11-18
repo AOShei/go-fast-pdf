@@ -130,6 +130,9 @@ func text(f *file.File, v syntax.Value) string {
 // dropped; a carriage return is a line break; any other control
 // character becomes U+FFFD.
 func cleanString(s string) string {
+	if !utf8.ValidString(s) {
+		s = strings.ToValidUTF8(s, "\uFFFD")
+	}
 	s = strings.TrimRight(s, "\x00")
 	clean := true
 	for i := 0; i < len(s); i++ {
@@ -542,7 +545,7 @@ func (m *merger) attach(ctx context.Context, a *attachment) *gofastcore.Document
 		if err == file.ErrTruncated {
 			m.attachmentsCut = true
 		}
-		return failed("the attached file could not be decoded: " + err.Error())
+		return failed(cleanString("the attached file could not be decoded: " + err.Error()))
 	}
 	return opts.ExtractChild(ctx, name, mime, bytes.NewReader(data), int64(len(data)))
 }

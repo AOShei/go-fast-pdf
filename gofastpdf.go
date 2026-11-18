@@ -158,6 +158,9 @@ func (e *Extractor) Extract(ctx context.Context, r io.ReaderAt, size int64, opts
 	// What concerns the file as a whole, in an order that does not
 	// depend on which worker found it.
 	found := f.Warnings()
+	for i := range found {
+		found[i].Message = cleanString(found[i].Message)
+	}
 	doc.Warnings = append(found, doc.Warnings...)
 	if rebuilt, redefined := f.Rebuilt(); rebuilt && redefined > 0 {
 		doc.Warn(gofastcore.SeverityWarning, gofastcore.WarnInputAmbiguous,
@@ -255,7 +258,7 @@ func (e *Extractor) page(f *file.File, p *file.Page, opts *gofastcore.Options) (
 	part.Kind, part.Number = gofastcore.PartPage, p.Number
 	defer part.MarkHidden()
 	if p.Err != nil {
-		part.Warn(gofastcore.SeverityError, gofastcore.WarnPartFailed, p.Err.Error())
+		part.Warn(gofastcore.SeverityError, gofastcore.WarnPartFailed, cleanString(p.Err.Error()))
 		return out
 	}
 	m, w, h := p.Display()
@@ -293,6 +296,10 @@ func (e *Extractor) page(f *file.File, p *file.Page, opts *gofastcore.Options) (
 	if lay.RightToLeft {
 		part.Warn(gofastcore.SeverityWarning, WarnRTLVisualOrder,
 			"the page has text in a script written from right to left; it is given in the order the page draws it")
+	}
+	// A message can quote the file: a name, part of an object.
+	for i := range part.Warnings {
+		part.Warnings[i].Message = cleanString(part.Warnings[i].Message)
 	}
 	e.annotations(f, p, &out)
 	return out

@@ -65,6 +65,24 @@ func TestGeometry(t *testing.T) {
 		})
 	}
 
+	t.Run("numbers without bound", func(t *testing.T) {
+		// Whatever the file states, the document has sizes and boxes
+		// that are numbers, and can be written as JSON (which the
+		// contract check does).
+		for _, d := range []synthDoc{
+			{Pages: []synthPage{{Content: content, MediaBox: "[0 0 1e300 1e300]"}}},
+			{Pages: []synthPage{{Content: content, MediaBox: "[-1e308 -1e308 1e308 1e308]", Extra: "/UserUnit 9999"}}},
+			{Pages: []synthPage{{Content: "1e30 0 0 1e30 1e30 1e30 cm " + content}}},
+			{Pages: []synthPage{{Content: "BT /F1 1e30 Tf 1e30 1e30 Td (Hello) Tj ET"}}},
+			{Pages: []synthPage{{Content: "BT /F1 12 Tf 1e-30 0 0 1e-30 0 0 Tm (Hello) Tj ET q 1e30 0 0 1e30 0 0 cm /Im1 Do Q", Resources: "/XObject << /Im1 1 0 R >>"}}, Objects: []string{grayImage}},
+		} {
+			doc := mustExtract(t, d.bytes(), &gofastcore.Options{Images: gofastcore.ImagesMeta})
+			if got := doc.Text(); got != "Hello\n" {
+				t.Errorf("text %q", got)
+			}
+		}
+	})
+
 	t.Run("text rotated on the page", func(t *testing.T) {
 		// Written upwards along x = 100: its box is tall and narrow.
 		part := &mustExtract(t, onePage("BT /F1 12 Tf 0 1 -1 0 100 300 Tm (Hello) Tj ET").bytes(), nil).Parts[0]

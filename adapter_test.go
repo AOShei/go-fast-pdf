@@ -184,7 +184,7 @@ func checkContract(doc *gofastcore.Document, opts *gofastcore.Options) error {
 				return fmt.Errorf("%s: box %+v lies off a page of %v by %v and is not flagged", where, r, p.Width, p.Height)
 			}
 			for _, v := range [...]float64{r.X0, r.Y0, r.X1, r.Y1} {
-				if v != v || v > 1e15 || v < -1e15 {
+				if v != v || v > 1e9 || v < -1e9 {
 					return fmt.Errorf("%s: box %+v", where, r)
 				}
 			}

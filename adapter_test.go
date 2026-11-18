@@ -74,8 +74,12 @@ func extractFile(path string, o extractOpts) (*extraction, error) {
 	return out, nil
 }
 
+// tempPattern names the temporary files of these tests. TestMain sweeps
+// stale ones by this pattern, so it must not match anything else.
+const tempPattern = "gofastpdf-*.pdf"
+
 func extractBytes(data []byte, o extractOpts) (*extraction, error) {
-	f, err := os.CreateTemp("", "gofastpdf-*.pdf")
+	f, err := os.CreateTemp("", tempPattern)
 	if err != nil {
 		return nil, err
 	}

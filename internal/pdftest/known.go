@@ -60,6 +60,14 @@ func childMain(fn func() error) {
 	// Fail fast on runaway recursion instead of growing the stack to the
 	// default 1 GB limit.
 	debug.SetMaxStack(64 << 20)
+	// The parent kills the child at the time limit. If the parent is
+	// gone, nobody does: the child ends itself a little after it.
+	if limit, err := time.ParseDuration(os.Getenv(limitEnv)); err == nil && limit > 0 {
+		time.AfterFunc(limit+childGrace, func() {
+			fmt.Fprintln(os.Stderr, "the child reached its time limit and was not stopped by its parent")
+			os.Exit(exitSelfStopped)
+		})
+	}
 	if err := safely(fn); err != nil {
 		fmt.Fprintln(os.Stderr, childMarker+err.Error())
 		os.Exit(3)
@@ -70,6 +78,15 @@ func childMain(fn func() error) {
 const (
 	isolatedEnv = "GOFASTPDF_ISOLATED"
 	childMarker = "DEFECT: "
+	// limitEnv tells the child its time limit, so that it can end itself
+	// if the parent is no longer there to do it.
+	limitEnv   = "GOFASTPDF_CHILD_LIMIT"
+	childGrace = 3 * time.Second
+	// exitSelfStopped is the exit status of a child that ended itself.
+	exitSelfStopped = 5
+	// childMaxFileBytes bounds any file a child writes. A child writes
+	// the document under test to a temporary file and nothing else.
+	childMaxFileBytes = 1 << 30
 )
 
 func settle(t *testing.T, key string, err error) {
@@ -122,25 +139,57 @@ const resultMarker = "RESULT: "
 // to id, waits for it and returns what the child passed to ChildMain. A
 // crash of any kind, or no result within the timeout, is an error. It may
 // be called from several goroutines.
+//
+// The child is contained (see contain): it and anything it starts are
+// killed at the time limit and on return, and it ends itself if the
+// parent dies first. It gets a temporary directory of its own, which is
+// removed when Spawn returns, so a child that is killed leaves no files.
 func Spawn(t *testing.T, id string, timeout time.Duration) (string, error) {
+	t.Helper()
+	return spawn(t, id, timeout, true)
+}
+
+// spawn is Spawn. With enforce unset the parent does not apply the time
+// limit, which lets a test check that the child applies it to itself.
+func spawn(t *testing.T, id string, timeout time.Duration, enforce bool) (string, error) {
 	t.Helper()
 	// Select exactly this test, level by level for subtests.
 	parts := strings.Split(t.Name(), "/")
 	for i, p := range parts {
 		parts[i] = "^" + regexp.QuoteMeta(p) + "$"
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	tmp, err := os.MkdirTemp("", "gofastpdf-child-")
+	if err != nil {
+		return "", err
+	}
+	defer os.RemoveAll(tmp)
+
+	parentLimit := timeout
+	if !enforce {
+		parentLimit = timeout + 10*childGrace
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), parentLimit)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run="+strings.Join(parts, "/"), "-test.count=1")
-	cmd.Env = append(os.Environ(), isolatedEnv+"="+id)
+	cmd.Env = append(os.Environ(), isolatedEnv+"="+id, limitEnv+"="+timeout.String(),
+		"TMPDIR="+tmp, "TMP="+tmp, "TEMP="+tmp)
 	cmd.WaitDelay = time.Second
 	// A runaway child can print without end; keep only the tail.
 	var tail tailBuffer
 	cmd.Stdout, cmd.Stderr = &tail, &tail
-	err := cmd.Run()
+	// The processor-time bound is what the child could use by running
+	// every core for its whole time limit; only a child that outlives
+	// that limit can exceed it.
+	cpu := (timeout + 10*time.Second) * time.Duration(runtime.NumCPU())
+	cleanup := contain(cmd, childMaxFileBytes, cpu)
+	err = cmd.Run()
+	cleanup()
 	out := tail.buf
 	if ctx.Err() != nil {
 		return "", fmt.Errorf("no result after %v (hang)", timeout)
+	}
+	if exit, ok := err.(*exec.ExitError); ok && exit.ExitCode() == exitSelfStopped {
+		return "", fmt.Errorf("no result after %v (hang; the child stopped itself)", timeout)
 	}
 	if err != nil {
 		return "", errors.New(childFailure(out, err))

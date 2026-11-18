@@ -72,10 +72,14 @@ func (l Limits) withDefaults() Limits {
 
 // Entry kinds of the cross-reference data.
 const (
-	entryFree = iota
+	// entryMissing: no cross-reference section mentions the object. It
+	// is the zero value. The object may still be in the file; see
+	// recovered.
+	entryMissing = iota
+	// entryFree: a section says the object is free, that is, deleted.
+	entryFree
 	entryOffset
 	entryCompressed
-	entryUnset
 )
 
 // entry says where one object is: at a byte offset, or at an index
@@ -98,6 +102,7 @@ type File struct {
 	encObj  int64 // object number of the encryption dictionary, -1 if none
 	stms    objStmCache
 	pages   []Page
+	rec     recovery
 
 	mu       sync.Mutex
 	warnings []gofastcore.Warning
@@ -113,21 +118,73 @@ func malformed(format string, args ...any) error {
 
 // Open reads the cross-reference data and the page tree of a PDF held in
 // memory. data must not be modified afterwards.
+//
+// A file whose cross-reference data cannot be used is read by finding
+// its objects directly; such a file carries an input.repaired warning.
 func Open(data []byte, limits Limits) (*File, error) {
-	f := &File{data: data, limits: limits.withDefaults(), encObj: -1}
+	limits = limits.withDefaults()
+	// Offsets count from the %PDF- header, which need not be the first
+	// byte of the file. Some files with leading bytes count from the
+	// start of the file all the same, so both are tried.
+	header := headerOffset(data)
+	bases := []int{header}
+	if header != 0 {
+		bases = append(bases, 0)
+	}
+	var first error
+	for _, base := range bases {
+		f := &File{data: data[base:], limits: limits, encObj: -1}
+		err := f.load()
+		if err == nil {
+			return f.finish(), nil
+		}
+		if !errors.Is(err, gofastcore.ErrMalformed) {
+			return nil, err // unsupported encryption and the like
+		}
+		if first == nil {
+			first = err
+		}
+	}
+	f := &File{data: data[header:], limits: limits, encObj: -1}
+	if err := f.rebuild(); err != nil {
+		if !errors.Is(err, gofastcore.ErrMalformed) {
+			return nil, err
+		}
+		return nil, first
+	}
+	f.Warn(gofastcore.SeverityInfo, gofastcore.WarnInputRepaired,
+		"the cross-reference data is unusable; the objects were found by scanning the file")
+	return f.finish(), nil
+}
+
+// headerOffset returns the position of the %PDF- header if it is within
+// the first kilobyte, and 0 otherwise.
+func headerOffset(data []byte) int {
+	if i := bytes.Index(data[:min(len(data), 1024)], []byte("%PDF-")); i > 0 {
+		return i
+	}
+	return 0
+}
+
+// load reads the cross-reference data, sets up decryption and checks
+// that the catalog can be reached.
+func (f *File) load() error {
 	if err := f.readXRef(); err != nil {
-		return nil, err
+		return err
 	}
 	f.objs = make([]atomic.Pointer[syntax.Value], len(f.xref))
 	if err := f.setupEncryption(); err != nil {
-		return nil, err
+		return err
 	}
-	catalog := f.Resolve(f.trailer.Get("Root"))
-	if !catalog.IsDict() {
-		return nil, malformed("the document catalog is missing or is a %s", catalog.Kind)
+	if catalog := f.Resolve(f.trailer.Get("Root")); !catalog.IsDict() {
+		return malformed("the document catalog is missing or is a %s", catalog.Kind)
 	}
-	f.pages = f.flattenPages(catalog.Get("Pages"))
-	return f, nil
+	return nil
+}
+
+func (f *File) finish() *File {
+	f.pages = f.flattenPages(f.Resolve(f.trailer.Get("Root")).Get("Pages"))
+	return f
 }
 
 // Warn records a problem that concerns the file as a whole.
@@ -135,6 +192,11 @@ func (f *File) Warn(severity gofastcore.Severity, code, message string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	// A damaged file can repeat one problem thousands of times.
+	for _, w := range f.warnings {
+		if w.Code == code && w.Message == message {
+			return
+		}
+	}
 	if len(f.warnings) < 100 {
 		f.warnings = append(f.warnings, gofastcore.Warning{Code: code, Severity: severity, Message: message})
 	}
@@ -177,7 +239,11 @@ func (f *File) readXRef() error {
 	}
 	i := bytes.LastIndex(tail, []byte("startxref"))
 	if i < 0 {
-		return malformed("startxref not found")
+		// Not near the end: bytes were appended after %%EOF.
+		tail = f.data
+		if i = bytes.LastIndex(tail, []byte("startxref")); i < 0 {
+			return malformed("startxref not found")
+		}
 	}
 	pos := len(f.data) - len(tail) + i + len("startxref")
 	v, end := syntax.ParseNumber(f.data, syntax.SkipSpace(f.data, pos))
@@ -227,12 +293,6 @@ func (f *File) readXRef() error {
 	if f.trailer.Kind != syntax.Dict {
 		return malformed("no trailer dictionary")
 	}
-	// Entries that no section defined are free.
-	for i := range f.xref {
-		if f.xref[i].kind == entryUnset {
-			f.xref[i].kind = entryFree
-		}
-	}
 	return nil
 }
 
@@ -242,28 +302,38 @@ func (f *File) setEntry(num int64, e entry) {
 	if num < 0 || num >= int64(f.limits.MaxObjects) {
 		return
 	}
-	if num >= int64(len(f.xref)) {
-		old := len(f.xref)
-		if num < int64(cap(f.xref)) {
-			f.xref = f.xref[:num+1]
-		} else {
-			grown := make([]entry, num+1, max(int(num)+1, 2*cap(f.xref)))
-			copy(grown, f.xref)
-			f.xref = grown
-		}
-		for i := old; i <= int(num); i++ {
-			f.xref[i].kind = entryUnset
-		}
-	}
-	if f.xref[num].kind == entryUnset {
+	f.growXRef(num)
+	if f.xref[num].kind == entryMissing {
 		f.xref[num] = e
 	}
+}
+
+// growXRef makes the table long enough to hold object num. New entries
+// are entryMissing, the zero value. The capacity at least doubles when it
+// has to grow, so filling a table costs time in proportion to its size,
+// in whatever order the objects come.
+func (f *File) growXRef(num int64) {
+	if num < int64(len(f.xref)) {
+		return
+	}
+	if num < int64(cap(f.xref)) {
+		f.xref = f.xref[:num+1]
+		return
+	}
+	grown := make([]entry, num+1, max(int(num)+1, 2*cap(f.xref)))
+	copy(grown, f.xref)
+	f.xref = grown
 }
 
 // readXRefTable reads a classic cross-reference table, positioned after
 // the xref keyword, and the trailer dictionary that follows it. Entries
 // are read as tokens, so their exact width does not matter.
 func (f *File) readXRefTable(pos int) (syntax.Value, error) {
+	type pending struct {
+		num int64
+		e   entry
+	}
+	var entries []pending
 	p := syntax.NewParser(f.data, pos, f.limits.MaxNesting)
 	for {
 		first, err := p.Object()
@@ -288,8 +358,10 @@ func (f *File) readXRefTable(pos int) (syntax.Value, error) {
 			kind, err3 := p.Object()
 			if err1 != nil || err2 != nil || err3 != nil || off.Kind != syntax.Int || gen.Kind != syntax.Int ||
 				kind.Kind != syntax.Keyword || !(kind.Equal("n") || kind.Equal("f")) {
-				// One damaged entry costs one object, not the file. Each
-				// entry is a line: continue with the next one.
+				// One damaged entry costs at most one object, not the
+				// file. Each entry is a line: continue with the next. The
+				// object stays unmentioned, so it can still be found by
+				// scanning.
 				end := start
 				for end < len(f.data) && f.data[end] != '\n' && f.data[end] != '\r' {
 					end++
@@ -297,19 +369,40 @@ func (f *File) readXRefTable(pos int) (syntax.Value, error) {
 				p.SetPos(end)
 				f.Warn(gofastcore.SeverityWarning, "pdf.xref_entry_unreadable",
 					fmt.Sprintf("cross-reference entry for object %d is not readable", first.N+i))
-				f.setEntry(first.N+i, entry{kind: entryFree})
 				continue
 			}
 			e := entry{kind: entryFree, gen: uint16(gen.N)}
 			if kind.Equal("n") {
 				e.kind, e.off = entryOffset, off.N
 			}
-			f.setEntry(first.N+i, e)
+			if len(entries) < f.limits.MaxObjects {
+				entries = append(entries, pending{first.N + i, e})
+			}
 		}
 	}
 	trailer, err := p.Object()
 	if err != nil || trailer.Kind != syntax.Dict {
 		return syntax.Value{}, malformed("the trailer is not a dictionary")
+	}
+
+	// In a hybrid-reference file the trailer names a cross-reference
+	// stream that holds the objects kept in object streams. It ranks
+	// after this table's objects and before its free entries, which some
+	// producers write for those very objects, and before /Prev.
+	for _, pe := range entries {
+		if pe.e.kind == entryOffset {
+			f.setEntry(pe.num, pe.e)
+		}
+	}
+	if at, ok := trailer.Get("XRefStm").Integer(); ok {
+		if _, err := f.readXRefStream(at); err != nil {
+			f.Warn(gofastcore.SeverityWarning, "pdf.xref_section_unreadable", err.Error())
+		}
+	}
+	for _, pe := range entries {
+		if pe.e.kind == entryFree {
+			f.setEntry(pe.num, pe.e)
+		}
 	}
 	return trailer, nil
 }
@@ -436,22 +529,37 @@ func (f *File) parseAt(offset int64, want int64) (syntax.Value, error) {
 func (f *File) Object(num int64) syntax.Value { return f.object(num, 0) }
 
 func (f *File) object(num int64, depth int) syntax.Value {
-	if num < 0 || num >= int64(len(f.xref)) || depth > 8 {
+	if num <= 0 || depth > 8 {
 		return syntax.Value{}
+	}
+	if num >= int64(len(f.xref)) {
+		// Beyond what the cross-reference data covers.
+		v, _ := f.recovered(num, depth)
+		return v
 	}
 	if cached := f.objs[num].Load(); cached != nil {
 		return *cached
 	}
 	var v syntax.Value
 	var err error
+	found := true
 	switch e := f.xref[num]; e.kind {
 	case entryOffset:
 		v, err = f.parseAt(e.off, num)
-		if err == nil && f.enc != nil && num != f.encObj && !v.Get("Type").IsName("XRef") {
-			v = f.enc.decryptStrings(v, uint32(num), e.gen)
+		if err == nil {
+			v = f.decryptObject(v, num, e.gen)
 		}
 	case entryCompressed:
 		v, err = f.fromObjStm(e.off, num, int(e.idx), depth)
+	case entryMissing:
+		found = false
+	}
+	if err != nil || !found {
+		// The table is wrong about this object, or silent. The object
+		// may still be in the file.
+		if rv, ok := f.recovered(num, depth); ok {
+			v, err = rv, nil
+		}
 	}
 	if err != nil {
 		f.Warn(gofastcore.SeverityWarning, "pdf.object_unreadable", fmt.Sprintf("object %d: %v", num, err))
@@ -461,6 +569,15 @@ func (f *File) object(num int64, depth int) syntax.Value {
 	// and one of the copies is dropped.
 	f.objs[num].CompareAndSwap(nil, &v)
 	return *f.objs[num].Load()
+}
+
+// decryptObject decrypts the strings of an object read from the file
+// itself. Objects from object streams are not encrypted individually.
+func (f *File) decryptObject(v syntax.Value, num int64, gen uint16) syntax.Value {
+	if f.enc == nil || num == f.encObj || v.Get("Type").IsName("XRef") {
+		return v
+	}
+	return f.enc.decryptStrings(v, uint32(num), gen)
 }
 
 // Resolve follows indirect references until it reaches a value that is

@@ -6,6 +6,8 @@
 ./internal/syntax FuzzParser
 ./internal/content FuzzScanner
 ./internal/font FuzzCMap
+./internal/font FuzzFont
+./internal/charset FuzzTextString
 ./internal/file FuzzOpen
 ./internal/file FuzzRebuild
 ./internal/file FuzzFilters

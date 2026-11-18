@@ -41,8 +41,7 @@ type inherited struct {
 	rotate    syntax.Value
 }
 
-// flattenPages walks the page tree once. /Count is not trusted; a node
-// that is reached twice is skipped, which also ends any cycle.
+// flattenPages walks the page tree once. /Count is not trusted.
 func (f *File) flattenPages(root syntax.Value) []Page {
 	type item struct {
 		ref syntax.Value
@@ -56,12 +55,6 @@ func (f *File) flattenPages(root syntax.Value) []Page {
 		stack = stack[:len(stack)-1]
 
 		num := RefNumber(it.ref)
-		if num != 0 {
-			if seen[num] {
-				continue
-			}
-			seen[num] = true
-		}
 		if len(pages) >= f.limits.MaxPages {
 			f.Warn(gofastcore.SeverityError, gofastcore.WarnLimitExceeded,
 				fmt.Sprintf("the page tree has more than %d pages", f.limits.MaxPages))
@@ -87,6 +80,15 @@ func (f *File) flattenPages(root syntax.Value) []Page {
 		// says or does not say.
 		kids := f.Resolve(node.Get("Kids"))
 		if kids.Kind == syntax.Array && !node.Get("Type").IsName("Page") {
+			// An intermediate node reached a second time is skipped, which
+			// ends any cycle. A page may be listed more than once and is
+			// then a page each time, as other readers treat it.
+			if num != 0 {
+				if seen[num] {
+					continue
+				}
+				seen[num] = true
+			}
 			// Push in reverse so that the first kid is handled first.
 			for i := len(kids.List) - 1; i >= 0; i-- {
 				stack = append(stack, item{ref: kids.List[i], inh: inh})

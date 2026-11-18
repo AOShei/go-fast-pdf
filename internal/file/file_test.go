@@ -223,9 +223,22 @@ func TestPageTree(t *testing.T) {
 		}
 	})
 	t.Run("page listed twice", func(t *testing.T) {
+		// Other readers show the page each time it is listed.
 		f := pageTree(t, func(b *pdftest.Builder) { b.Set(2, "<< /Type /Pages /Kids [5 0 R 5 0 R 7 0 R] /Count 3 >>") })
-		if len(f.Pages()) != 2 {
-			t.Errorf("%d pages, want 2", len(f.Pages()))
+		if len(f.Pages()) != 3 || content(t, f, 0) != "a" || content(t, f, 1) != "a" || content(t, f, 2) != "b" {
+			t.Errorf("%d pages, want the first page twice and then the second", len(f.Pages()))
+		}
+	})
+	t.Run("page count is bounded", func(t *testing.T) {
+		kids := strings.Repeat("5 0 R ", 5000)
+		b := doc(nil, "a")
+		b.Set(2, "<< /Type /Pages /Kids ["+kids+"] /Count 5000 >>")
+		f, err := Open(b.Bytes(), Limits{MaxPages: 100})
+		if err != nil || len(f.Pages()) != 100 {
+			t.Fatalf("%d pages, %v; want 100", len(f.Pages()), err)
+		}
+		if w := f.Warnings(); len(w) != 1 || w[0].Code != gofastcore.WarnLimitExceeded {
+			t.Errorf("warnings %v", w)
 		}
 	})
 	t.Run("wrong count", func(t *testing.T) {
@@ -284,6 +297,27 @@ func TestPageTree(t *testing.T) {
 			t.Errorf("%d pages", len(f.Pages()))
 		}
 	})
+}
+
+func TestDamagedXRefEntry(t *testing.T) {
+	// One entry of the table is garbage. The object it describes is lost;
+	// the rest of the file is read.
+	data := doc(nil, "kept").Bytes()
+	table := bytes.Index(data, []byte("\nxref\n")) + 1
+	// The entry of object 3 (the font): third line after the free entry.
+	entry := table + len("xref\n0 6\n") + 20*3
+	bad := append([]byte{}, data...)
+	copy(bad[entry:], "00000/0377")
+	f := open(t, bad)
+	if len(f.Pages()) != 1 || content(t, f, 0) != "kept" {
+		t.Fatalf("%d pages", len(f.Pages()))
+	}
+	if !f.Object(3).IsNull() {
+		t.Errorf("the object with the damaged entry is %v, want null", f.Object(3))
+	}
+	if w := f.Warnings(); len(w) != 1 || w[0].Code != "pdf.xref_entry_unreadable" {
+		t.Errorf("warnings %v", w)
+	}
 }
 
 func TestOpenErrors(t *testing.T) {

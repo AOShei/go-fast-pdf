@@ -418,10 +418,25 @@ func TestC6TrustedSizes(t *testing.T) {
 		pdftest.DefectIsolated(t, "C6/bfrange", 5*time.Second, finishes(data, 64<<20))
 	})
 	t.Run("inflate", func(t *testing.T) {
-		// A content stream of 100 KB that inflates to 96 MB.
-		content := append([]byte(pdftest.TextPage("ok")), bytes.Repeat([]byte(" "), 96<<20)...)
+		// A content stream of 250 KB that inflates to 256 MB. The reader
+		// stops at its limit for one stream (64 MiB by default), so what
+		// it allocates is bounded by a small multiple of that limit and
+		// not by what the file claims.
+		content := append([]byte(pdftest.TextPage("ok")), bytes.Repeat([]byte(" "), 256<<20)...)
 		data := pdftest.Doc(pdftest.DocOptions{Compress: true}, pdftest.PageSpec{Content: string(content)}).Bytes()
-		pdftest.DefectIsolated(t, "C6/inflate", timeout, finishes(data, 64<<20))
+		content = nil
+		pdftest.DefectIsolated(t, "C6/inflate", timeout, func() error {
+			var e *extraction
+			var err error
+			n := pdftest.AllocBytes(func() { e, err = extractBytes(data, extractOpts{}) })
+			if n > 160<<20 {
+				return fmt.Errorf("allocated %d MB for a %d KB file", n>>20, len(data)>>10)
+			}
+			if err != nil || e.words() != "ok" {
+				return fmt.Errorf("text %q, error %v; want the text before the limit", e.words(), err)
+			}
+			return nil
+		})
 	})
 }
 

@@ -243,12 +243,17 @@ func (f *File) setEntry(num int64, e entry) {
 		return
 	}
 	if num >= int64(len(f.xref)) {
-		grown := make([]entry, num+1, max(int(num)+1, 2*len(f.xref)))
-		copy(grown, f.xref)
-		for i := len(f.xref); i < len(grown); i++ {
-			grown[i].kind = entryUnset
+		old := len(f.xref)
+		if num < int64(cap(f.xref)) {
+			f.xref = f.xref[:num+1]
+		} else {
+			grown := make([]entry, num+1, max(int(num)+1, 2*cap(f.xref)))
+			copy(grown, f.xref)
+			f.xref = grown
 		}
-		f.xref = grown
+		for i := old; i <= int(num); i++ {
+			f.xref[i].kind = entryUnset
+		}
 	}
 	if f.xref[num].kind == entryUnset {
 		f.xref[num] = e
@@ -273,11 +278,27 @@ func (f *File) readXRefTable(pos int) (syntax.Value, error) {
 			return syntax.Value{}, malformed("cross-reference subsection header is not two integers")
 		}
 		for i := int64(0); i < count.N; i++ {
+			start := syntax.SkipSpace(f.data, p.Pos())
+			if start >= len(f.data) {
+				return syntax.Value{}, malformed("cross-reference table ends without a trailer")
+			}
+			p.SetPos(start)
 			off, err1 := p.Object()
 			gen, err2 := p.Object()
 			kind, err3 := p.Object()
-			if err1 != nil || err2 != nil || err3 != nil || off.Kind != syntax.Int || gen.Kind != syntax.Int || kind.Kind != syntax.Keyword {
-				return syntax.Value{}, malformed("cross-reference entry %d is not readable", first.N+i)
+			if err1 != nil || err2 != nil || err3 != nil || off.Kind != syntax.Int || gen.Kind != syntax.Int ||
+				kind.Kind != syntax.Keyword || !(kind.Equal("n") || kind.Equal("f")) {
+				// One damaged entry costs one object, not the file. Each
+				// entry is a line: continue with the next one.
+				end := start
+				for end < len(f.data) && f.data[end] != '\n' && f.data[end] != '\r' {
+					end++
+				}
+				p.SetPos(end)
+				f.Warn(gofastcore.SeverityWarning, "pdf.xref_entry_unreadable",
+					fmt.Sprintf("cross-reference entry for object %d is not readable", first.N+i))
+				f.setEntry(first.N+i, entry{kind: entryFree})
+				continue
 			}
 			e := entry{kind: entryFree, gen: uint16(gen.N)}
 			if kind.Equal("n") {

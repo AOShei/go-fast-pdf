@@ -3,6 +3,7 @@ package extract
 import (
 	"bytes"
 	"fmt"
+	"math"
 	"strings"
 	"sync"
 	"testing"
@@ -55,7 +56,7 @@ func TestText(t *testing.T) {
 		{"one string", "BT /F1 12 Tf 72 720 Td (Hello) Tj ET", "Hello"},
 		{"two lines", "BT /F1 12 Tf 72 720 Td (one) Tj 0 -14 Td (two) Tj ET", "one\ntwo"},
 		{"T* and leading", "BT /F1 12 Tf 14 TL 72 720 Td (one) Tj T* (two) Tj ET", "one\ntwo"},
-		{"quote operators", "BT /F1 12 Tf 14 TL 72 720 Td (one) Tj (two) ' 1 2 (three) \" ET", "one\ntwo\nthree"},
+		{"quote operators", "BT /F1 12 Tf 14 TL 72 720 Td (one) Tj (two) ' 1 0.5 (three) \" ET", "one\ntwo\nthree"},
 		{"TJ kerning keeps the word", "BT /F1 12 Tf 72 720 Td [(Hel) -20 (lo)] TJ ET", "Hello"},
 		{"TJ gap makes a space", "BT /F1 12 Tf 72 720 Td [(Hello) -900 (World)] TJ ET", "Hello World"},
 		{"hex string", "BT /F1 12 Tf 72 720 Td <48656C6C6F> Tj ET", "Hello"},
@@ -140,12 +141,17 @@ func TestDamagedContent(t *testing.T) {
 			t.Errorf("text %q, warnings %s", res.Text, codes(res.Warnings))
 		}
 	})
-	t.Run("invalid bytes become U+FFFD", func(t *testing.T) {
-		font := "<< /Type /Font /Subtype /Type1 /Encoding << /Differences [65 /NoSuchGlyphName] >> >>"
+	t.Run("glyphs with no text become U+FFFD", func(t *testing.T) {
+		// Codes 233 and 234 are glyphs whose names say nothing, and they
+		// are not ASCII: which characters they are cannot be told.
+		font := "<< /Type /Font /Subtype /Type1 /Encoding << /Differences [233 /g1 /g2] >> >>"
 		data := pdftest.Doc(pdftest.DocOptions{Font: font}, pdftest.PageSpec{Content: "BT /F1 12 Tf 72 720 Td (a\\351\\352b) Tj ET"}).Bytes()
 		res := extractAll(t, open(t, data, file.Limits{}), Options{})[0]
-		if res.Text != "a��b" || codes(res.Warnings) != gofastcore.WarnTextUnmappedGlyphs {
+		if res.Text != "a\uFFFD\uFFFDb" || codes(res.Warnings) != gofastcore.WarnTextUnmappedGlyphs {
 			t.Errorf("text %q, warnings %s", res.Text, codes(res.Warnings))
+		}
+		if !strings.Contains(res.Warnings[0].Message, "2 character codes") {
+			t.Errorf("message %q", res.Warnings[0].Message)
 		}
 	})
 	t.Run("page tree entry that is not a page", func(t *testing.T) {
@@ -387,6 +393,21 @@ func FuzzExtract(f *testing.F) {
 		pdftest.PageSpec{Content: "q 1 0 0 1 0 0 cm BT /F1 12 Tf [(a) -20 (b)] TJ ET Q BI /W 1 /H 1 ID x EI"}).Bytes())
 	f.Add(bytes.Replace(pdftest.OnePage("BT /F1 1 Tf (x) Tj ET"), []byte("/Encoding /WinAnsiEncoding"),
 		[]byte("/Encoding << /Differences [65 /B] >>"), 1))
+	// Everything the interpreter reads besides plain text: forms with a
+	// matrix, marked content with /ActualText and optional content, a
+	// graphics state dictionary, colour spaces, rotated and spaced text.
+	rich := pdftest.New()
+	rich.Add(pdftest.Stream("/Type /XObject /Subtype /Form /BBox [0 0 50 50] /Matrix [2 0 0 2 5 5] /OC 2 0 R", "BT /F1 9 Tf (in) Tj ET /Fm Do"))
+	rich.Add("<< /Type /OCG /Name (layer) >>")
+	pdftest.Doc(pdftest.DocOptions{Base: rich}, pdftest.PageSpec{
+		Content: "/G gs /Cs cs 1 0 0 scn 0.5 g 1 0 0 RG 0 0 0 1 k 3 Tr 5 Ts 80 Tz 2 Tc 3 Tw 12 TL " +
+			"BT /F1 12 Tf 0 1 -1 0 300 400 Tm (up) Tj T* (next) ' 1 2 (q) \" ET " +
+			"/Span << /ActualText (fi) >> BDC BT /F1 1 Tf (x) Tj ET EMC /OC /L BDC BT (y) Tj ET EMC /Fm Do 0 0 1 1 re f /Sh sh",
+		Resources: "/Font << /F1 5 0 R >> /XObject << /Fm 1 0 R >> /ExtGState << /G << /ca 0.5 /CA 0 /Font [5 0 R 7] >> >> " +
+			"/ColorSpace << /Cs [/ICCBased 1 0 R] >> /Properties << /L 2 0 R >>",
+	})
+	rich.Set(3, "<< /Type /Catalog /Pages 4 0 R /OCProperties << /D << /OFF [2 0 R] >> >> >>")
+	f.Add(rich.Bytes())
 	f.Fuzz(func(t *testing.T, data []byte) {
 		file, err := file.Open(data, file.Limits{MaxStreamBytes: 1 << 20, MaxPages: 64})
 		if err != nil {
@@ -394,12 +415,27 @@ func FuzzExtract(f *testing.F) {
 		}
 		pages := file.Pages()
 		for i := range pages {
-			res := Page(file, &pages[i], Options{Images: true, MaxDecodedBytes: 4 << 20})
+			res := Page(file, &pages[i], Options{Images: true, Runs: true, MaxDecodedBytes: 4 << 20})
 			if res.Err != nil && strings.Contains(res.Err.Error(), "internal error") {
 				t.Fatalf("page %d: a panic was caught at the page boundary: %v", i+1, res.Err)
 			}
-			if !utf8.ValidString(res.Text) {
+			if !utf8.ValidString(res.Text) || !utf8.Valid(res.RunText) {
 				t.Fatalf("page %d: text is not valid UTF-8", i+1)
+			}
+			// Every run lies inside the text, on a place that is a
+			// number, and belongs to a form that exists.
+			for _, r := range res.Runs {
+				if r.Off < 0 || r.Len < 0 || int(r.Off)+int(r.Len) > len(res.RunText) {
+					t.Fatalf("page %d: a run of %d bytes at %d in %d bytes of text", i+1, r.Len, r.Off, len(res.RunText))
+				}
+				for _, v := range []float64{r.X0, r.Y0, r.X1, r.Y1, r.Dx, r.Dy, r.Size, r.SizeX, r.Rise, r.SpaceWidth} {
+					if math.IsNaN(v) {
+						t.Fatalf("page %d: a run has a position that is not a number: %+v", i+1, r)
+					}
+				}
+				if r.Form < -1 || int(r.Form) >= len(res.Forms) || r.Mode > 7 || r.Sep != 0 && r.Sep != ' ' && r.Sep != '\n' {
+					t.Fatalf("page %d: %+v", i+1, r)
+				}
 			}
 		}
 	})

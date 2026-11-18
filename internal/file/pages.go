@@ -120,6 +120,10 @@ func (f *File) flattenPages(root syntax.Value) []Page {
 	return pages
 }
 
+// Rect reads a rectangle of four numbers, such as a /BBox, and puts its
+// corners in order: [llx lly urx ury].
+func (f *File) Rect(v syntax.Value) ([4]float64, bool) { return f.rect(v) }
+
 // rect reads a rectangle of four numbers and puts its corners in order.
 func (f *File) rect(v syntax.Value) ([4]float64, bool) {
 	elems := f.Resolve(v).Elems()

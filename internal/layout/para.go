@@ -80,8 +80,13 @@ func (b *builder) paragraphs(first int, hidden gofastcore.Hidden) {
 	}
 	for oi, li := range order {
 		ln := &lines[li]
+		// between is the nearest line above ln that ln does not lie
+		// under: the short last line of a paragraph, when ln is the
+		// indented first line of the next one.
+		between := int32(-1)
 		for back := 1; back <= lookBack && oi-back >= 0; back++ {
-			up := &lines[order[oi-back]]
+			at := order[oi-back]
+			up := &lines[at]
 			d := ln.v - up.v
 			if d > leadingMax*max(ln.size, up.size) {
 				break
@@ -89,11 +94,20 @@ func (b *builder) paragraphs(first int, hidden gofastcore.Hidden) {
 			if d < 0.5*min(ln.size, up.size) {
 				continue // on the same line, further along
 			}
-			if over := min(ln.u1, up.u1) - max(ln.u0, up.u0); over > 0.5*min(ln.u1-ln.u0, up.u1-up.u0) || over > 0 && over > ln.size {
-				b.pred[li] = order[oi-back]
-				b.claims[order[oi-back]]++
-				break
+			if !under(ln, up) {
+				if between < 0 {
+					between = at
+				}
+				continue
 			}
+			// ln lies under up. If the line between them lies under up
+			// as well, ln follows that line, not up.
+			if between >= 0 && under(&lines[between], up) {
+				at = between
+			}
+			b.pred[li] = at
+			b.claims[at]++
+			break
 		}
 	}
 
@@ -180,6 +194,13 @@ func (b *builder) paragraphs(first int, hidden gofastcore.Hidden) {
 			b.blocks = append(b.blocks, bl)
 		}
 	}
+}
+
+// under reports whether the line ln, which is below up, lies under it:
+// the two share a good part of their extent along the line.
+func under(ln, up *line) bool {
+	over := min(ln.u1, up.u1) - max(ln.u0, up.u0)
+	return over > 0.5*min(ln.u1-ln.u0, up.u1-up.u0) || over > ln.size
 }
 
 // usualLeading returns the most common distance between the baselines

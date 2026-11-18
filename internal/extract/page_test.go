@@ -442,3 +442,35 @@ func FuzzExtract(f *testing.F) {
 		}
 	})
 }
+
+// A page whose content cannot be decoded reports nothing that belongs to
+// the page read before it: the interpreter and its scanner are reused.
+func TestNothingCarriesOverToAPageWithoutContent(t *testing.T) {
+	b := pdftest.Doc(pdftest.DocOptions{},
+		pdftest.PageSpec{Content: "BT /F1 12 Tf 72 720 Td (text) Tj ET ) ) )"}, // three bytes that are not syntax
+		pdftest.PageSpec{})
+	// Objects: 1 catalog, 2 page tree, 3 font, 4 and 5 the first page,
+	// 6 the content of the second. It becomes a stream that does not
+	// decode.
+	b.Set(6, pdftest.Stream("/Filter /FlateDecode", "not deflate data"))
+	f := open(t, b.Bytes(), file.Limits{})
+	for range 50 { // the pool hands the same interpreter out again
+		first := Page(f, &f.Pages()[0], Options{})
+		second := Page(f, &f.Pages()[1], Options{})
+		if !hasWarning(first.Warnings, "pdf.content_bytes_skipped") {
+			t.Fatalf("first page: warnings %+v", first.Warnings)
+		}
+		if hasWarning(second.Warnings, "pdf.content_bytes_skipped") || second.Text != "" {
+			t.Fatalf("second page: text %q, warnings %+v", second.Text, second.Warnings)
+		}
+	}
+}
+
+func hasWarning(ws []gofastcore.Warning, code string) bool {
+	for _, w := range ws {
+		if w.Code == code {
+			return true
+		}
+	}
+	return false
+}

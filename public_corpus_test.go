@@ -247,8 +247,18 @@ func runPublicFile(t *testing.T, f publicFile) *publicResult {
 // scorePublicFile runs in the child process.
 func scorePublicFile(path, refFile string) publicResult {
 	got, err := extractFile(path, extractOpts{})
+	if err == nil {
+		// The same document for any number of workers.
+		many, err := extractFile(path, extractOpts{Workers: 8})
+		if err != nil {
+			return publicResult{Status: "invalid", Detail: clipString("with 8 workers: "+err.Error(), 120)}
+		}
+		if diff := sameDocument(got.Doc, many.Doc); diff != "" {
+			return publicResult{Status: "invalid", Detail: clipString("1 worker and 8 workers: "+diff, 120)}
+		}
+	}
 	if err != nil {
-		if strings.Contains(err.Error(), "UTF-8") {
+		if errors.Is(err, errContract) {
 			return publicResult{Status: "invalid", Detail: clipString(err.Error(), 120)}
 		}
 		if errors.Is(err, gofastcore.ErrPasswordRequired) {

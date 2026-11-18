@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"reflect"
@@ -86,17 +87,22 @@ func extractBytes(data []byte, o extractOpts) (*extraction, error) {
 		po.Text = p.Text()
 		po.Chars = utf8.RuneCountInString(po.Text)
 		if !utf8.ValidString(po.Text) {
-			return out, fmt.Errorf("page %d: text is not valid UTF-8", p.Number)
+			return out, fmt.Errorf("%w: page %d: text is not valid UTF-8", errContract, p.Number)
 		}
 		out.Pages = append(out.Pages, po)
 	}
 	if !o.Unchecked {
 		if err := checkContract(doc, o.options()); err != nil {
-			return out, fmt.Errorf("the document breaks the contract of the shared model: %w", err)
+			return out, fmt.Errorf("%w: %w", errContract, err)
 		}
 	}
 	return out, nil
 }
+
+// errContract marks a result that the library must never return: a
+// document that breaks the contract of the shared model. An input that
+// cannot be read is an error of another kind and is no defect.
+var errContract = errors.New("the document breaks the contract of the shared model")
 
 // defaultChecked is what Document.HiddenChecked is for every run until
 // the deep checks exist.

@@ -425,6 +425,10 @@ func (in *interp) run(p *file.Page) {
 		streams = contents.List
 	}
 	scan := in.scannerAt(0)
+	// The scanner comes from the last page this interpreter read. If no
+	// stream of this page can be decoded, it is never given new data,
+	// and what it counted on that page must not be reported for this one.
+	scan.Reset(nil)
 	first := true
 	for i, ref := range streams {
 		// Each stream gets a buffer of its own: operands read from one

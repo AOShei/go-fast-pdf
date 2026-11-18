@@ -6,7 +6,6 @@ import (
 	"io"
 	"math"
 	"runtime"
-	"sort"
 	"sync"
 
 	gofastcore "github.com/AOShei/go-fast-core"
@@ -156,15 +155,9 @@ func (e *Extractor) Extract(ctx context.Context, r io.ReaderAt, size int64, opts
 	}
 	e.describe(ctx, &m, pages)
 
-	// What concerns the file as a whole. Problems found while reading
-	// objects come from the workers in no fixed order.
+	// What concerns the file as a whole, in an order that does not
+	// depend on which worker found it.
 	found := f.Warnings()
-	sort.SliceStable(found, func(i, j int) bool {
-		if found[i].Code != found[j].Code {
-			return found[i].Code < found[j].Code
-		}
-		return found[i].Message < found[j].Message
-	})
 	doc.Warnings = append(found, doc.Warnings...)
 	if m.active {
 		doc.Warn(gofastcore.SeverityInfo, gofastcore.WarnInputActiveContent, "the document has scripts or actions that start a program; none was read or run")

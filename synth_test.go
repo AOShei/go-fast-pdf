@@ -16,8 +16,8 @@ import (
 type synthPage struct {
 	Content string
 	// Resources are entries of the resource dictionary besides the font
-	// /F1 (Helvetica).
-	Resources string
+	// /F1, and Fonts further entries of its font dictionary.
+	Resources, Fonts string
 	// Extra are further entries of the page dictionary.
 	Extra    string
 	MediaBox string
@@ -31,7 +31,9 @@ type synthDoc struct {
 	Objects []string
 	// Catalog are further entries of the document catalog.
 	Catalog string
-	Pages   []synthPage
+	// Font is the dictionary of /F1, Helvetica if empty.
+	Font  string
+	Pages []synthPage
 }
 
 func (d synthDoc) bytes() []byte {
@@ -46,12 +48,12 @@ func (d synthDoc) bytes() []byte {
 	for i, p := range d.Pages {
 		specs[i] = pdftest.PageSpec{
 			Content:   p.Content,
-			Resources: fmt.Sprintf("/Font << /F1 %d 0 R >> %s", font, p.Resources),
+			Resources: fmt.Sprintf("/Font << /F1 %d 0 R %s >> %s", font, p.Fonts, p.Resources),
 			Extra:     p.Extra,
 			MediaBox:  p.MediaBox,
 		}
 	}
-	pdftest.Doc(pdftest.DocOptions{Base: b}, specs...)
+	pdftest.Doc(pdftest.DocOptions{Base: b, Font: d.Font}, specs...)
 	if d.Catalog != "" {
 		b.Set(catalog, fmt.Sprintf("<< /Type /Catalog /Pages %d 0 R %s >>", tree, d.Catalog))
 	}
@@ -148,3 +150,42 @@ const (
 
 // grayImage is a one-pixel gray image XObject.
 var grayImage = pdftest.Stream("/Type /XObject /Subtype /Image /Width 1 /Height 1 /ColorSpace /DeviceGray /BitsPerComponent 8", "\x80")
+
+// fontCourier is a font in which every character is 0.6 of the font
+// size wide, so that a test can say where text ends.
+const fontCourier = "<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>"
+
+// textLine is one line of text with the place its baseline starts.
+type textLine struct {
+	x, y float64
+	s    string
+}
+
+// stack returns lines set one under the other from (x, y).
+func stack(x, y, leading float64, lines ...string) []textLine {
+	out := make([]textLine, len(lines))
+	for i, s := range lines {
+		out[i] = textLine{x, y - float64(i)*leading, s}
+	}
+	return out
+}
+
+// draw returns the content that sets the lines in /F1 at the given
+// size, in the order given.
+func draw(size float64, lines ...textLine) string {
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "BT /F1 %g Tf\n", size)
+	for _, l := range lines {
+		fmt.Fprintf(&sb, "1 0 0 1 %g %g Tm (%s) Tj\n", l.x, l.y, pdftest.EscapeString(l.s))
+	}
+	sb.WriteString("ET\n")
+	return sb.String()
+}
+
+// blockTexts extracts a one-page document set in Courier and returns
+// the texts of its blocks.
+func blockTexts(t testing.TB, content string) []string {
+	t.Helper()
+	d := synthDoc{Font: fontCourier, Pages: []synthPage{{Content: content}}}
+	return texts(&mustExtract(t, d.bytes(), nil).Parts[0])
+}

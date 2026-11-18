@@ -403,7 +403,11 @@ func (in *interp) showCodes(f *font.Font, raw []byte) {
 
 	// A string that continues the run before it, in the same state,
 	// becomes part of that run.
-	if n := len(in.runs); n > 0 && sep != '\n' && !replaced && in.continues(&in.runs[n-1], f) {
+	//
+	// A gap wider than the font size ends the run: what follows may be
+	// another entry of a row, or text that leaves room for a word drawn
+	// later, and a reader of the runs has to see the gap.
+	if n := len(in.runs); n > 0 && sep != '\n' && !replaced && !(sep == ' ' && along > ge.size) && in.continues(&in.runs[n-1], f) {
 		last := &in.runs[n-1]
 		if sep == ' ' && start > 0 && in.text[start-1] != ' ' && len(in.text) > start && in.text[start] != ' ' {
 			in.text = append(in.text, 0)

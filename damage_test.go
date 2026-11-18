@@ -177,24 +177,24 @@ func TestDamageFlateCutInHalf(t *testing.T) {
 		if err != nil {
 			t.Fatalf("keep %d: %v", keep, err)
 		}
-		gotLines := strings.Split(got.Pages[0].Text, "\n")
-		wantLines := strings.Split(want.Pages[0].Text, "\n")
-		// All lines but the last, which may be cut, are lines of the
+		gotWords := pdftest.Words(got.Pages[0].Text)
+		wantWords := pdftest.Words(want.Pages[0].Text)
+		// All words but the last, which may be cut, are the words of the
 		// original, in order. With half of the compressed data or more,
 		// a fair share of them is there; with a tenth, the decompressor
 		// may not have had its tables yet.
-		n := len(gotLines) - 1
+		n := len(gotWords) - 1
 		minimum := 0
 		if keep >= len(z)/2 {
-			minimum = len(wantLines) / 5
+			minimum = len(wantWords) / 5
 		}
-		if n < minimum || n > len(wantLines) {
-			t.Errorf("keep %d of %d bytes: %d lines of %d, want at least %d", keep, len(z), n, len(wantLines), minimum)
+		if n < minimum || n > len(wantWords) {
+			t.Errorf("keep %d of %d bytes: %d words of %d, want at least %d", keep, len(z), n, len(wantWords), minimum)
 			continue
 		}
 		for i := 0; i < n; i++ {
-			if gotLines[i] != wantLines[i] {
-				t.Errorf("keep %d: line %d is %q, want %q", keep, i, gotLines[i], wantLines[i])
+			if gotWords[i] != wantWords[i] {
+				t.Errorf("keep %d: word %d is %q, want %q", keep, i, gotWords[i], wantWords[i])
 				break
 			}
 		}

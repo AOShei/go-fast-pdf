@@ -385,7 +385,8 @@ type frag uint8
 
 const (
 	fragLetters frag = iota // single letters, each by itself
-	fragDigits              // single characters, not all of them letters
+	fragMarks               // single letters and punctuation marks, or marks alone
+	fragDigits              // single characters with a digit or a symbol among them
 	fragWord                // a word of several characters
 )
 
@@ -449,12 +450,15 @@ func (b *builder) lineText(ln *line) {
 		g := sort.Search(len(gaps), func(i int) bool { return gaps[i].Off >= r.Off })
 		for ; g < len(gaps) && gaps[g].Off < r.Off+r.Len; g++ {
 			at := int(gaps[g].Off-r.Off) - skipped
-			if at <= 0 || base+at >= len(b.text) || b.text[base+at] != ' ' {
+			if at <= 0 || base+at >= len(b.text) {
 				continue
 			}
 			var width float32
 			if p.em > 0 {
 				width = gaps[g].Width * float32(b.scale) / float32(p.em)
+			}
+			if b.text[base+at] != ' ' {
+				continue
 			}
 			if width >= tabGap {
 				b.text[base+at] = '\t'
@@ -519,7 +523,10 @@ func (b *builder) closeLetters(start int) bool {
 		case left == fragWord || right == fragWord:
 			c.class = gapWord
 			narrowest = min(narrowest, c.width)
-		case left == fragLetters && right == fragLetters:
+		case left <= fragMarks && right <= fragMarks && (left == fragLetters || right == fragLetters):
+			// Between two letters, or a letter and the mark that
+			// follows it. Marks in a row are not letters set apart:
+			// the dots that lead to a page number stay as they are.
 			c.class = gapLetter
 			letters++
 		default:
@@ -592,7 +599,11 @@ func fragKind(t []byte) frag {
 		if n++; n > 1 {
 			return fragWord
 		}
-		if !unicode.IsLetter(r) {
+		switch {
+		case unicode.IsLetter(r):
+		case unicode.IsPunct(r):
+			kind = max(kind, fragMarks)
+		default:
 			kind = fragDigits
 		}
 	}

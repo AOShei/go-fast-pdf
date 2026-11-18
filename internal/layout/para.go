@@ -101,6 +101,19 @@ func (b *builder) paragraphs(first int, hidden gofastcore.Hidden) {
 	// of the font size.
 	leading := b.usualLeading(lines)
 
+	// under[j] is the one line that lies under line j, -1 if there is
+	// none or more than one.
+	b.sortB = append(b.sortB[:0], make([]int32, n)...)
+	under := b.sortB
+	for i := range under {
+		under[i] = -1
+	}
+	for li, p := range b.pred {
+		if p >= 0 && b.claims[p] == 1 {
+			under[p] = int32(li)
+		}
+	}
+
 	// Decide, from top to bottom, which of these pairs are one
 	// paragraph. Two lines under one line are two columns under a
 	// heading: neither continues it.
@@ -116,7 +129,24 @@ func (b *builder) paragraphs(first int, hidden gofastcore.Hidden) {
 		if up.pred >= 0 {
 			before = &lines[up.pred]
 		}
-		if continues(up, ln, before, leading) {
+		// How far to the right the lines of this column reach: the two
+		// lines, the lines of the paragraph over them, and the lines
+		// that follow under them from the same left edge.
+		right := max(up.u1, ln.u1)
+		for k, at := 0, up.pred; k < 2 && at >= 0; k, at = k+1, lines[at].pred {
+			right = max(right, lines[at].u1)
+		}
+		last := ln
+		for k, at := 0, under[li]; k < 2 && at >= 0; k, at = k+1, under[at] {
+			next := &lines[at]
+			size := max(last.size, next.size)
+			if abs(next.u0-ln.u0) > edgeSlack*size || min(last.size, next.size) < (1-sameSize)*size || (next.v-last.v)/size > leading+leadingSlack {
+				break
+			}
+			right = max(right, next.u1)
+			last = next
+		}
+		if continues(up, ln, before, leading, right) {
 			ln.pred, ln.start = p, false
 		}
 	}
@@ -193,8 +223,9 @@ func (b *builder) usualLeading(lines []line) float64 {
 
 // continues reports whether ln, which lies under up, continues its
 // paragraph. before is the line that up continues, or nil when up is
-// the first line of its paragraph.
-func continues(up, ln, before *line, leading float64) bool {
+// the first line of its paragraph; right is the right edge of the
+// column the two lines are in.
+func continues(up, ln, before *line, leading, right float64) bool {
 	size := max(up.size, ln.size)
 	if size <= 0 || min(up.size, ln.size) < (1-sameSize)*size {
 		return false
@@ -239,10 +270,7 @@ func continues(up, ln, before *line, leading float64) bool {
 	}
 	// Room at the end of the upper line for the first word of the
 	// lower: the line was ended on purpose, so a paragraph ends there.
-	right := max(up.u1, ln.u1)
-	if before != nil {
-		right = max(right, before.u1)
-	}
+	// right is how far the lines of this column reach.
 	return right-up.u1 <= ln.firstWord+ln.space+0.5*size
 }
 

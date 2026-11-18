@@ -175,18 +175,24 @@ func (b *builder) reasons(r *extract.Run, p *piece, page box) gofastcore.Hidden 
 		}
 	}
 
-	// The text layer of a scan: text that is not painted, or is painted
-	// and then covered, within an image of at least half the page. It
-	// is the only reason such a run gets.
-	if unpainted {
-		for i := range b.big {
-			if b.big[i].contains(cx, cy) {
-				return gofastcore.HiddenTextLayer
+	// What lies wholly outside the page is off the page, whatever else
+	// is true of it.
+	offPage := page.x1 > 0 && page.y1 > 0 && (me.x1 <= 0 || me.y1 <= 0 || me.x0 >= page.x1 || me.y0 >= page.y1)
+
+	// The text layer of a scan: text on the page that is not painted,
+	// or is painted and then covered, within an image of at least half
+	// the page. It is the only reason such a run gets.
+	if !offPage {
+		if unpainted {
+			for i := range b.big {
+				if b.big[i].contains(cx, cy) {
+					return gofastcore.HiddenTextLayer
+				}
 			}
 		}
-	}
-	if coveredByPage {
-		return gofastcore.HiddenTextLayer
+		if coveredByPage {
+			return gofastcore.HiddenTextLayer
+		}
 	}
 
 	var h gofastcore.Hidden
@@ -196,7 +202,7 @@ func (b *builder) reasons(r *extract.Run, p *piece, page box) gofastcore.Hidden 
 	if p.size < gofastcore.HiddenTinySize || !r.Vertical() && p.em < gofastcore.HiddenTinySize {
 		h |= gofastcore.HiddenTiny
 	}
-	if page.x1 > 0 && page.y1 > 0 && (me.x1 <= 0 || me.y1 <= 0 || me.x0 >= page.x1 || me.y0 >= page.y1) {
+	if offPage {
 		h |= gofastcore.HiddenOffPage
 	}
 	if covered {

@@ -288,6 +288,20 @@ func TestTextLayer(t *testing.T) {
 		}
 	}
 
+	// The part of a text layer that lies outside the visible page is
+	// off the page like any other text, and not a text layer.
+	t.Run("a layer that reaches beyond the crop box", func(t *testing.T) {
+		d := synthDoc{
+			Objects: []string{grayImage},
+			Pages: []synthPage{{Content: pageImage + layer("3 Tr") + "BT /F1 12 Tf 3 Tr 72 100 Td (below the crop) Tj ET",
+				Resources: "/XObject << /Im1 1 0 R >>", Extra: "/CropBox [0 400 612 792]"}},
+		}
+		part := &mustExtract(t, d.bytes(), nil).Parts[0]
+		if got := texts(part); len(got) != 2 || got[0] != "text_layer: "+text || got[1] != "invisible+off_page: below the crop" {
+			t.Errorf("blocks %q", got)
+		}
+	})
+
 	// An image that covers less than half of the page does not make
 	// unpainted text a text layer.
 	t.Run("an image of less than half the page", func(t *testing.T) {

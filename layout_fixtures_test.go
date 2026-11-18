@@ -26,7 +26,9 @@ func layoutSource(t testing.TB) (title string, paragraphs []string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	parts := strings.Split(strings.TrimSpace(string(data)), "\n\n")
+	// A checkout on Windows may have given the file other line ends.
+	text := strings.ReplaceAll(string(data), "\r\n", "\n")
+	parts := strings.Split(strings.TrimSpace(text), "\n\n")
 	return parts[0], parts[1:]
 }
 

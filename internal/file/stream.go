@@ -1,0 +1,392 @@
+package file
+
+import (
+	"bytes"
+	"compress/zlib"
+	"errors"
+	"fmt"
+	"io"
+	"sync"
+
+	gofastcore "github.com/AOShei/go-fast-core"
+	"github.com/AOShei/go-fast-pdf/internal/syntax"
+)
+
+// ErrTruncated is returned with the data read so far when a stream
+// decodes to more than the limit.
+var ErrTruncated = fmt.Errorf("%w: decoded stream is larger than the limit", gofastcore.ErrLimitExceeded)
+
+// rawStream returns the bytes of a stream as stored in the file, before
+// decryption and filters. The slice points into the input.
+func (f *File) rawStream(stm syntax.Value, depth int) ([]byte, error) {
+	start := stm.N
+	if stm.Kind != syntax.Stream || start < 0 || start > int64(len(f.data)) {
+		return nil, errors.New("not a stream")
+	}
+	length, ok := f.resolve(stm.Get("Length"), depth+1).Integer()
+	if ok && length >= 0 && start+length <= int64(len(f.data)) {
+		return f.data[start : start+length], nil
+	}
+	// /Length is missing, not a number, or points past the end of the
+	// file: the stream ends where endstream says it does.
+	end := bytes.Index(f.data[start:], []byte("endstream"))
+	if end < 0 {
+		return nil, errors.New("stream has no usable /Length and no endstream")
+	}
+	raw := f.data[start : start+int64(end)]
+	// The end-of-line before endstream is not part of the data.
+	if n := len(raw); n > 0 && raw[n-1] == '\n' {
+		raw = raw[:n-1]
+	}
+	if n := len(raw); n > 0 && raw[n-1] == '\r' {
+		raw = raw[:n-1]
+	}
+	return raw, nil
+}
+
+// Decode appends the decoded data of a stream to dst and returns the
+// result. limit bounds the decoded size; 0 means the file's
+// MaxStreamBytes.
+//
+// With ErrTruncated, and with an error from a damaged stream, the bytes
+// decoded before the problem are returned too. The caller decides
+// whether a prefix is useful.
+func (f *File) Decode(stm syntax.Value, dst []byte, limit int64) ([]byte, error) {
+	if limit <= 0 {
+		limit = f.limits.MaxStreamBytes
+	}
+	return f.decode(stm, dst, limit, true, 0)
+}
+
+func (f *File) decode(stm syntax.Value, dst []byte, limit int64, decrypt bool, depth int) ([]byte, error) {
+	raw, err := f.rawStream(stm, depth)
+	if err != nil {
+		return dst, err
+	}
+	if decrypt && f.enc != nil && !stm.Get("Type").IsName("XRef") {
+		raw, err = f.enc.decryptStream(raw, stm.Obj, stm.Gen)
+		if err != nil {
+			return dst, err
+		}
+	}
+
+	filters := f.resolve(stm.Get("Filter"), depth+1)
+	parms := f.resolve(stm.Get("DecodeParms"), depth+1)
+	var names, parmList []syntax.Value
+	switch filters.Kind {
+	case syntax.Null:
+	case syntax.Name:
+		names, parmList = []syntax.Value{filters}, []syntax.Value{parms}
+	case syntax.Array:
+		names = filters.List
+		parmList = parms.Elems()
+	default:
+		return dst, fmt.Errorf("%w: /Filter is a %s", gofastcore.ErrMalformed, filters.Kind)
+	}
+	if len(names) == 0 {
+		if int64(len(raw)) > limit {
+			return append(dst, raw[:limit]...), ErrTruncated
+		}
+		if dst == nil {
+			return raw, nil // no copy: the caller must not modify it
+		}
+		return append(dst, raw...), nil
+	}
+	if len(names) > 8 {
+		return dst, fmt.Errorf("%w: %d chained filters", gofastcore.ErrMalformed, len(names))
+	}
+
+	// Each filter's output is the next one's input. Only the last writes
+	// into dst.
+	data := raw
+	for i, name := range names {
+		name = f.resolve(name, depth+1)
+		var parm syntax.Value
+		if i < len(parmList) {
+			parm = f.resolve(parmList[i], depth+1)
+		}
+		last := i == len(names)-1
+		var out []byte
+		start := 0
+		if last {
+			out, start = dst, len(dst)
+		}
+		switch {
+		case name.IsName("FlateDecode"):
+			out, err = inflate(out, data, limit)
+			if parm.IsDict() {
+				var perr error
+				if out, perr = f.unpredict(out, start, parm, depth); err == nil {
+					err = perr
+				}
+			}
+		default:
+			return dst, fmt.Errorf("%w: stream filter /%s", gofastcore.ErrUnsupported, name.NameString())
+		}
+		if err != nil {
+			if last {
+				return out, err
+			}
+			return dst, err
+		}
+		data = out
+	}
+	return data, nil
+}
+
+var zlibReaders sync.Pool
+
+// inflate appends the zlib-decompressed form of src to dst. It stops at
+// limit bytes of output with ErrTruncated. On a damaged stream it returns
+// what was decompressed before the damage, with the error.
+func inflate(dst, src []byte, limit int64) ([]byte, error) {
+	br := bytes.NewReader(src)
+	var zr io.ReadCloser
+	if pooled := zlibReaders.Get(); pooled != nil {
+		zr = pooled.(io.ReadCloser)
+		if err := zr.(zlib.Resetter).Reset(br, nil); err != nil {
+			zlibReaders.Put(zr)
+			return dst, fmt.Errorf("%w: %v", gofastcore.ErrMalformed, err)
+		}
+	} else {
+		var err error
+		if zr, err = zlib.NewReader(br); err != nil {
+			return dst, fmt.Errorf("%w: %v", gofastcore.ErrMalformed, err)
+		}
+	}
+	defer zlibReaders.Put(zr)
+
+	base := len(dst)
+	if cap(dst)-len(dst) < 512 {
+		// A first guess at the size: text compresses to about a third.
+		guess := min(int64(len(src))*3+512, limit)
+		grown := make([]byte, len(dst), int64(len(dst))+guess)
+		copy(grown, dst)
+		dst = grown
+	}
+	for {
+		used := int64(len(dst) - base)
+		if used >= limit {
+			// At the limit. One more byte of output means the stream is
+			// longer than allowed.
+			var one [1]byte
+			if n, _ := zr.Read(one[:]); n > 0 {
+				return dst, ErrTruncated
+			}
+			return dst, nil
+		}
+		if len(dst) == cap(dst) {
+			grow := max(min(int64(cap(dst)), limit-used), 512)
+			grown := make([]byte, len(dst), int64(cap(dst))+grow)
+			copy(grown, dst)
+			dst = grown
+		}
+		end := cap(dst)
+		if int64(end-base) > limit {
+			end = base + int(limit)
+		}
+		n, err := zr.Read(dst[len(dst):end])
+		dst = dst[:len(dst)+n]
+		if err == io.EOF {
+			return dst, nil
+		}
+		if err != nil {
+			return dst, fmt.Errorf("%w: %v", gofastcore.ErrMalformed, err)
+		}
+	}
+}
+
+// unpredict undoes a PNG predictor on data[start:], in place, and
+// returns the shortened slice.
+func (f *File) unpredict(data []byte, start int, parm syntax.Value, depth int) ([]byte, error) {
+	predictor, _ := f.resolve(parm.Get("Predictor"), depth+1).Integer()
+	if predictor <= 1 {
+		return data, nil
+	}
+	if predictor < 10 {
+		return data, fmt.Errorf("%w: predictor %d", gofastcore.ErrUnsupported, predictor)
+	}
+	intParm := func(key string, def int64) int64 {
+		if n, ok := f.resolve(parm.Get(key), depth+1).Integer(); ok && n > 0 {
+			return n
+		}
+		return def
+	}
+	columns, colors, bpc := intParm("Columns", 1), intParm("Colors", 1), intParm("BitsPerComponent", 8)
+	if columns > 1<<20 || colors > 32 || bpc > 16 {
+		return data, fmt.Errorf("%w: predictor parameters out of range", gofastcore.ErrMalformed)
+	}
+	bpp := int((colors*bpc + 7) / 8)            // bytes per pixel, rounded up
+	rowLen := int((columns*colors*bpc + 7) / 8) // bytes per row, without the tag
+	in := data[start:]
+	out := in[:0]
+	var prev []byte
+	for len(in) >= 1 {
+		tag := in[0]
+		row := in[1:]
+		if len(row) > rowLen {
+			row = row[:rowLen]
+		}
+		in = in[1+len(row):]
+		// Writing a row at out never overtakes reading it: the output is
+		// one byte per row behind the input.
+		cur := out[len(out) : len(out)+len(row)]
+		for i, x := range row {
+			var a, b, c byte // left, above, above-left
+			if i >= bpp {
+				a = cur[i-bpp]
+			}
+			if prev != nil && i < len(prev) {
+				b = prev[i]
+				if i >= bpp {
+					c = prev[i-bpp]
+				}
+			}
+			switch tag {
+			case 1:
+				x += a
+			case 2:
+				x += b
+			case 3:
+				x += byte((int(a) + int(b)) / 2)
+			case 4:
+				x += paeth(a, b, c)
+			}
+			cur[i] = x
+		}
+		out = out[:len(out)+len(row)]
+		prev = cur
+	}
+	return data[:start+len(out)], nil
+}
+
+func paeth(a, b, c byte) byte {
+	p := int(a) + int(b) - int(c)
+	pa, pb, pc := abs(p-int(a)), abs(p-int(b)), abs(p-int(c))
+	switch {
+	case pa <= pb && pa <= pc:
+		return a
+	case pb <= pc:
+		return b
+	}
+	return c
+}
+
+func abs(x int) int {
+	if x < 0 {
+		return -x
+	}
+	return x
+}
+
+// --- object streams ---
+
+// objStm is a decoded object stream: the objects' text and where each
+// one starts.
+type objStm struct {
+	data  []byte
+	first int
+	nums  []int64
+	offs  []int32
+}
+
+// objStmCache keeps decoded object streams, up to a byte budget. Parsed
+// objects are cached by the File itself, so a stream is only needed
+// again for objects not read yet.
+type objStmCache struct {
+	mu    sync.Mutex
+	stms  map[int64]*objStm
+	order []int64
+	bytes int64
+}
+
+func (f *File) loadObjStm(num int64, depth int) (*objStm, error) {
+	c := &f.stms
+	c.mu.Lock()
+	if s := c.stms[num]; s != nil {
+		c.mu.Unlock()
+		return s, nil
+	}
+	c.mu.Unlock()
+
+	if num < 0 || num >= int64(len(f.xref)) || f.xref[num].kind != entryOffset {
+		return nil, fmt.Errorf("object stream %d is not an object at an offset", num)
+	}
+	stm := f.object(num, depth+1)
+	if stm.Kind != syntax.Stream {
+		return nil, fmt.Errorf("object stream %d is a %s", num, stm.Kind)
+	}
+	data, err := f.decode(stm, nil, f.limits.MaxStreamBytes, true, depth+1)
+	if err != nil && len(data) == 0 {
+		return nil, fmt.Errorf("object stream %d: %v", num, err)
+	}
+	n, _ := f.resolve(stm.Get("N"), depth+1).Integer()
+	first, _ := f.resolve(stm.Get("First"), depth+1).Integer()
+	if n < 0 || first < 0 || first > int64(len(data)) || n > int64(len(data)) {
+		return nil, fmt.Errorf("object stream %d has /N %d and /First %d for %d bytes", num, n, first, len(data))
+	}
+	s := &objStm{data: data, first: int(first), nums: make([]int64, 0, n), offs: make([]int32, 0, n)}
+	// The header is N pairs of object number and offset.
+	pos := 0
+	for i := int64(0); i < n; i++ {
+		a, end := syntax.ParseNumber(data, syntax.SkipSpace(data, pos))
+		b, end2 := syntax.ParseNumber(data, syntax.SkipSpace(data, end))
+		if a.Kind != syntax.Int || b.Kind != syntax.Int || end2 > int(first) || b.N < 0 {
+			break
+		}
+		pos = end2
+		s.nums = append(s.nums, a.N)
+		s.offs = append(s.offs, int32(b.N))
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.stms == nil {
+		c.stms = map[int64]*objStm{}
+	}
+	if existing := c.stms[num]; existing != nil {
+		return existing, nil
+	}
+	c.stms[num] = s
+	c.order = append(c.order, num)
+	c.bytes += int64(len(data))
+	for c.bytes > f.limits.ObjStmCacheBytes && len(c.order) > 1 {
+		oldest := c.order[0]
+		c.order = c.order[1:]
+		c.bytes -= int64(len(c.stms[oldest].data))
+		delete(c.stms, oldest)
+	}
+	return s, nil
+}
+
+// fromObjStm reads object num, expected at index idx of object stream
+// stmNum.
+func (f *File) fromObjStm(stmNum, num int64, idx, depth int) (syntax.Value, error) {
+	s, err := f.loadObjStm(stmNum, depth)
+	if err != nil {
+		return syntax.Value{}, err
+	}
+	if idx < 0 || idx >= len(s.nums) || s.nums[idx] != num {
+		// The index is wrong; the header still says where the object is.
+		idx = -1
+		for i, n := range s.nums {
+			if n == num {
+				idx = i
+				break
+			}
+		}
+		if idx < 0 {
+			return syntax.Value{}, fmt.Errorf("object stream %d does not hold object %d", stmNum, num)
+		}
+	}
+	pos := s.first + int(s.offs[idx])
+	if pos > len(s.data) {
+		return syntax.Value{}, fmt.Errorf("object %d lies outside object stream %d", num, stmNum)
+	}
+	p := syntax.NewParser(s.data, pos, f.limits.MaxNesting)
+	v, err := p.Object()
+	if err == io.EOF || errors.Is(err, syntax.ErrSyntax) {
+		return syntax.Value{}, nil
+	}
+	return v, err
+}

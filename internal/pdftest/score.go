@@ -3,6 +3,7 @@ package pdftest
 import (
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // Score compares extracted text with reference text at word level.
@@ -26,12 +27,54 @@ var normalizer = strings.NewReplacer(
 	"‐", "-", "‑", "-", // hyphen, non-breaking hyphen
 )
 
-// Words splits text into the words the scorer compares: ligatures are
-// expanded, soft hyphens removed, and the text is split on white space.
+// Words splits text into the words the scorer compares. Both texts are
+// first brought to the conventions of the shared model, so that a
+// reference that follows other conventions is not counted as different:
+// ligatures are expanded, soft hyphens removed, a word broken by a
+// hyphen at the end of a line is joined with its hyphen kept, and a
+// control character is U+FFFD. The text is then split on white space.
 // Case and punctuation are kept.
 func Words(text string) []string {
-	return strings.FieldsFunc(normalizer.Replace(text), unicode.IsSpace)
+	return strings.FieldsFunc(conventions(normalizer.Replace(text)), unicode.IsSpace)
 }
+
+// conventions joins words broken at a line end and replaces control
+// characters.
+func conventions(text string) string {
+	plain := true
+	for i := 0; i < len(text); i++ {
+		c := text[i]
+		if c == '-' && i+1 < len(text) && text[i+1] == '\n' || c < 0x20 && c != '\n' && c != '\t' && c != '\r' && c != '\f' || c == 0x7F {
+			plain = false
+			break
+		}
+	}
+	if plain {
+		return text
+	}
+	var sb strings.Builder
+	sb.Grow(len(text))
+	for i, r := range text {
+		switch {
+		case r == '\n' && i > 0 && text[i-1] == '-':
+			// "inter-" at the end of a line and "national" on the next
+			// are "inter-national" in the shared model.
+			before, _ := utf8.DecodeLastRuneInString(text[:i-1])
+			after, _ := utf8.DecodeRuneInString(text[i+1:])
+			if isWordRune(before) && isWordRune(after) {
+				continue
+			}
+			sb.WriteRune(r)
+		case r < 0x20 && r != '\n' && r != '\t' && r != '\r' && r != '\f' || r == 0x7F:
+			sb.WriteRune(utf8.RuneError)
+		default:
+			sb.WriteRune(r)
+		}
+	}
+	return sb.String()
+}
+
+func isWordRune(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) }
 
 // Compare scores got against want. Two empty texts score 1.
 func Compare(got, want string) Score {

@@ -22,6 +22,10 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
+// tempPattern names the temporary files that earlier versions of these
+// tests wrote. They write none now; stale ones are still swept.
+const tempPattern = "gofastpdf-*.pdf"
+
 // sweepStaleTempFiles deletes this package's own temporary files that
 // are older than age. Only names this package creates are matched.
 func sweepStaleTempFiles(age time.Duration) {

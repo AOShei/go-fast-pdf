@@ -74,10 +74,17 @@ func (f *File) decode(stm syntax.Value, dst []byte, limit int64, decrypt bool, d
 	if err != nil {
 		return dst, err
 	}
+	// A stream damaged in its encryption is decrypted as far as it goes;
+	// the error is returned with whatever the filters make of the rest.
+	var damage error
 	if decrypt && f.enc != nil && !stm.Get("Type").IsName("XRef") {
-		raw, err = f.enc.decryptStream(raw, stm.Obj, stm.Gen)
+		kind, err := f.streamCipher(stm, depth)
 		if err != nil {
 			return dst, err
+		}
+		raw, damage = f.enc.decrypt(kind, raw, stm.Obj, stm.Gen)
+		if damage != nil && len(raw) == 0 {
+			return dst, damage
 		}
 	}
 
@@ -99,9 +106,9 @@ func (f *File) decode(stm syntax.Value, dst []byte, limit int64, decrypt bool, d
 			return append(dst, raw[:limit]...), ErrTruncated
 		}
 		if dst == nil {
-			return raw, nil // no copy: the caller must not modify it
+			return raw, damage // no copy: the caller must not modify it
 		}
-		return append(dst, raw...), nil
+		return append(dst, raw...), damage
 	}
 	if len(names) > 8 {
 		return dst, fmt.Errorf("%w: %d chained filters", gofastcore.ErrMalformed, len(names))
@@ -141,10 +148,12 @@ func (f *File) decode(stm syntax.Value, dst []byte, limit int64, decrypt bool, d
 		case "RunLengthDecode":
 			out, err = runLengthDecode(out, data, limit)
 		case "Crypt":
-			// The Identity crypt filter leaves the data as it is. A named
-			// one is the job of the encryption handler (Phase 3).
-			if n := f.resolve(parm.Get("Name"), depth+1); !n.IsNull() && !n.IsName("Identity") {
-				return dst, fmt.Errorf("%w: crypt filter /%s on a stream", gofastcore.ErrUnsupported, n.NameString())
+			// Decryption is done before the filters, with the cipher
+			// this filter names (streamCipher). Here the data passes
+			// through. In a file that is not encrypted, only the
+			// Identity filter means anything.
+			if n := f.resolve(parm.Get("Name"), depth+1); f.enc == nil && !n.IsNull() && !n.IsName("Identity") {
+				return dst, fmt.Errorf("%w: crypt filter /%s in a file that is not encrypted", gofastcore.ErrUnsupported, n.NameString())
 			}
 			out = append(out, data...)
 		default:
@@ -164,7 +173,7 @@ func (f *File) decode(stm syntax.Value, dst []byte, limit int64, decrypt bool, d
 		}
 		data = out
 	}
-	return data, nil
+	return data, damage
 }
 
 // filterName returns the full name of a stream filter. The abbreviations

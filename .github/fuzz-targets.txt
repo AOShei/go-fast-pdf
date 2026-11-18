@@ -9,5 +9,7 @@
 ./internal/file FuzzOpen
 ./internal/file FuzzRebuild
 ./internal/file FuzzFilters
+./internal/file FuzzDecrypt
+./internal/file FuzzEncryptedOpen
 ./internal/extract FuzzExtract
 . FuzzOpen

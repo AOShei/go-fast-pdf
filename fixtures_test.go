@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	gofastcore "github.com/AOShei/go-fast-core"
 	"github.com/AOShei/go-fast-pdf/internal/pdftest"
 )
 
@@ -109,29 +110,43 @@ func TestEncryptedFixtures(t *testing.T) {
 	open := []struct{ name, key string }{
 		{"enc-rc4-40", ""},
 		{"enc-rc4-128", ""},
-		{"enc-rc4-128-v4", "E2/rc4-128-v4"}, // V4 crypt filter that selects RC4
+		{"enc-rc4-128-v4", ""}, // V4 crypt filter that selects RC4 (E2)
 		{"enc-aes-128", ""},
-		{"enc-aes-256", "E3/aes-256"},
-		{"enc-aes-256-r5", "E3/aes-256-r5"},
+		{"enc-aes-256", ""},    // revision 6 (E3)
+		{"enc-aes-256-r5", ""}, // revision 5 (E3)
+		{"enc-aes-128-cleartext", ""},
+		{"enc-aes-256-cleartext", ""},
 	}
 	for _, c := range open {
 		t.Run(c.name, func(t *testing.T) { check(t, c.key, sameAs("english", c.name, extractOpts{})) })
 	}
 
 	// Files with a user password: without it the answer is an error, never
-	// text; with it, the original text.
-	for _, name := range []string{"enc-rc4-128-userpw", "enc-aes-128-userpw", "enc-aes-256-userpw"} {
-		t.Run(name+"/no-password", func(t *testing.T) {
-			pdftest.Defect(t, "E1/"+strings.TrimPrefix(name, "enc-"), func() error {
-				e, err := extractFile(fixture(name), extractOpts{})
-				if err == nil {
-					return fmt.Errorf("no error without the password; returned %d pages starting %.40q", len(e.Pages), e.words())
-				}
-				return nil
-			})
+	// text (E1); with it, the original text (E4, which needs a password
+	// parameter in the public API and stays open until Phase 5).
+	locked := []struct{ name, password string }{
+		{"enc-rc4-40-userpw", "user"},
+		{"enc-rc4-128-userpw", "user"},
+		{"enc-rc4-128-v4-userpw", "user"},
+		{"enc-aes-128-userpw", "user"},
+		{"enc-aes-256-userpw", "user"},
+		{"enc-aes-256-r5-userpw", "user"},
+		{"enc-aes-128-unicodepw", "pässwörd"},
+		{"enc-aes-256-unicodepw", "pässwörd"},
+	}
+	for _, c := range locked {
+		short := strings.TrimPrefix(c.name, "enc-")
+		t.Run(c.name+"/no-password", func(t *testing.T) {
+			e, err := extractFile(fixture(c.name), extractOpts{})
+			if err == nil {
+				t.Fatalf("no error without the password; returned %d pages starting %.40q", len(e.Pages), e.words())
+			}
+			if !errors.Is(err, gofastcore.ErrPasswordRequired) {
+				t.Errorf("error %v, want ErrPasswordRequired", err)
+			}
 		})
-		t.Run(name+"/password", func(t *testing.T) {
-			pdftest.Defect(t, "E4/"+strings.TrimPrefix(name, "enc-"), sameAs("english", name, extractOpts{Password: "user"}))
+		t.Run(c.name+"/password", func(t *testing.T) {
+			pdftest.Defect(t, "E4/"+short, sameAs("english", c.name, extractOpts{Password: c.password}))
 		})
 	}
 

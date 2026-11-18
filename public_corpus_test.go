@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -18,6 +19,7 @@ import (
 	"time"
 	"unicode"
 
+	gofastcore "github.com/AOShei/go-fast-core"
 	"github.com/AOShei/go-fast-pdf/internal/pdftest"
 )
 
@@ -64,7 +66,8 @@ type publicFile struct {
 // publicResult is the outcome for one file. Status is one of:
 //
 //	ok        extracted without error
-//	error     the library returned an error
+//	locked    the file is encrypted and needs a password
+//	error     the library returned any other error
 //	invalid   the library returned text that is not valid UTF-8
 //	crash     panic or fatal error
 //	timeout   no result within the time limit
@@ -75,7 +78,7 @@ type publicResult struct {
 	Detail string  `json:"detail,omitempty"`
 }
 
-var statusRank = map[string]int{"timeout": 0, "crash": 0, "invalid": 1, "error": 2, "ok": 3}
+var statusRank = map[string]int{"timeout": 0, "crash": 0, "invalid": 1, "error": 2, "locked": 2, "ok": 3}
 
 func corpusCache() string {
 	if dir := os.Getenv("GOFASTPDF_CACHE"); dir != "" {
@@ -247,6 +250,9 @@ func scorePublicFile(path, refFile string) publicResult {
 	if err != nil {
 		if strings.Contains(err.Error(), "UTF-8") {
 			return publicResult{Status: "invalid", Detail: clipString(err.Error(), 120)}
+		}
+		if errors.Is(err, gofastcore.ErrPasswordRequired) {
+			return publicResult{Status: "locked"}
 		}
 		return publicResult{Status: "error", Detail: clipString(err.Error(), 120)}
 	}
@@ -566,7 +572,7 @@ func summarizePublic(manifest []publicFile, results map[string]publicResult) str
 			ord = fmt.Sprintf("%.4f", a.order/float64(a.scored))
 		}
 		var bad []string
-		for _, s := range []string{"error", "invalid", "crash", "timeout"} {
+		for _, s := range []string{"locked", "error", "invalid", "crash", "timeout"} {
 			if a.status[s] > 0 {
 				bad = append(bad, fmt.Sprintf("%s %d", s, a.status[s]))
 			}

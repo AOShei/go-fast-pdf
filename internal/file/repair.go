@@ -166,6 +166,23 @@ func (f *File) recoverTrailer(objects []found) syntax.Value {
 			}
 		}
 	}
+	if values[2].IsNull() {
+		// No trailer says the file is encrypted. If it holds an
+		// encryption dictionary all the same, it is: reading it as if
+		// it were not would pass ciphertext on as text.
+		for i := len(objects) - 1; i >= 0; i-- {
+			o := objects[i]
+			if !f.mentions(o.off, "/Standard") {
+				continue
+			}
+			v, err := f.parseAt(o.off, o.num)
+			if err == nil && v.Kind == syntax.Dict && v.Get("Filter").IsName("Standard") && v.Has("O") && v.Has("U") && v.Has("P") {
+				values[2] = syntax.Value{Kind: syntax.Ref, N: o.num, Gen: o.gen}
+				f.rec.lostTrailer = true
+				break
+			}
+		}
+	}
 	var list []syntax.Value
 	for i, key := range keys {
 		if !values[i].IsNull() {
@@ -298,9 +315,12 @@ func (f *File) putEntry(num int64, e entry) {
 
 // recovery is the second index, built on first need.
 type recovery struct {
-	once  sync.Once
-	index map[int64]located
-	objs  sync.Map // object number -> *syntax.Value
+	// lostTrailer is set when the encryption dictionary was found by
+	// scanning because no trailer names it.
+	lostTrailer bool
+	once        sync.Once
+	index       map[int64]located
+	objs        sync.Map // object number -> *syntax.Value
 }
 
 // recovered returns object num as the scan finds it, for an object the

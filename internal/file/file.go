@@ -99,10 +99,12 @@ type File struct {
 	trailer syntax.Value
 	objs    []atomic.Pointer[syntax.Value]
 	enc     *decrypter
-	encObj  int64 // object number of the encryption dictionary, -1 if none
-	stms    objStmCache
-	pages   []Page
-	rec     recovery
+	// password is what the caller gave to open an encrypted file.
+	password string
+	encObj   int64 // object number of the encryption dictionary, -1 if none
+	stms     objStmCache
+	pages    []Page
+	rec      recovery
 
 	mu       sync.Mutex
 	warnings []gofastcore.Warning
@@ -122,6 +124,17 @@ func malformed(format string, args ...any) error {
 // A file whose cross-reference data cannot be used is read by finding
 // its objects directly; such a file carries an input.repaired warning.
 func Open(data []byte, limits Limits) (*File, error) {
+	return OpenPassword(data, limits, "")
+}
+
+// OpenPassword is Open for a file that may be encrypted. The password is
+// tried as the user password and as the owner password; the empty user
+// password, which opens most encrypted files, is always tried too.
+//
+// An encrypted file that the password does not open is
+// ErrPasswordRequired when no password was given and ErrWrongPassword
+// otherwise. Nothing is decrypted with a key that was not checked.
+func OpenPassword(data []byte, limits Limits, password string) (*File, error) {
 	limits = limits.withDefaults()
 	// Offsets count from the %PDF- header, which need not be the first
 	// byte of the file. Some files with leading bytes count from the
@@ -133,7 +146,7 @@ func Open(data []byte, limits Limits) (*File, error) {
 	}
 	var first error
 	for _, base := range bases {
-		f := &File{data: data[base:], limits: limits, encObj: -1}
+		f := &File{data: data[base:], limits: limits, encObj: -1, password: password}
 		err := f.load()
 		if err == nil {
 			return f.finish(), nil
@@ -145,12 +158,12 @@ func Open(data []byte, limits Limits) (*File, error) {
 			first = err
 		}
 	}
-	f := &File{data: data[header:], limits: limits, encObj: -1}
+	f := &File{data: data[header:], limits: limits, encObj: -1, password: password}
 	if err := f.rebuild(); err != nil {
 		if !errors.Is(err, gofastcore.ErrMalformed) {
 			return nil, err
 		}
-		return nil, first
+		return nil, fmt.Errorf("%w; reading the objects directly did not help: %v", first, err)
 	}
 	f.Warn(gofastcore.SeverityInfo, gofastcore.WarnInputRepaired,
 		"the cross-reference data is unusable; the objects were found by scanning the file")
@@ -577,7 +590,12 @@ func (f *File) decryptObject(v syntax.Value, num int64, gen uint16) syntax.Value
 	if f.enc == nil || num == f.encObj || v.Get("Type").IsName("XRef") {
 		return v
 	}
-	return f.enc.decryptStrings(v, uint32(num), gen)
+	v, bad := f.enc.decryptStrings(v, uint32(num), gen)
+	if bad > 0 {
+		f.Warn(gofastcore.SeverityWarning, "pdf.string_undecryptable",
+			"some encrypted strings are damaged and could not be decrypted; they are left empty")
+	}
+	return v
 }
 
 // Resolve follows indirect references until it reaches a value that is

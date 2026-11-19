@@ -12,9 +12,12 @@ awk -v module="$(go list -m)" '
 BEGIN {
 	# The least share, in percent: of the packages that read the file,
 	# and of the whole module.
-	least["internal/syntax"] = 90
-	least["internal/file"] = 90
-	least["internal/font"] = 90
+	# The plan asks for 85 and 75. These are two points under what CI
+	# measures for the lowest of them, where the files of the system
+	# that some tests read are not there.
+	least["internal/syntax"] = 88
+	least["internal/file"] = 88
+	least["internal/font"] = 88
 	least["all"] = 85
 }
 NR == 1 { next } # mode: ...

@@ -110,7 +110,9 @@
 //     listed with their names and sizes, and nothing of them is decoded.
 //   - DeepHidden: also follows the shapes that a page paints and its
 //     clipping paths, and checks text against them: see "Hidden text".
-//     It costs time on pages with many shapes and changes no text.
+//     It changes no text. It takes a fifth more time over a mixed set
+//     of documents: a few percent on pages of text, more on pages with
+//     many shapes. The checks that always run take one percent.
 //   - Spans: not implemented yet and ignored.
 //
 // # Text

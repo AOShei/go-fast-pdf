@@ -52,6 +52,9 @@ func (r Region) String() string {
 
 const text = " BT /F1 10 Tf 100 100 Td (x) Tj ET "
 
+// im draws the image of pathDoc.
+const im = " /Im Do "
+
 // TestShapes: what is recorded of the paths a page paints.
 func TestShapes(t *testing.T) {
 	cases := []struct {
@@ -145,8 +148,8 @@ func TestShapes(t *testing.T) {
 func pathDoc(content string) []byte {
 	b := pdftest.New()
 	b.Add(pdftest.Stream("/Type /XObject /Subtype /Form /BBox [0 0 500 500] /Matrix [1 0 0 1 50 50]", "1 0 0 rg 10 20 100 50 re f"))                    // 1
-	b.Add(pdftest.Stream("/Type /XObject /Subtype /Form /BBox [0 0 30 30]", "10 20 100 50 re f"+text))                                                  // 2
-	b.Add(pdftest.Stream("/Type /XObject /Subtype /Form /BBox [0 0 100 50] /Matrix [0.8 0.6 -0.6 0.8 30 0]", "0 0 100 50 re f"+text))                   // 3
+	b.Add(pdftest.Stream("/Type /XObject /Subtype /Form /BBox [0 0 30 30]", "10 20 100 50 re f"+text+im))                                               // 2
+	b.Add(pdftest.Stream("/Type /XObject /Subtype /Form /BBox [0 0 100 50] /Matrix [0.8 0.6 -0.6 0.8 30 0]", "0 0 100 50 re f"+text+im))                // 3
 	b.Add(pdftest.Stream("/Type /XObject /Subtype /Form /BBox [0 0 500 500]", "300 300 m 310 310 l 0 0 5 5 re W"))                                      // 4
 	b.Add(pdftest.Stream("/Type /XObject /Subtype /Image /Width 1 /Height 1 /ColorSpace /DeviceGray /BitsPerComponent 8", "\x80"))                      // 5
 	b.Add("<< /Type /OCG /Name (layer) >>")                                                                                                             // 6
@@ -171,61 +174,119 @@ func pathDoc(content string) []byte {
 func TestClipRegions(t *testing.T) {
 	cases := []struct {
 		name, content string
-		// want is the region of the run; plain is the region when shapes
-		// are not recorded, if it is another.
+		// want is the region that the last image is painted in; plain is
+		// the region when shapes are not recorded, if it is another.
 		want, plain string
 	}{
-		{"no clip", text, "everything", ""},
-		{"a rectangle", "10 20 100 50 re W n" + text, "[10 20 110 70]", ""},
-		{"the even-odd rule", "10 20 100 50 re W* n" + text, "[10 20 110 70]", ""},
-		{"four lines", "10 20 m 110 20 l 110 70 l 10 70 l h W n" + text, "[10 20 110 70]", ""},
-		{"two rectangles, one after the other", "10 20 100 50 re W n 50 0 100 100 re W n" + text, "[50 20 110 70]", ""},
-		{"two that do not meet", "10 20 100 50 re W n 300 300 10 10 re W n" + text, "[300 300 300 300]", ""},
-		{"no area", "10 20 0 50 re W n" + text, "[10 20 10 20]", ""},
-		{"a line", "10 20 m 110 70 l W n" + text, "[10 20 10 20]", ""},
-		{"a triangle", "10 20 m 110 20 l 10 70 l W n" + text, "within [10 20 110 70]", ""},
-		{"a curve", "10 20 m 10 60 50 100 110 100 c 110 20 l W n" + text, "within [10 20 110 100]", "somewhere"},
-		{"a rectangle, then a curve", "0 0 60 60 re W n 10 20 m 10 60 50 100 110 100 c 110 20 l W n" + text, "within [10 20 60 60]", "within [0 0 60 60]"},
-		{"a curve, then a rectangle", "10 20 m 10 60 50 100 110 100 c 110 20 l W n 0 0 60 60 re W n" + text, "within [10 20 60 60]", "within [0 0 60 60]"},
-		{"two rectangles in one path", "10 20 100 50 re 200 20 100 50 re W n" + text, "within [10 20 300 70]", "somewhere"},
-		{"a turned rectangle", "0.8 0.6 -0.6 0.8 0 0 cm 0 0 100 50 re W n" + text, "within [-30 0 80 100]", ""},
-		{"a rectangle turned by a quarter", "q 0 1 -1 0 300 0 cm 10 20 100 50 re W n Q" + text, "everything", ""},
-		{"turned by a quarter, in force", "0 1 -1 0 300 0 cm 10 20 100 50 re W n" + text, "[230 10 280 110]", ""},
-		{"undone by Q", "q 10 20 100 50 re W n Q" + text, "everything", ""},
-		{"kept by q", "10 20 100 50 re W n q 1 0 0 1 5 5 cm" + text + "Q", "[10 20 110 70]", ""},
-		{"set while it is painted", "10 20 100 50 re W f" + text, "[10 20 110 70]", ""},
-		{"W without a path", "W n" + text, "everything", ""},
-		{"a path without W", "10 20 100 50 re n" + text, "everything", ""},
-		{"W, and the path is never ended", "10 20 100 50 re W" + text, "everything", ""},
-		{"set in a form, text after it", "/Open Do n" + text, "everything", ""},
+		{"no clip", im, "everything", ""},
+		{"a rectangle", "10 20 100 50 re W n" + im, "[10 20 110 70]", ""},
+		{"the even-odd rule", "10 20 100 50 re W* n" + im, "[10 20 110 70]", ""},
+		{"four lines", "10 20 m 110 20 l 110 70 l 10 70 l h W n" + im, "[10 20 110 70]", ""},
+		{"two rectangles, one after the other", "10 20 100 50 re W n 50 0 100 100 re W n" + im, "[50 20 110 70]", ""},
+		{"two that do not meet", "10 20 100 50 re W n 300 300 10 10 re W n" + im, "[300 300 300 300]", ""},
+		{"no area", "10 20 0 50 re W n" + im, "[10 20 10 20]", ""},
+		{"a line", "10 20 m 110 70 l W n" + im, "[10 20 10 20]", ""},
+		{"a triangle", "10 20 m 110 20 l 10 70 l W n" + im, "within [10 20 110 70]", ""},
+		{"a curve", "10 20 m 10 60 50 100 110 100 c 110 20 l W n" + im, "within [10 20 110 100]", "somewhere"},
+		{"a rectangle, then a curve", "0 0 60 60 re W n 10 20 m 10 60 50 100 110 100 c 110 20 l W n" + im, "within [10 20 60 60]", "within [0 0 60 60]"},
+		{"a curve, then a rectangle", "10 20 m 10 60 50 100 110 100 c 110 20 l W n 0 0 60 60 re W n" + im, "within [10 20 60 60]", "within [0 0 60 60]"},
+		{"two rectangles in one path", "10 20 100 50 re 200 20 100 50 re W n" + im, "within [10 20 300 70]", "somewhere"},
+		{"a turned rectangle", "0.8 0.6 -0.6 0.8 0 0 cm 0 0 100 50 re W n" + im, "within [-30 0 80 100]", ""},
+		{"a rectangle turned by a quarter", "q 0 1 -1 0 300 0 cm 10 20 100 50 re W n Q" + im, "everything", ""},
+		{"turned by a quarter, in force", "0 1 -1 0 300 0 cm 10 20 100 50 re W n" + im, "[230 10 280 110]", ""},
+		{"undone by Q", "q 10 20 100 50 re W n Q" + im, "everything", ""},
+		{"kept by q", "10 20 100 50 re W n q 1 0 0 1 5 5 cm" + im + "Q", "[10 20 110 70]", ""},
+		{"set while it is painted", "10 20 100 50 re W f" + im, "[10 20 110 70]", ""},
+		{"W without a path", "W n" + im, "everything", ""},
+		{"a path without W", "10 20 100 50 re n" + im, "everything", ""},
+		{"W, and the path is never ended", "10 20 100 50 re W" + im, "everything", ""},
+		{"set in a form, text after it", "/Open Do n" + im, "everything", ""},
 		{"text in a form with a box", "/Small Do", "[0 0 30 30]", ""},
 		{"text in a form that is turned", "/Turned Do", "within [0 0 110 100]", ""},
 		{"text in a form inside a clip", "10 20 100 50 re W n /Small Do", "[10 20 30 30]", ""},
-		{"text that clips", "BT /F1 40 Tf 7 Tr 0 0 Td (X) Tj ET" + text, "somewhere", ""},
-		{"text that clips, inside a rectangle", "10 20 100 50 re W n BT /F1 40 Tf 7 Tr 0 0 Td (X) Tj ET" + text, "within [10 20 110 70]", ""},
-		{"operands that are not numbers", "/A /B /C /D re W n" + text, "everything", ""},
-		{"a point", "10 20 m W n" + text, "[10 20 10 20]", ""},
+		{"text that clips", "BT /F1 40 Tf 7 Tr 0 0 Td (X) Tj ET" + im, "somewhere", ""},
+		{"text that clips, inside a rectangle", "10 20 100 50 re W n BT /F1 40 Tf 7 Tr 0 0 Td (X) Tj ET" + im, "within [10 20 110 70]", ""},
+		{"operands that are not numbers", "/A /B /C /D re W n" + im, "everything", ""},
+		{"a point", "10 20 m W n" + im, "[10 20 10 20]", ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			for _, record := range []bool{true, false} {
-				_, _, runs, _ := shapesOf(t, pathDoc(c.content), Options{Shapes: record})
+				_, _, _, images := shapesOf(t, pathDoc(c.content), Options{Shapes: record})
 				want := c.want
 				if !record && c.plain != "" {
 					want = c.plain
 				}
-				last := runs[len(runs)-1]
-				if got := last.Region.String(); got != want {
-					t.Errorf("shapes recorded %v: the run is painted on %s, want %s", record, got, want)
+				if len(images) == 0 {
+					t.Fatal("no image")
+				}
+				if got := images[len(images)-1].Region.String(); got != want {
+					t.Errorf("shapes recorded %v: the image is painted on %s, want %s", record, got, want)
 				}
 			}
 		})
 	}
 
-	// An image carries the region as text does.
-	_, _, _, images := shapesOf(t, pathDoc("q 10 20 100 50 re W n 200 0 0 200 0 0 cm /Im Do Q q 300 0 0 300 0 0 cm /Im Do Q /Nine Do"), Options{})
-	if len(images) != 3 || images[0].Region.String() != "[10 20 110 70]" || images[1].Region.String() != "everything" || images[2].Region.String() != "[0 0 500 500]" {
-		t.Errorf("images: %+v", images)
+}
+
+// TestCutOff: text that lies wholly outside what the clipping paths
+// leave is marked, when shapes are recorded, and is a run of its own.
+func TestCutOff(t *testing.T) {
+	// The text of these cases stands at (100, 100) in 10 points: about 5
+	// wide, from 98 to 108 up the page.
+	cases := []struct {
+		name, content string
+		want          string // the runs: "x" in view, "[x]" cut off
+	}{
+		{"no clip", text, "x"},
+		{"a clip that holds it", "90 90 30 30 re W n" + text, "x"},
+		{"a clip that it reaches into", "0 0 102 102 re W n" + text, "x"},
+		{"a clip beside it", "10 20 50 500 re W n" + text, "[x]"},
+		{"a clip under it", "0 0 500 97 re W n" + text, "[x]"},
+		{"a clip that its descent reaches into", "0 0 500 99 re W n" + text, "x"},
+		{"a clip of no area", "100 100 0 0 re W n" + text, "[x]"},
+		{"the box of a round clip elsewhere", "300 300 m 300 400 400 400 400 300 c W n" + text, "[x]"},
+		{"the box of a round clip around it", "50 100 m 50 200 200 200 200 100 c 200 0 50 0 50 100 c W n" + text, "x"},
+		{"a clip that was undone", "q 10 20 50 50 re W n Q" + text, "x"},
+		{"a form with a small box", "/Small Do", "[x]"},
+		{"text lifted into the clip", "0 0 500 97 re W n BT /F1 10 Tf -20 Ts 100 100 Td (x) Tj ET", "x"},
+		{"text lifted out of the clip", "90 90 30 30 re W n BT /F1 10 Tf 50 Ts 100 100 Td (x) Tj ET", "[x]"},
+		{"one line, the second word under a clip that cuts it off",
+			"BT /F1 10 Tf 100 100 Td (a) Tj ET q 0 0 10 10 re W n BT /F1 10 Tf 105.56 100 Td (b) Tj ET Q", "a [b]"},
+		{"one line, the second word under a clip that holds it",
+			"BT /F1 10 Tf 100 100 Td (a) Tj ET q 90 90 30 30 re W n BT /F1 10 Tf 105.56 100 Td (b) Tj ET Q", "ab"},
+		{"one line, both words cut off by different clips",
+			"q 0 0 10 10 re W n BT /F1 10 Tf 100 100 Td (a) Tj ET Q q 0 0 20 20 re W n BT /F1 10 Tf 105.56 100 Td (b) Tj ET Q", "[ab]"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			f := open(t, pathDoc(c.content), file.Limits{})
+			describe := func(opts Options) string {
+				opts.Runs = true
+				res := Page(f, &f.Pages()[0], opts)
+				var out []string
+				for _, r := range res.Runs {
+					s := string(res.RunText[r.Off : r.Off+r.Len])
+					if r.CutOff {
+						s = "[" + s + "]"
+					}
+					out = append(out, s)
+				}
+				return strings.Join(out, " ")
+			}
+			if got := describe(Options{Shapes: true}); got != c.want {
+				t.Errorf("runs %s, want %s", got, c.want)
+			}
+			// Without shapes nothing is marked, and the runs are those of
+			// a page without clipping paths.
+			plain := strings.NewReplacer("[", "", "]", "").Replace(c.want)
+			if strings.Contains(c.name, "one line") {
+				plain = "ab"
+			}
+			if got := describe(Options{}); got != plain {
+				t.Errorf("without shapes: runs %s, want %s", got, plain)
+			}
+		})
 	}
 }
 
@@ -302,7 +363,7 @@ func TestPathsCostNothingUnlessWanted(t *testing.T) {
 		return testing.AllocsPerRun(10, run)
 	}
 	paths := allocs(sb.String() + text)
-	if shapes != 0 || runs != 1 || last.Region.Bounded || last.Seq != 4000 {
+	if shapes != 0 || runs != 1 || last.CutOff || last.Seq != 4000 {
 		t.Errorf("%d shapes, %d runs, the last %+v", shapes, runs, last)
 	}
 	if plain := allocs("4000 0 0 4000 0 0 cm" + text); paths > plain {

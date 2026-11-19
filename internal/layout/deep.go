@@ -217,14 +217,8 @@ func (b *builder) deep() (complete bool) {
 
 	// Cut off by a clipping path: wholly outside the box it leaves.
 	for i := range b.pieces {
-		p := &b.pieces[i]
-		if p.hidden&gofastcore.HiddenTextLayer != 0 {
-			continue
-		}
-		if clip, ok := b.region(&c.Runs[p.run].Region); ok {
-			if me := (box{p.x0, p.y0, p.x1, p.y1}); clip.area() <= 0 || !clip.touches(me) {
-				p.hidden |= gofastcore.HiddenClipped
-			}
+		if p := &b.pieces[i]; c.Runs[p.run].CutOff && p.hidden&gofastcore.HiddenTextLayer == 0 {
+			p.hidden |= gofastcore.HiddenClipped
 		}
 	}
 	if !(b.page.Width > 0 && b.page.Height > 0) {

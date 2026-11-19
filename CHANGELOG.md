@@ -38,7 +38,8 @@ files made to exhaust it, and is several times faster. The tag follows that of g
   `note` block; the value of a field that shows nothing is a block with the field's name. Hidden ones are
   flagged.
 - **What a file stores and shows nowhere** is extracted and flagged: scripts, the metadata packet, entries
-  of the file's own making in the document information, form fields on no page. A page's scripts are on
+  of the file's own making in the document information, form fields on no page, the filled-in data of an
+  XFA form (which only Adobe's viewer shows). A page's scripts are on
   the page; the rest is in a last part of kind `stored`. Nothing is run.
 - **Outline, page labels, document information, attached files** (through `Options.Child`).
 - **Warnings** for what a file has that a consumer may want to know: active content, references to

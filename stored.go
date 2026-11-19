@@ -223,6 +223,9 @@ func stored(f *file.File, catalog syntax.Value, md *gofastcore.Metadata, scripts
 		name string
 	}
 	seen := map[int64]bool{}
+	// The names of all the fields, as the data of an XFA form names
+	// them, to tell which of its values the form has already.
+	fieldNames := map[string]bool{}
 	var stack []node
 	push := func(list []syntax.Value, name string) {
 		for i := len(list) - 1; i >= 0; i-- {
@@ -253,6 +256,7 @@ func stored(f *file.File, catalog syntax.Value, md *gofastcore.Metadata, scripts
 			push(kids, name)
 			continue
 		}
+		fieldNames[xfaName(name)] = true
 		if f.Resolve(field.Get("Subtype")).IsName("Widget") || field.Has("Rect") {
 			continue // it has a place on a page, and is read there
 		}
@@ -270,7 +274,187 @@ func stored(f *file.File, catalog syntax.Value, md *gofastcore.Metadata, scripts
 			blocks = append(blocks, b)
 		}
 	}
-	return blocks, false
+
+	// --- the data of an XFA form ---
+	data, cut := xfaData(r, f.Resolve(catalog.Get("AcroForm")).Get("XFA"), fieldNames)
+	blocks = append(blocks, data...)
+	return blocks, cut
+}
+
+// xfaName is the name of a field of the form as the data of an XFA form
+// would name it: without the index that XFA puts after each part of the
+// name ("form1[0]"), and without the parts that stand for subforms
+// without a name ("#subform[0]"), which have no place in the data.
+func xfaName(name string) string {
+	parts := strings.Split(name, ".")
+	out := parts[:0]
+	for _, p := range parts {
+		if i := strings.IndexByte(p, '['); i > 0 && strings.HasSuffix(p, "]") {
+			p = p[:i]
+		}
+		if p != "" && !strings.HasPrefix(p, "#") {
+			out = append(out, p)
+		}
+	}
+	return strings.Join(out, ".")
+}
+
+// xfaData reads the values of an XFA form: the data packet of the form
+// (xfa:datasets), which holds what was filled in. A viewer other than
+// Adobe's shows none of it. A value whose field the form also has as an
+// ordinary field, as a static XFA form does, is left out: it is read
+// there. Each value is a block named by the path of its element.
+//
+// The data is read as XML and nothing more. The template, which says
+// how the form looks and what its fields are called on the screen, is
+// not read.
+func xfaData(r *reader, v syntax.Value, named map[string]bool) (blocks []gofastcore.Block, cut bool) {
+	v = r.f.Resolve(v)
+	var packet syntax.Value
+	switch v.Kind {
+	case syntax.Stream:
+		packet = v // one XDP document with every packet
+	case syntax.Array:
+		el := v.Elems()
+		for i := 0; i+1 < len(el); i += 2 {
+			if name := r.f.Resolve(el[i]); name.Kind == syntax.String && string(name.Data) == "datasets" {
+				packet = r.f.Resolve(el[i+1])
+				break
+			}
+		}
+	}
+	if packet.Kind != syntax.Stream {
+		return nil, false
+	}
+	src, ok := r.packet(packet)
+	if !ok {
+		return nil, true
+	}
+	return xfaValues(src, named)
+}
+
+// xfaValues reads the values of the data packet of an XFA form, which is
+// in src, alone or in a whole XDP document.
+func xfaValues(src string, named map[string]bool) (blocks []gofastcore.Block, cut bool) {
+	x := &xmlScan{s: src}
+	// Find xfa:data inside xfa:datasets.
+	for inDatasets := false; ; {
+		t := x.next()
+		if t.kind == tokEnd {
+			return nil, false
+		}
+		if t.kind == tokOpen && !t.closed {
+			if local(t.name) == "datasets" {
+				inDatasets = true
+			} else if inDatasets && local(t.name) == "data" {
+				break
+			}
+		}
+	}
+
+	// The elements under xfa:data. An element with elements in it is a
+	// group; one without is a field, whose text is its value. A field
+	// whose value is a list has an element "value" for each item, and
+	// one whose value is rich text has XHTML in it.
+	type frame struct {
+		name   string
+		text   []string
+		group  bool // it has elements other than "value"
+		values bool // it has "value" elements
+	}
+	var stack []frame
+	rich := 0 // depth inside XHTML
+	path := func() string {
+		names := make([]string, len(stack))
+		for i, fr := range stack {
+			names[i] = fr.name
+		}
+		return strings.Join(names, ".")
+	}
+	for len(blocks) < maxFields {
+		t := x.next()
+		switch t.kind {
+		case tokEnd:
+			return blocks, false
+		case tokText:
+			if len(stack) > 0 {
+				if s := strings.TrimSpace(cleanString(t.text)); s != "" && len(stack[len(stack)-1].text) < 4096 {
+					stack[len(stack)-1].text = append(stack[len(stack)-1].text, s)
+				}
+			}
+		case tokOpen:
+			name := local(t.name)
+			switch {
+			case rich > 0:
+				if !t.closed {
+					rich++
+				}
+			case name == "body" && xhtml(t.attrs):
+				if !t.closed {
+					rich = 1
+				}
+			case t.closed:
+				if len(stack) > 0 && name != "value" {
+					stack[len(stack)-1].group = true
+				}
+			default:
+				if len(stack) > 0 {
+					if name == "value" {
+						stack[len(stack)-1].values = true
+					} else {
+						stack[len(stack)-1].group = true
+					}
+				}
+				if len(stack) >= 64 {
+					return blocks, false // nested beyond what a form has
+				}
+				stack = append(stack, frame{name: name})
+			}
+		case tokClose:
+			if rich > 0 {
+				rich--
+				continue
+			}
+			if len(stack) == 0 {
+				return blocks, false // the end of xfa:data
+			}
+			top := stack[len(stack)-1]
+			if top.name == "value" && len(stack) > 1 {
+				// An item of a list: the value of the field above it.
+				stack = stack[:len(stack)-1]
+				parent := &stack[len(stack)-1]
+				parent.text = append(parent.text, strings.Join(top.text, " "))
+				continue
+			}
+			field := path()
+			stack = stack[:len(stack)-1]
+			if top.group || len(top.text) == 0 || named[field] {
+				continue
+			}
+			sep := " "
+			if top.values {
+				sep = "\n"
+			}
+			text := charset.Letters(strings.Join(top.text, sep))
+			if text == "" {
+				continue
+			}
+			blocks = append(blocks, gofastcore.Block{Kind: gofastcore.KindParagraph, Text: text, Origin: gofastcore.OriginNative,
+				Hidden: gofastcore.HiddenInvisible, Attrs: map[string]string{
+					gofastcore.AttrStored: gofastcore.StoredFormField, gofastcore.AttrField: clipName(field)}})
+		}
+	}
+	return blocks, true
+}
+
+// xhtml reports whether attributes name the namespace of XHTML.
+func xhtml(attrs []xmlAttr) bool {
+	for _, a := range attrs {
+		if (a.name == "xmlns" || prefix(a.name) == "xmlns") && strings.Contains(a.value, "xhtml") {
+			return true
+		}
+	}
+	return false
 }
 
 // mechanical reports whether a value is one that programs write for

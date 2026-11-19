@@ -60,3 +60,22 @@ func TestMechanical(t *testing.T) {
 		}
 	}
 }
+
+// The reader of XFA data against what XML can be: it ends, and gives
+// no more values than are allowed, each of them text.
+func FuzzXFAData(f *testing.F) {
+	f.Add(`<xfa:datasets><xfa:data><f><a>1</a><g><b>x &amp; y</b></g><c><value>p</value><value>q</value></c></f></xfa:data></xfa:datasets>`)
+	f.Add(`<xdp:xdp><template/><xfa:datasets><xfa:data><f><r><body xmlns="http://www.w3.org/1999/xhtml"><p>rich <b>text</b></p></body></r></f></xfa:data><dd:dataDescription/></xfa:datasets></xdp:xdp>`)
+	f.Add(`<xfa:datasets><xfa:data><f><a/><b></b><c>`)
+	f.Fuzz(func(t *testing.T, src string) {
+		blocks, _ := xfaValues(src, map[string]bool{})
+		if len(blocks) > maxFields {
+			t.Fatalf("%d values", len(blocks))
+		}
+		for _, b := range blocks {
+			if b.Text == "" || utf8.ValidString(src) && !utf8.ValidString(b.Text) {
+				t.Fatalf("a value %q", b.Text)
+			}
+		}
+	})
+}

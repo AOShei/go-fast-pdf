@@ -201,12 +201,20 @@ func TestEveryWarningCodeHasAConstant(t *testing.T) {
 }
 
 // TestTheLibraryNeverPrints: no file of the library writes to standard
-// output or standard error, or uses the log package. The command does,
-// and is not looked at.
+// output or standard error, or uses the log package. The programs do
+// (the command, and the harness under bench), and are not looked at.
 func TestTheLibraryNeverPrints(t *testing.T) {
 	var dirs []string
+	program := func(path string) bool {
+		for _, dir := range []string{"cmd", "bench"} {
+			if path == dir || strings.HasPrefix(path, dir+string(filepath.Separator)) {
+				return true
+			}
+		}
+		return false
+	}
 	filepath.WalkDir(".", func(path string, d os.DirEntry, err error) error {
-		if err == nil && d.IsDir() && path != "cmd" && !strings.HasPrefix(path, "cmd"+string(filepath.Separator)) &&
+		if err == nil && d.IsDir() && !program(path) &&
 			!strings.HasPrefix(d.Name(), ".") && d.Name() != "testdata" && d.Name() != "pdftest" && d.Name() != "gen" {
 			dirs = append(dirs, path)
 		}

@@ -303,6 +303,11 @@ func TestHeader(t *testing.T) {
 // Decompression makes one allocation, the output, when the size was
 // guessed right, and none into room that is given.
 func TestAllocations(t *testing.T) {
+	if pdftest.RaceEnabled {
+		// Under the race detector a pool forgets some of what is put
+		// into it, on purpose, and the tables are made again.
+		t.Skip("the pool of tables does not keep them under the race detector")
+	}
 	data := samples()["text"]
 	src := deflated(t, data, zlib.DefaultCompression)
 	Zlib(nil, src, 1<<30)

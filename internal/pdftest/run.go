@@ -32,7 +32,25 @@ func RunCapped(timeout time.Duration, maxStdout int, name string, args ...string
 	return runBounded(timeout, toolMaxFileBytes, maxStdout, name, args...)
 }
 
+// RunMeasured is Run for a harness that compares programs: it also says
+// how long the program ran and the most memory it had resident, which is
+// 0 where the system does not tell.
+func RunMeasured(timeout time.Duration, name string, args ...string) (stdout string, took time.Duration, peakBytes int64, err error) {
+	var m measured
+	stdout, _, err = runMeasured(&m, timeout, toolMaxFileBytes, toolMaxStdout, name, args...)
+	return stdout, m.took, m.peak, err
+}
+
+type measured struct {
+	took time.Duration
+	peak int64
+}
+
 func runBounded(timeout time.Duration, maxFileBytes int64, maxStdout int, name string, args ...string) (string, string, error) {
+	return runMeasured(nil, timeout, maxFileBytes, maxStdout, name, args...)
+}
+
+func runMeasured(m *measured, timeout time.Duration, maxFileBytes int64, maxStdout int, name string, args ...string) (string, string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
@@ -45,7 +63,11 @@ func runBounded(timeout time.Duration, maxFileBytes int64, maxStdout int, name s
 	// the program is gone, do not wait for it.
 	cmd.WaitDelay = time.Second
 	cleanup := contain(cmd, maxFileBytes, timeout+10*time.Second)
+	start := time.Now()
 	err := cmd.Run()
+	if m != nil {
+		m.took, m.peak = time.Since(start), peakResident(cmd.ProcessState)
+	}
 	cleanup()
 	switch {
 	case ctx.Err() != nil:

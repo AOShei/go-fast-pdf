@@ -7,21 +7,54 @@ import (
 	"github.com/AOShei/go-fast-pdf/internal/extract"
 )
 
-// The shortcut in faint must never disagree with the shared test: every
-// colour is tried.
-func TestFaintAgreesWithTheSharedTest(t *testing.T) {
-	for r := 0; r < 256; r++ {
-		for g := 0; g < 256; g++ {
-			for b := 0; b < 256; b += 5 {
-				c := extract.Color{R: uint8(r), G: uint8(g), B: uint8(b), Known: true}
-				if got, want := faint(c, 1, white), gofastcore.LowContrast(c.R, c.G, c.B, 255, 255, 255); got != want {
-					t.Fatalf("colour %d %d %d: faint %v, the shared test %v", r, g, b, got, want)
+// TestFaint: a colour is faint on a background when the shared test
+// cannot tell the two apart and they are close in colour as well. Every
+// colour is tried on white, on black and on a colour in between.
+func TestFaint(t *testing.T) {
+	near := func(a, b uint8) bool { return int(a)-int(b) <= colourSlack && int(b)-int(a) <= colourSlack }
+	for _, back := range []extract.Color{white, {Known: true}, {R: 230, G: 40, B: 90, Known: true}} {
+		for r := 0; r < 256; r++ {
+			for g := 0; g < 256; g++ {
+				for b := 0; b < 256; b += 5 {
+					c := extract.Color{R: uint8(r), G: uint8(g), B: uint8(b), Known: true}
+					want := gofastcore.LowContrast(c.R, c.G, c.B, back.R, back.G, back.B) && near(c.R, back.R) && near(c.G, back.G) && near(c.B, back.B)
+					if got := faint(c, 1, back); got != want {
+						t.Fatalf("colour %d %d %d on %v: faint %v, want %v", r, g, b, back, got, want)
+					}
 				}
 			}
 		}
 	}
-	if faint(extract.Color{R: 255, G: 255, B: 255}, 1, white) {
-		t.Error("a colour that could not be converted is not judged")
+	// Two grays that the shared test cannot tell apart are close in
+	// colour: the second condition takes nothing away from them.
+	for a := 0; a < 256; a++ {
+		for b := 0; b < 256; b++ {
+			if gofastcore.LowContrast(uint8(a), uint8(a), uint8(a), uint8(b), uint8(b), uint8(b)) && !near(uint8(a), uint8(b)) {
+				t.Fatalf("gray %d on gray %d: without contrast and not close", a, b)
+			}
+		}
+	}
+	for _, c := range []struct {
+		name       string
+		text, back extract.Color
+		alpha      float32
+		want       bool
+	}{
+		{"white on white", white, white, 1, true},
+		{"black on white", extract.Color{Known: true}, white, 1, false},
+		{"green on red, equally bright", extract.Color{G: 138, Known: true}, extract.Color{R: 230, Known: true}, 1, false},
+		{"yellow on white", extract.Color{R: 255, G: 255, Known: true}, white, 1, false},
+		{"pale yellow on white", extract.Color{R: 255, G: 255, B: 230, Known: true}, white, 1, true},
+		{"dark gray on black", extract.Color{R: 18, G: 18, B: 18, Known: true}, extract.Color{Known: true}, 1, true},
+		{"black at 3 percent on white", extract.Color{Known: true}, white, 0.03, true},
+		{"black at half on white", extract.Color{Known: true}, white, 0.5, false},
+		{"white at 3 percent on black", white, extract.Color{Known: true}, 0.03, true},
+		{"a colour that was not converted", extract.Color{R: 255, G: 255, B: 255}, white, 1, false},
+		{"a background that was not converted", white, extract.Color{R: 255, G: 255, B: 255}, 1, false},
+	} {
+		if got := faint(c.text, c.alpha, c.back); got != c.want {
+			t.Errorf("%s: faint %v", c.name, got)
+		}
 	}
 }
 

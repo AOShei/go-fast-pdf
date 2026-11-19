@@ -99,8 +99,9 @@ type Stats struct {
 	// what they stand on is not known: by default the visible runs drawn
 	// after something else was painted on the page, and with
 	// Options.Deep those under which the last thing painted is not one
-	// rectangle of one colour that holds them.
-	Unjudged int
+	// rectangle of one colour that holds them. Judged is the number of
+	// runs whose contrast is judged.
+	Unjudged, Judged int
 }
 
 // builder holds the working state of one page. It is reused.
@@ -110,27 +111,27 @@ type builder struct {
 	opts  Options
 	scale float64 // points per unit of the page's coordinates
 
-	pieces  []piece
-	order   []int32 // piece indices, grouped
-	lines   []line
-	lidx    []int32 // backing store of the lines' piece lists
-	text    []byte  // the lines' texts
-	cands   []cand
-	frags   []frag
-	blocks  []blk
-	bidx    []int32 // backing store of the blocks' line lists
-	sorted  []int32
-	sortB   []int32
-	pred    []int32
-	claims  []int32
-	hist    []int32
-	alt     []int32
-	occ     []occluder
-	big     []box
-	patches []patch
-	grid    grid
-	out     []byte
-	stats   Stats
+	pieces        []piece
+	order         []int32 // piece indices, grouped
+	lines         []line
+	lidx          []int32 // backing store of the lines' piece lists
+	text          []byte  // the lines' texts
+	cands         []cand
+	frags         []frag
+	blocks        []blk
+	bidx          []int32 // backing store of the blocks' line lists
+	sorted        []int32
+	sortB         []int32
+	pred          []int32
+	claims        []int32
+	hist          []int32
+	alt           []int32
+	occ           []occluder
+	big           []box
+	patches       []patch
+	grid, regions grid
+	out           []byte
+	stats         Stats
 
 	controls   int
 	rtl        bool
@@ -289,6 +290,9 @@ func (b *builder) trim() {
 	if cap(b.grid.nodes) > keep {
 		b.grid.nodes = nil
 	}
+	if cap(b.regions.nodes) > keep {
+		b.regions.nodes = nil
+	}
 	// The blocks hold strings: they are not kept alive by the pool.
 	clear(b.blocks[:cap(b.blocks)])
 	if cap(b.blocks) > keep {
@@ -305,6 +309,10 @@ type piece struct {
 	// apart is set when the piece and the one before it on its line are
 	// not drawn one after the other: the line was put together.
 	apart bool
+	// later is set when something painted after the piece touches it in
+	// a way that is not followed, so that what a reader sees of the
+	// piece is not known.
+	later bool
 
 	// What separates the piece from the one before it on its line, and
 	// how far apart they are along the line.

@@ -106,7 +106,32 @@ var deepCases = []deepCase{
 		want:      gofastcore.HiddenTransparent},
 		plain: gofastcore.HiddenTransparent},
 
+	// --- white text and what is painted after it ---
+	{hiddenCase: hiddenCase{name: "white text under a rectangle that lets it show through",
+		before: white + "q /Half gs 0.8 0.9 1 rg " + band + " f Q 0 g\n", resources: deepStates, want: gofastcore.HiddenLowContrast},
+		plain: gofastcore.HiddenLowContrast},
+	{hiddenCase: hiddenCase{name: "white text under a black rectangle",
+		before: white + band + " f\n", want: gofastcore.HiddenLowContrast | gofastcore.HiddenOccluded},
+		plain: gofastcore.HiddenLowContrast},
+	// A page can draw white text first and its dark ground afterwards,
+	// through a mask or a path that spares the letters. Without the
+	// shapes, the text looks like white on a white page.
+	{hiddenCase: hiddenCase{name: "white text, then a ground with round corners over it",
+		before: white + "0.1 g 70 490 m 350 490 l 360 490 360 500 360 500 c 360 510 l 360 520 350 520 350 520 c 70 520 l 60 520 60 510 60 510 c 60 500 l 60 490 70 490 70 490 c f 0 g\n"},
+		plain: gofastcore.HiddenLowContrast},
+	{hiddenCase: hiddenCase{name: "white text, then a ground painted through a soft mask",
+		before:    white + "q /Masked gs 0.1 g " + band + " f Q 0 g\n",
+		resources: "/ExtGState << /Masked << /SMask << /S /Luminosity >> >> >>"},
+		plain: gofastcore.HiddenLowContrast},
+	{hiddenCase: hiddenCase{name: "white text on a white rectangle, then a photograph over it",
+		before:    "0.1 g 0 300 612 300 re f 1 g " + band + " f " + white + "q /Half gs 300 0 0 30 60 490 cm /Im1 Do Q\n",
+		objects:   []string{grayImage},
+		resources: "/XObject << /Im1 1 0 R >> " + deepStates}},
+
 	// --- text that must not be flagged ---
+	{hiddenCase: hiddenCase{name: "green text on a red rectangle that is as bright",
+		before: "0.9 0 0 rg " + band + " f 0 0.54 0 rg " + hide + "0 g\n"}},
+	{hiddenCase: hiddenCase{name: "yellow text on the white page", before: "1 1 0 rg " + hide + "0 g\n"}},
 	{hiddenCase: hiddenCase{name: "white text on a dark banner", before: "0.1 g " + band + " f " + white}},
 	{hiddenCase: hiddenCase{name: "black text on a coloured cell", before: "0.9 0.9 0.6 rg " + band + " f 0 g " + hide}},
 	{hiddenCase: hiddenCase{name: "white text on a dark rectangle over a white one",

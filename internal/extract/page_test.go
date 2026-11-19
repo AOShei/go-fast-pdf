@@ -404,7 +404,8 @@ func FuzzExtract(f *testing.F) {
 	pdftest.Doc(pdftest.DocOptions{Base: rich}, pdftest.PageSpec{
 		Content: "/G gs /Cs cs 1 0 0 scn 0.5 g 1 0 0 RG 0 0 0 1 k 3 Tr 5 Ts 80 Tz 2 Tc 3 Tw 12 TL " +
 			"BT /F1 12 Tf 0 1 -1 0 300 400 Tm (up) Tj T* (next) ' 1 2 (q) \" ET " +
-			"/Span << /ActualText (fi) >> BDC BT /F1 1 Tf (x) Tj ET EMC /OC /L BDC BT (y) Tj ET EMC /Fm Do 0 0 1 1 re f /Sh sh",
+			"/Span << /ActualText (fi) >> BDC BT /F1 1 Tf (x) Tj ET EMC /OC /L BDC BT (y) Tj ET EMC /Fm Do 0 0 1 1 re f /Sh sh " +
+			"q 10 10 m 20 10 l 20 20 l 10 20 l h W* n 3 w 1 2 m 3 4 5 6 7 8 c 9 9 9 9 v 1 1 1 1 y B Q 5 5 9 9 re W S BT 7 Tr (z) Tj ET 0 0 m f",
 		Resources: "/Font << /F1 5 0 R >> /XObject << /Fm 1 0 R >> /ExtGState << /G << /ca 0.5 /CA 0 /Font [5 0 R 7] >> >> " +
 			"/ColorSpace << /Cs [/ICCBased 1 0 R] >> /Properties << /L 2 0 R >>",
 	})
@@ -437,6 +438,26 @@ func FuzzExtract(f *testing.F) {
 				}
 				if r.Form < -1 || int(r.Form) >= len(res.Forms) || r.Mode > 7 || r.Sep != 0 && r.Sep != ' ' && r.Sep != '\n' {
 					t.Fatalf("page %d: %+v", i+1, r)
+				}
+			}
+
+			// With shapes recorded the text is the same, and every shape
+			// has a box with an area, in the order painted.
+			var shapes []Shape
+			var text []byte
+			runs := 0
+			deep := Page(file, &pages[i], Options{Shapes: true, MaxShapes: 1000, MaxDecodedBytes: 4 << 20, Use: func(c *Content) {
+				shapes, text, runs = append(shapes, c.Shapes...), append(text, c.Text...), len(c.Runs)
+				if c.ShapesUpTo >= 0 != (len(c.Shapes) == 1000 && c.ShapesUpTo >= c.Shapes[999].Seq) {
+					t.Fatalf("page %d: %d shapes, up to %d", i+1, len(c.Shapes), c.ShapesUpTo)
+				}
+			}})
+			if deep.Err == nil != (res.Err == nil) || runs != len(res.Runs) || res.Err == nil && !bytes.Equal(text, res.RunText) {
+				t.Fatalf("page %d: with shapes recorded %d runs and %q (%v), without %d and %q (%v)", i+1, runs, text, deep.Err, len(res.Runs), res.RunText, res.Err)
+			}
+			for k, s := range shapes {
+				if !(s.Box[2] > s.Box[0] && s.Box[3] > s.Box[1]) || s.Opaque && !s.Exact || k > 0 && s.Seq < shapes[k-1].Seq || s.Seq < 0 {
+					t.Fatalf("page %d: shape %d of %d: %v", i+1, k, len(shapes), s)
 				}
 			}
 		}

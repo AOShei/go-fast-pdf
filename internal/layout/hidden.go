@@ -158,8 +158,15 @@ func (b *builder) prepare() {
 		if !b.opts.NoHiddenChecks {
 			p.hidden = b.reasons(r, &p, pageBox)
 		}
-		if p.hidden == 0 && r.Seq > 0 && !b.opts.Deep {
-			b.stats.Unjudged++
+		// What the contrast check could say of the run: by default only
+		// of one drawn before anything else was painted.
+		if fill, stroke := painted(r.Mode); (fill || stroke) && !b.opts.NoHiddenChecks && p.hidden&gofastcore.HiddenTextLayer == 0 {
+			switch {
+			case r.Seq == 0 && !r.Blend:
+				b.stats.Judged++
+			case !b.opts.Deep || r.Blend:
+				b.stats.Unjudged++
+			}
 		}
 		b.pieces = append(b.pieces, p)
 	}
@@ -251,10 +258,12 @@ func (b *builder) reasons(r *extract.Run, p *piece, page box) gofastcore.Hidden 
 	if (fill || stroke) && (!fill || r.FillAlpha <= 0) && (!stroke || r.StrokeAlpha <= 0) {
 		h |= gofastcore.HiddenTransparent
 	}
-	// The background is known without looking at shapes in one case:
-	// nothing has been painted before the run, so it is the white page.
-	// Text painted with a blend mode or through a soft mask does not show
-	// as its colour, and is not judged.
+	// The background is taken to be known without looking at shapes in
+	// one case: nothing has been painted before the run, so it is the
+	// white page. (What is painted afterwards can still change what a
+	// reader sees; the checks with shapes look at that.) Text painted
+	// with a blend mode or through a soft mask does not show as its
+	// colour, and is not judged.
 	if r.Seq == 0 && !r.Blend && faintOn(r, fill, stroke, white) {
 		h |= gofastcore.HiddenLowContrast
 	}
@@ -275,15 +284,26 @@ func faint(c extract.Color, alpha float32, back extract.Color) bool {
 		}
 		c.R, c.G, c.B = mix(c.R, back.R), mix(c.G, back.G), mix(c.B, back.B)
 	}
-	// Nearly all text is dark on white, and the exact test is not needed
-	// to say so. Green carries most of what the eye takes for brightness:
-	// no colour with green below 226 or red below 117 comes within the
-	// threshold of white, whatever its other parts are. The bounds here
-	// are a little lower than that; a test tries every colour.
-	if back == white && (c.G < 220 || c.R < 110) {
+	// The shared measure of contrast compares how bright two colours
+	// are, and two colours can be equally bright and plain to tell apart:
+	// green on red, yellow on white. Text is faint when its colour is
+	// also close to the background in each of its parts. Two grays that
+	// the shared measure cannot tell apart are never further apart than
+	// colourSlack, so this takes no flag away from gray on gray. It is
+	// also the quick way to say that dark text on white is not faint.
+	if farApart(c.R, back.R) || farApart(c.G, back.G) || farApart(c.B, back.B) {
 		return false
 	}
 	return gofastcore.LowContrast(c.R, c.G, c.B, back.R, back.G, back.B)
+}
+
+// colourSlack is how far the red, green or blue of faint text may be
+// from that of its background, of 255.
+const colourSlack = 32
+
+func farApart(a, b uint8) bool {
+	d := int(a) - int(b)
+	return d > colourSlack || d < -colourSlack
 }
 
 // overprintSlack is how far from a run the same text may be printed

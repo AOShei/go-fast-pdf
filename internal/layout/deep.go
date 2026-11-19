@@ -11,15 +11,22 @@ import (
 //
 // A shape is known exactly in one case: an upright rectangle filled with
 // a colour, under a clip that is a rectangle too. Everything else that
-// is painted (any other path, a stroke, a shading, an image, a rectangle
-// that is not opaque) is a region where something of unknown colour may
-// be. The rules follow from that:
+// is painted (any other path, a stroke, a shading, a pattern, an image,
+// anything painted through a soft mask) is a region: something is
+// painted somewhere in it, and which part of it is left out is not
+// known. The rules follow from that:
 //
 //   - The background of a run is the last thing painted before it that
 //     touches it. If that is an exact, opaque rectangle of a known colour
 //     which holds the whole run, its colour is the background; if nothing
 //     touches the run, the white page is. In every other case the
 //     background is not known and the contrast is not judged.
+//   - Nor is it judged when a region painted after the run touches it.
+//     What is painted there may go around the letters and make them
+//     stand out: programs draw white text first and the dark ground it
+//     stands on afterwards, through a mask that spares the letters. An
+//     exact rectangle painted later does not have that effect: it lays
+//     one colour over the text and what is around it alike.
 //   - A run is covered when an exact, opaque rectangle painted after it
 //     holds the whole run.
 //   - A run is cut off when it lies wholly outside the box that the
@@ -36,10 +43,10 @@ import (
 type patch struct {
 	box box
 	seq int32
-	// solid is set for an exact, opaque rectangle, and known when its
-	// colour is.
-	solid, known bool
-	col          extract.Color
+	// exact is set for an exact rectangle, solid when it is opaque as
+	// well, and known when it is solid and its colour is known.
+	exact, solid, known bool
+	col                 extract.Color
 }
 
 // gridSide is the number of cells along each side of the grid that the
@@ -231,7 +238,7 @@ func (b *builder) deep() (complete bool) {
 		if ii >= len(c.Images) || si < len(c.Shapes) && c.Shapes[si].Seq <= c.Images[ii].Seq {
 			s := &c.Shapes[si]
 			si++
-			u := patch{box: b.displayBox(s.Box[0], s.Box[1], s.Box[2], s.Box[3]), seq: s.Seq}
+			u := patch{box: b.displayBox(s.Box[0], s.Box[1], s.Box[2], s.Box[3]), seq: s.Seq, exact: s.Exact}
 			if s.Exact && s.Opaque {
 				u.solid, u.known, u.col = true, s.Color.Known, s.Color
 			}
@@ -250,16 +257,64 @@ func (b *builder) deep() (complete bool) {
 	}
 	b.patches = us
 
-	g := &b.grid
 	steps, maxSteps := 0, b.opts.MaxDeepSteps
 	if maxSteps <= 0 {
 		maxSteps = maxDeepSteps
 	}
 
+	// What is painted after each run: the runs from the last to the
+	// first. An exact, opaque rectangle that holds a run covers it; one
+	// that is smaller than every run covers none, and is left out. A
+	// region that touches a run may show it for what it is.
+	minW, minH := b.page.Width, b.page.Height
+	for i := range b.pieces {
+		q := b.cover(&b.pieces[i])
+		minW, minH = min(minW, q.x1-q.x0), min(minH, q.y1-q.y0)
+	}
+	covers, regions := &b.grid, &b.regions
+	covers.reset(b.page.Width, b.page.Height)
+	regions.reset(b.page.Width, b.page.Height)
+	k := len(us) - 1
+	for i := len(b.pieces) - 1; i >= 0; i-- {
+		p := &b.pieces[i]
+		r := &c.Runs[p.run]
+		for ; k >= 0 && us[k].seq >= r.Seq && steps <= maxSteps; k-- {
+			switch u := &us[k]; {
+			case !u.exact:
+				steps += regions.add(int32(k), u.box, true)
+			case u.solid && u.box.x1-u.box.x0 >= minW && u.box.y1-u.box.y0 >= minH:
+				steps += covers.add(int32(k), u.box, false)
+			}
+		}
+		if steps > maxSteps {
+			// The runs before this one are judged by what is painted
+			// before them alone, as they are without these checks.
+			complete = false
+			break
+		}
+		if p.hidden&gofastcore.HiddenTextLayer != 0 {
+			continue
+		}
+		q := b.cover(p)
+		touched, n := regions.touched(us, q)
+		steps += n
+		p.later = touched
+		// Text that clips is not covered by what is painted through it.
+		if r.Mode == 7 && r.ClipPainted {
+			continue
+		}
+		covered, n := covers.covered(us, q)
+		steps += n
+		if covered {
+			p.hidden |= gofastcore.HiddenOccluded
+		}
+	}
+
 	// Backgrounds: the runs in the order drawn, each against what was
 	// painted before it.
+	g := &b.grid
 	g.reset(b.page.Width, b.page.Height)
-	k := 0
+	k = 0
 	for i := range b.pieces {
 		p := &b.pieces[i]
 		r := &c.Runs[p.run]
@@ -268,8 +323,21 @@ func (b *builder) deep() (complete bool) {
 			k++
 		}
 		fill, stroke := painted(r.Mode)
-		if r.Seq == 0 || p.hidden&gofastcore.HiddenTextLayer != 0 || !(fill || stroke) || r.Blend {
-			continue // judged already, or not to be judged
+		if p.hidden&gofastcore.HiddenTextLayer != 0 || !(fill || stroke) || r.Blend {
+			continue // not to be judged
+		}
+		if p.later {
+			// What a reader sees of the run is not known. That takes back
+			// what the check without shapes said of it.
+			if p.hidden&gofastcore.HiddenLowContrast != 0 || r.Seq == 0 {
+				p.hidden &^= gofastcore.HiddenLowContrast
+				b.stats.Judged--
+			}
+			b.stats.Unjudged++
+			continue
+		}
+		if r.Seq == 0 {
+			continue // judged already: it stands on the white page
 		}
 		if steps > maxSteps || c.ShapesUpTo >= 0 && r.Seq > c.ShapesUpTo {
 			// Something that is not known may lie under the run.
@@ -289,45 +357,36 @@ func (b *builder) deep() (complete bool) {
 			}
 			back = u.col
 		}
+		b.stats.Judged++
 		if faintOn(r, fill, stroke, back) {
 			p.hidden |= gofastcore.HiddenLowContrast
 		}
 	}
-
-	// Covers: the runs from the last to the first, each against the
-	// exact, opaque rectangles painted after it. One that is smaller than
-	// every run covers none.
-	minW, minH := b.page.Width, b.page.Height
-	for i := range b.pieces {
-		q := b.cover(&b.pieces[i])
-		minW, minH = min(minW, q.x1-q.x0), min(minH, q.y1-q.y0)
-	}
-	g.reset(b.page.Width, b.page.Height)
-	k = len(us) - 1
-	for i := len(b.pieces) - 1; i >= 0; i-- {
-		p := &b.pieces[i]
-		r := &c.Runs[p.run]
-		for k >= 0 && us[k].seq >= r.Seq && steps <= maxSteps {
-			if u := &us[k]; u.solid && u.box.x1-u.box.x0 >= minW && u.box.y1-u.box.y0 >= minH {
-				steps += g.add(int32(k), u.box, false)
-			}
-			k--
-		}
-		if steps > maxSteps {
-			complete = false
-			break
-		}
-		// Text that clips is not covered by what is painted through it.
-		if p.hidden&gofastcore.HiddenTextLayer != 0 || r.Mode == 7 && r.ClipPainted {
-			continue
-		}
-		covered, n := g.covered(us, b.cover(p))
-		steps += n
-		if covered {
-			p.hidden |= gofastcore.HiddenOccluded
-		}
-	}
 	return complete
+}
+
+// touched reports whether a shape in the grid touches the box, and the
+// work that took.
+func (g *grid) touched(us []patch, q box) (touched bool, steps int) {
+	if g.all >= 0 {
+		return true, 1
+	}
+	x0, y0, x1, y1, ok := g.cells(q)
+	if !ok {
+		return false, 1
+	}
+	for y := y0; y <= y1; y++ {
+		for x := x0; x <= x1; x++ {
+			steps++
+			for n := g.list(y*gridSide + x); n >= 0; n = g.nodes[n].next {
+				steps++
+				if us[g.nodes[n].shape].box.touches(q) {
+					return true, steps
+				}
+			}
+		}
+	}
+	return false, steps
 }
 
 // top returns the shape painted last that touches the box, -1 if none

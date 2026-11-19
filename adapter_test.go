@@ -47,12 +47,14 @@ type extractOpts struct {
 	Password string
 	Images   bool
 	Workers  int // 0 or 1: sequential
+	// Deep asks for the checks of DeepHidden.
+	Deep bool
 	// Unchecked skips the contract checks, for benchmarks.
 	Unchecked bool
 }
 
 func (o extractOpts) options() *gofastcore.Options {
-	opts := &gofastcore.Options{Password: o.Password, Workers: max(o.Workers, 1)}
+	opts := &gofastcore.Options{Password: o.Password, Workers: max(o.Workers, 1), DeepHidden: o.Deep}
 	if o.Images {
 		opts.Images = gofastcore.ImagesMeta
 	}

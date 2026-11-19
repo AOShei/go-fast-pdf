@@ -29,13 +29,14 @@ type Shape struct {
 	Seq int32
 	// Color is the colour of an exact shape.
 	Color Color
-	// Exact is set when the shape paints the whole of its box: an upright
-	// rectangle that is filled, under a clip that is one too. Any other
-	// shape paints somewhere in its box, in a colour that is not known.
+	// Exact is set when the shape lays one colour over the whole of its
+	// box: an upright rectangle, under a clip that is one too, filled
+	// with a colour and not a pattern, and not through a soft mask. Any
+	// other shape paints somewhere in its box, in a way that is not
+	// followed: it may leave out any part of it.
 	Exact bool
 	// Opaque is set for an exact shape that lets nothing under it show:
-	// its opacity is 1, it is painted with the normal blend mode and
-	// without a soft mask, and with a colour, not a pattern.
+	// its opacity is 1 and it is painted with the normal blend mode.
 	Opaque bool
 }
 
@@ -73,22 +74,15 @@ func (p *pathState) reset() {
 	p.ops, p.n, p.rect, p.plain, p.clip, p.more = 0, 0, false, false, false, false
 }
 
-// keep stores the last n operands, if they are numbers and there is
-// room, and reports whether it did.
-func (p *pathState) keep(args []content.Operand, n int) bool {
-	a := last(args, n)
-	if a == nil || int(p.n)+n > keptOperands {
+// keep stores operands, if there is room, and reports whether it did.
+func (p *pathState) keep(a []content.Operand) bool {
+	if int(p.n)+len(a) > keptOperands {
 		return false
-	}
-	for i := range a {
-		if a[i].Kind != content.Number {
-			return false
-		}
 	}
 	for i := range a {
 		p.raw[int(p.n)+i] = a[i].Raw
 	}
-	p.n += int8(n)
+	p.n += int8(len(a))
 	return true
 }
 
@@ -104,16 +98,26 @@ func (p *pathState) point(x, y float64) {
 // pathOp handles an operator that builds the path. kind is 'm', 'l', 'r'
 // for a rectangle or 'c' for a curve, and n the number of its operands.
 func (in *interp) pathOp(kind byte, args []content.Operand, n int) {
+	// An operator without its numbers builds nothing.
+	a := last(args, n)
+	if a == nil {
+		return
+	}
+	for i := range a {
+		if a[i].Kind != content.Number {
+			return
+		}
+	}
 	p := &in.path
 	p.ops++
 	switch {
 	case p.ops == 1 && (kind == 'm' || kind == 'r'):
-		if p.keep(args, n) {
+		if p.keep(a) {
 			p.rect, p.plain = kind == 'r', true
 			return
 		}
 	case p.plain && !p.rect && kind == 'l':
-		if p.keep(args, n) {
+		if p.keep(a) {
 			return
 		}
 	}
@@ -121,10 +125,6 @@ func (in *interp) pathOp(kind byte, args []content.Operand, n int) {
 	// matters only when shapes are recorded.
 	p.plain = false
 	if !in.opts.Shapes {
-		return
-	}
-	a := last(args, n)
-	if a == nil {
 		return
 	}
 	if kind == 'r' {
@@ -150,8 +150,10 @@ const uprightSlack = 1e-3
 
 // outline says where the path lies on the page: its box, and whether
 // the path is that box, an upright rectangle. known is false when
-// nothing was kept of the path's extent.
-func (in *interp) outline() (box [4]float64, rect, known bool) {
+// nothing was kept of the path's extent. hollow is set for a path of
+// fewer than three points: it encloses nothing, so that it fills nothing
+// and, as a clipping path, leaves nothing.
+func (in *interp) outline() (box [4]float64, rect, known, hollow bool) {
 	p := &in.path
 	c := &in.gs.ctm
 	box = [4]float64{math.Inf(1), math.Inf(1), math.Inf(-1), math.Inf(-1)}
@@ -177,14 +179,17 @@ func (in *interp) outline() (box [4]float64, rect, known bool) {
 	}
 	if !p.plain {
 		if !in.opts.Shapes {
-			return box, false, false
+			return box, false, false, false
 		}
 		if p.more {
 			for _, q := range [4][2]float64{{p.box[0], p.box[1]}, {p.box[2], p.box[1]}, {p.box[2], p.box[3]}, {p.box[0], p.box[3]}} {
 				add(q[0], q[1])
 			}
 		}
-		return box, false, n > 0 || p.more
+		return box, false, n > 0 || p.more, false
+	}
+	if n < 3 {
+		return box, false, n > 0, true
 	}
 	// Four corners, with or without the line back to the first: an
 	// upright rectangle when each side runs along an axis.
@@ -196,7 +201,7 @@ func (in *interp) outline() (box [4]float64, rect, known bool) {
 		rect = near(a[0], b[0]) && near(b[1], d[1]) && near(d[0], e[0]) && near(e[1], a[1]) ||
 			near(a[1], b[1]) && near(b[0], d[0]) && near(d[1], e[1]) && near(e[0], a[0])
 	}
-	return box, rect, n > 0
+	return box, rect, true, false
 }
 
 func near(a, b float64) bool { return a-b <= uprightSlack && b-a <= uprightSlack }
@@ -212,15 +217,18 @@ func (in *interp) endPath(fill, stroke bool) {
 		p.reset()
 		return
 	}
-	box, rect, known := in.outline()
+	box, rect, known, hollow := in.outline()
 	if shape && known {
-		in.addShape(box, rect, fill, stroke)
+		in.addShape(box, rect, fill && !hollow, stroke)
 	}
 	if p.clip {
 		g := &in.gs
-		if known {
+		switch {
+		case hollow:
+			g.region.cut(box[0], box[1], box[0], box[1], true)
+		case known:
 			g.region.cut(box[0], box[1], box[2], box[3], rect)
-		} else {
+		default:
 			g.region.Inexact = true
 		}
 	}
@@ -242,7 +250,7 @@ func (in *interp) addShape(box [4]float64, rect, fill, stroke bool) {
 		}
 		fill = false
 	}
-	exact := fill && rect && !g.region.Inexact
+	exact := fill && rect && !g.region.Inexact && g.fill.space != csPattern && !g.softMask && !g.outerBlend
 	if width > 0 {
 		// A stroke paints along the outline, to either side of it, in a
 		// colour of its own.
@@ -256,7 +264,7 @@ func (in *interp) addShape(box [4]float64, rect, fill, stroke bool) {
 	s := Shape{Box: box}
 	if exact {
 		s.Exact, s.Color = true, g.fill.color
-		s.Opaque = alpha >= 1 && !g.blend() && g.fill.space != csPattern
+		s.Opaque = alpha >= 1 && !g.blendMode
 	}
 	in.pushShape(s)
 }

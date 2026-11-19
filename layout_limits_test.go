@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	gofastcore "github.com/AOShei/go-fast-core"
 	"github.com/AOShei/go-fast-pdf/internal/pdftest"
 )
 
@@ -88,6 +89,110 @@ func TestLayoutCost(t *testing.T) {
 			}
 			// The contract check takes part of this; the bound is loose
 			// on purpose and still far below what a quadratic step needs.
+			if took > 20*time.Second {
+				t.Errorf("took %v", took)
+			}
+		})
+	}
+}
+
+// TestDeepHiddenCost: no arrangement of shapes and text makes the checks
+// of DeepHidden take time out of proportion to the size of the page.
+// Each page paints 60,000 shapes, which is close to the most that are
+// followed, and as many words.
+func TestDeepHiddenCost(t *testing.T) {
+	if testing.Short() || pdftest.RaceEnabled {
+		t.Skip("large pages, timed")
+	}
+	const n = 60000
+	word := func(sb *strings.Builder, i int) {
+		fmt.Fprintf(sb, "BT /F1 10 Tf 1 0 0 1 %d %d Tm (w%d) Tj ET\n", 20+(i%100)*50, 20+(i/100)*12, i%977)
+	}
+	pages := map[string]func(sb *strings.Builder){
+		"rectangles as large as the page, then the text": func(sb *strings.Builder) {
+			for i := 0; i < n; i++ {
+				fmt.Fprintf(sb, "0.%d g 0 0 5200 7400 re f\n", i%10)
+			}
+			for i := 0; i < n; i++ {
+				word(sb, i)
+			}
+		},
+		"triangles over half the page, then the text": func(sb *strings.Builder) {
+			for i := 0; i < n; i++ {
+				fmt.Fprintf(sb, "%d 0 m 5000 %d l 0 7000 l f\n", i%100, 3000+i%1000)
+			}
+			for i := 0; i < n; i++ {
+				word(sb, i)
+			}
+		},
+		"small rectangles in one place, and the text on them": func(sb *strings.Builder) {
+			for i := 0; i < n; i++ {
+				fmt.Fprintf(sb, "%d %d 3 3 re f\n", 20+i%40, 20+(i/40)%40)
+			}
+			for i := 0; i < n; i++ {
+				fmt.Fprintf(sb, "BT /F1 10 Tf 1 0 0 1 %d %d Tm (w%d) Tj ET\n", 20+i%7, 20+i%30, i%977)
+			}
+		},
+		"a rectangle under every word": func(sb *strings.Builder) {
+			for i := 0; i < n; i++ {
+				fmt.Fprintf(sb, "1 g %d %d 48 11 re f 0.99 g\n", 18+(i%100)*50, 18+(i/100)*12)
+				word(sb, i)
+			}
+		},
+		"the text, then rectangles that cover none of it": func(sb *strings.Builder) {
+			for i := 0; i < n; i++ {
+				word(sb, i)
+			}
+			for i := 0; i < n; i++ {
+				fmt.Fprintf(sb, "%d %d 9 9 re f\n", 2500+i%7, 3000+i%5)
+			}
+		},
+		"the text, then rectangles of the width of the page": func(sb *strings.Builder) {
+			for i := 0; i < n; i++ {
+				word(sb, i)
+			}
+			for i := 0; i < n; i++ {
+				fmt.Fprintf(sb, "0 %d 5200 11 re f\n", 21+(i%600)*12)
+			}
+		},
+		"a clip inside a clip for every word": func(sb *strings.Builder) {
+			for i := 0; i < n; i++ {
+				if i%2000 == 0 && i > 0 {
+					sb.WriteString(strings.Repeat("Q ", 2000) + "\n")
+				}
+				fmt.Fprintf(sb, "q %d 0 5000 7300 re W n\n", i%2000)
+				word(sb, i)
+			}
+		},
+		"strokes across the page between the words": func(sb *strings.Builder) {
+			for i := 0; i < n; i++ {
+				fmt.Fprintf(sb, "0 %d m 5200 %d l S\n", i%7300, (i*7)%7300)
+				word(sb, i)
+			}
+		},
+	}
+	for name, fill := range pages {
+		t.Run(name, func(t *testing.T) {
+			var sb strings.Builder
+			fill(&sb)
+			data := synthDoc{Font: fontCourier, Pages: []synthPage{{Content: sb.String(), MediaBox: "[0 0 5200 7400]"}}}.bytes()
+			start := time.Now()
+			plain := mustExtract(t, data, nil)
+			base := time.Since(start)
+			start = time.Now()
+			doc := mustExtract(t, data, &gofastcore.Options{DeepHidden: true})
+			took := time.Since(start)
+			hidden := 0
+			for _, b := range doc.Parts[0].Blocks {
+				if b.Hidden != 0 {
+					hidden++
+				}
+			}
+			t.Logf("%d blocks, %d of them hidden, %v (%v without DeepHidden), warnings %v", len(doc.Parts[0].Blocks), hidden,
+				took.Round(time.Millisecond), base.Round(time.Millisecond), codes(doc.Parts[0].Warnings))
+			if len(strings.Fields(doc.Text())) != len(strings.Fields(plain.Text())) {
+				t.Error("the text is not that of the run without DeepHidden")
+			}
 			if took > 20*time.Second {
 				t.Errorf("took %v", took)
 			}

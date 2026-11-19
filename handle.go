@@ -106,6 +106,11 @@ func (e *Extractor) OpenReaderAt(r io.ReaderAt, size int64, opts *gofastcore.Opt
 	if err := checkSize(size, opts); err != nil {
 		return nil, err
 	}
+	if r == nil {
+		// An extractor that only lists an embedded file may hand its
+		// child no reader. That is no document, and must not be a panic.
+		return nil, fmt.Errorf("%w: no input to read", gofastcore.ErrMalformed)
+	}
 	data := make([]byte, size)
 	if _, err := io.ReadFull(io.NewSectionReader(r, 0, size), data); err != nil {
 		return nil, fmt.Errorf("reading the input: %w", err)

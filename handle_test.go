@@ -670,3 +670,22 @@ func TestExtractorSettings(t *testing.T) {
 		t.Error("MaxShapes 500: the page of 100 shapes is incomplete")
 	}
 }
+
+// A caller that has nothing to read from, such as an extractor that only
+// lists a file embedded in its document, gets an error and no panic,
+// whatever size it names.
+func TestNoReader(t *testing.T) {
+	for _, size := range []int64{0, 100, 1 << 40} {
+		if _, err := gofastpdf.Extract(context.Background(), nil, size, nil); err == nil || !errors.Is(err, gofastcore.ErrMalformed) && !errors.Is(err, gofastcore.ErrLimitExceeded) {
+			t.Errorf("Extract without a reader, size %d: %v", size, err)
+		}
+		if f, err := gofastpdf.OpenReaderAt(nil, size, nil); err == nil {
+			f.Close()
+			t.Errorf("OpenReaderAt without a reader, size %d: no error", size)
+		}
+	}
+	var e gofastpdf.Extractor
+	if _, err := e.Extract(context.Background(), nil, 100, &gofastcore.Options{Workers: 4}); !errors.Is(err, gofastcore.ErrMalformed) {
+		t.Errorf("as an extractor of the shared model: %v", err)
+	}
+}

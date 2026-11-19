@@ -79,7 +79,9 @@
 //
 //   - Workers: pages read at a time, by Extract and by File.Parts. The
 //     result is the same for any number.
-//   - Images: with ImagesMeta an image block stands where each image
+//
+//   - Images: with ImagesMeta, which is what options mean that name no
+//     mode, an image block stands where each image
 //     is, with its size in pixels; its ID is "obj-" and the number of
 //     the image's object, or, for an image inside a content stream,
 //     "inline-", the number of its page, a hyphen and its count on that
@@ -88,31 +90,53 @@
 //     bits in a gray or RGB colour space as PNG. An image in another
 //     encoding has no data, and its page gets
 //     image.unsupported_encoding. With ImagesNone there are no image
-//     blocks. Which of the three options mean when they name none is
-//     for gofastcore to say. An image block has no text: the
+//     blocks. An image block has no text: the
 //     alternative text that a tagged PDF may give a figure is not read
 //     yet. A block for every image costs under one percent of the time
 //     on most documents, and up to as much again on a page that is
 //     nearly all images.
+//
 //   - Password: tried as the user password and as the owner password.
 //     The empty user password is always tried.
+//
 //   - Parts: a range of pages, for Extract, File.Parts and
 //     File.Document. A range that holds no page of the file is
 //     gofastcore.ErrNoPartsSelected. File.Page gives any page.
+//
 //   - Limits: MaxInputBytes (default 1 GiB) is checked before the input
 //     is read. MaxDecodedBytes (default 1 GiB) bounds what the streams
 //     of a document decode to, taken together and counted in page
 //     order: the document ends before the page that would exceed it.
+//     MaxTextBytes (default 256 MiB) bounds the text of a document: the
+//     titles of its outline, the names that page labels give its parts,
+//     and the text of its blocks. The page that reaches it is cut before
+//     the block that does not fit, and nothing after it is read.
 //     MaxParts keeps the first pages of the range. MaxDepth bounds how
 //     deep attached files are followed. A limit that cuts the document
 //     adds limit.exceeded; File.Parts ends with ErrLimitExceeded there.
+//
+//     Decoded bytes and text are counted for a document and the files
+//     attached to it together, through the budgets of gofastcore that a
+//     context carries: an attached file is read within what its
+//     document has left, and this package reads within what it is given
+//     when it is itself the Child of another extractor.
+//
+//     Both are counted where the pages are put in order, a page at a
+//     time, and not while a page is being read: pages are read side by
+//     side, and counting them as they finish would make the place of
+//     the cut depend on which finished first. What is held and not yet
+//     counted is the pages being read and those waiting to be handed
+//     on, at most three for each worker, each of at most 16 MiB of text.
+//
 //   - Child: the extractor for attached files. Without one they are
 //     listed with their names and sizes, and nothing of them is decoded.
+//
 //   - DeepHidden: also follows the shapes that a page paints and its
 //     clipping paths, and checks text against them: see "Hidden text".
 //     It changes no text. It takes a fifth more time over a mixed set
 //     of documents: a few percent on pages of text, more on pages with
 //     many shapes. The checks that always run take one percent.
+//
 //   - Spans: not implemented yet and ignored.
 //
 // # Text

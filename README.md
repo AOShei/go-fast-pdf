@@ -14,8 +14,8 @@ share.
   exhaust them.
 - It starts no program, fetches nothing, runs nothing that a file contains, and does no OCR.
 
-> **Status.** This is the tree of v0.2.0. The release is tagged once go-fast-core has its v0.1.0 tag;
-> until then `go get github.com/AOShei/go-fast-pdf@main`. The API is not that of v0.1:
+> **Status.** This is the tree of v0.2.0, which is not tagged yet: the go-fast libraries are released
+> together. Until then `go get github.com/AOShei/go-fast-pdf@main`. The API is not that of v0.1:
 > [MIGRATION.md](MIGRATION.md) says what became what.
 
 ## Speed
@@ -174,7 +174,7 @@ for _, line := range lines {
 }
 ```
 
-Options are `gofastcore.Options`: `Workers`, `Images` (none, description, data), `Password`,
+Options are `gofastcore.Options`: `Workers`, `Images` (a block for each image, which is the default; its data too; or none), `Password`,
 `Parts` (a range of pages), `Limits`, `DeepHidden` and `Child` (an extractor for attached files).
 Settings that only PDF has are fields of `gofastpdf.Extractor`. The
 [package documentation](https://pkg.go.dev/github.com/AOShei/go-fast-pdf) says what each does for PDF.
@@ -281,8 +281,9 @@ a page and are extracted by design: treat them as you treat any text from the fi
 ## Untrusted files
 
 The library is made to be given files from anywhere. Every size that a file decides is bounded: the
-input (1 GiB by default), what its streams decode to (1 GiB together, 64 MiB each), pages, objects,
-nesting, the text and the shapes of one page. A limit that cuts a document is reported as a warning or
+input (1 GiB by default), what its streams decode to (1 GiB together, 64 MiB each), the text of the
+document (256 MiB), pages, objects, nesting, the text and the shapes of one page. Decoded bytes and text
+are counted for a document and the files attached to it together. A limit that cuts a document is reported as a warning or
 an error, never passed over. Reading stops when the context ends, also inside a long page. One opened
 file can be read from many goroutines, and the result is the same for any number of workers.
 [SECURITY.md](SECURITY.md) has the threat model, every default, and how to report a problem.

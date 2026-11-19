@@ -105,7 +105,7 @@ func TestCompare(t *testing.T) {
 	}
 
 	// Normalisation: ligatures, no-break space, soft hyphen, line breaks.
-	s = Compare("ofﬁce ‑ co­operate", "office\n- cooperate")
+	s = Compare("of\ufb01ce\u00a0\u2011 co\u00adoperate", "office\n- cooperate")
 	if s.F1 != 1 {
 		t.Errorf("normalisation: %+v, want F1 1", s)
 	}

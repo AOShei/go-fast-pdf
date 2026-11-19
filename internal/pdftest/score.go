@@ -21,10 +21,10 @@ type Score struct {
 }
 
 var normalizer = strings.NewReplacer(
-	"ﬀ", "ff", "ﬁ", "fi", "ﬂ", "fl", "ﬃ", "ffi", "ﬄ", "ffl", "ﬅ", "st", "ﬆ", "st",
-	" ", " ", // no-break space
-	"­", "", // soft hyphen
-	"‐", "-", "‑", "-", // hyphen, non-breaking hyphen
+	"\ufb00", "ff", "\ufb01", "fi", "\ufb02", "fl", "\ufb03", "ffi", "\ufb04", "ffl", "\ufb05", "st", "\ufb06", "st",
+	"\u00a0", " ", // no-break space
+	"\u00ad", "", // soft hyphen
+	"\u2010", "-", "\u2011", "-", // hyphen, non-breaking hyphen
 )
 
 // Words splits text into the words the scorer compares. Both texts are

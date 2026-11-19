@@ -85,7 +85,7 @@ What "ready for production" was taken to mean, and what each point was measured 
 
 | Property | Measured |
 |---|---|
-| Never crashes | 3,186 files and 50,569 pages read, each file in a process of its own, with the default options and with `DeepHidden`: no panic, no stack overflow, no hang |
+| Never crashes | 3,186 files and 50,569 pages read, each file in a process of its own, with the default options and with `DeepHidden`: no panic, no stack overflow, no hang. Fuzzing: 14 targets for an hour each on machines of four processors, 56 processor hours and 2.3 billion inputs, with nothing found |
 | Bounded resources | In that run no file took more than 5 s of the 60 s allowed or more than 711 MiB of the 1 GiB allowed, for a process that reads the file twice and checks the results. The limits and fixed bounds are listed in SECURITY.md; cancellation is tested between pages and inside a long page. One bound is still to come: the text of a whole document (`Limits.MaxTextBytes`, with go-fast-core v0.1.0) |
 | Correct text | Word-level F1 against `pdftotext`: at least 0.988 on each of the 27 born-digital Latin files of the fixture corpus (the floor is 0.98), 1.0 on each of the 8 files in other scripts (floor 0.95). Public corpus: mean F1 0.892 and order 0.826 over 1,650 files; 0.983 and 0.907 on the 200 ordinary documents of GovDocs1 |
 | Conforms to the shared model | Every document of the runs above passes `Validate` and the contract checks, and is equal after a round trip through JSON |

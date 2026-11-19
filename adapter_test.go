@@ -112,7 +112,7 @@ func extractBytes(data []byte, o extractOpts) (*extraction, error) {
 // and the value of a form field whose appearance shows nothing.
 func pageText(p *gofastcore.Part) string {
 	extra := func(b *gofastcore.Block) bool {
-		_, field := b.Attrs[gofastpdf.AttrField]
+		_, field := b.Attrs[gofastcore.AttrField]
 		return field || b.Kind == gofastcore.KindNote
 	}
 	any := false
@@ -238,7 +238,7 @@ func checkContract(doc *gofastcore.Document, opts *gofastcore.Options) error {
 			// The text of the page is put into paragraphs by this library.
 			// The value of a form field and a note are what the file says
 			// they are.
-			_, field := b.Attrs[gofastpdf.AttrField]
+			_, field := b.Attrs[gofastcore.AttrField]
 			if native := field || b.Kind == gofastcore.KindNote; native != (b.Origin == gofastcore.OriginNative) || !native && b.Origin != gofastcore.OriginInferred {
 				return fmt.Errorf("%s: a %s block with origin %s (the value of a form field: %v)", where, b.Kind, b.Origin, field)
 			}

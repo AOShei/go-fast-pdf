@@ -19,7 +19,7 @@ import (
 // budgets that a document shares with the documents embedded in it.
 
 // cost is what every block takes from the budget beyond its text.
-const cost = gofastpdf.BlockCost
+const cost = gofastcore.BlockCost
 
 // A page of threeParagraphs takes pageCost from the budget.
 const pageCost = 85 + 3*cost

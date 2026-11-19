@@ -79,7 +79,7 @@
 //   - The value of a form field whose appearance shows nothing, which a
 //     viewer would draw by itself: a paragraph at the place of the
 //     field, after the text that starts above it, with the full name of
-//     the field under the key "field" (AttrField). A choice gives the
+//     the field under the key "field" (gofastcore.AttrField). A choice gives the
 //     text of the option as it is displayed, a check box or radio
 //     button that is on the name of its state. A push button has no
 //     value, a signature is not text, and the value of a password field

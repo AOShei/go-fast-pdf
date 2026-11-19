@@ -364,19 +364,9 @@ func (st *state) settle() {
 	st.dec.Take(st.dec.Left() - st.budget)
 }
 
-// blockCost is what a block takes from the budget for text beyond its
-// own text: about what it takes to write a block down that has none,
-// its kind, its place and, for an image, what the image is. Over the
-// 3,150 files of the corpus and the soak set the JSON of a document is
-// 157 bytes a block beyond the text.
-//
-// Without it the budget would bound the text and not the document. A
-// file can draw one image a hundred thousand times on every page with a
-// few bytes of content for each, and a block of no text would be free.
-const blockCost = 128
-
 // charge takes a part from the budget for text: its name, where the
-// file gives it one, and for each of its blocks the text and blockCost.
+// file gives it one, and for each of its blocks the text and gofastcore.BlockCost, which is
+// the rule of the shared model: a block of no text is not free.
 // It reports whether all of it was there to take. If not, the part is
 // cut before the block that did not fit, and says so; nothing after it
 // is read.
@@ -387,7 +377,7 @@ func (st *state) charge(part *gofastcore.Part) bool {
 	}
 	kept := 0
 	for ok && kept < len(part.Blocks) {
-		if ok = st.text.Take(blockCost + len(part.Blocks[kept].Text)); ok {
+		if ok = st.text.Take(gofastcore.BlockCost + len(part.Blocks[kept].Text)); ok {
 			kept++
 		}
 	}

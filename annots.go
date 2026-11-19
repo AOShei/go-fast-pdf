@@ -23,11 +23,6 @@ import (
 // get, so both are extracted, and flagged where the file keeps them
 // from being shown.
 
-// AttrField is the key of Block.Attrs that holds the name of the form
-// field whose value the block is: the names of the field and of the
-// fields above it, joined by full stops, as PDF names a field in full.
-const AttrField = "field"
-
 const (
 	// maxPageNoteBytes bounds the text of the annotations and fields of
 	// one page, as the text of its content is bounded. A file can give
@@ -245,9 +240,9 @@ func fieldValue(f *file.File, widget syntax.Value, text func(syntax.Value) (stri
 	b := gofastcore.Block{Kind: gofastcore.KindParagraph, Text: out}
 	slices.Reverse(names)
 	if name := strings.Trim(strings.Join(names, "."), "."); name != "" {
-		b.Attrs = map[string]string{AttrField: clipName(name)}
+		b.Attrs = map[string]string{gofastcore.AttrField: clipName(name)}
 	} else {
-		b.Attrs = map[string]string{AttrField: ""}
+		b.Attrs = map[string]string{gofastcore.AttrField: ""}
 	}
 	return extra{block: b, field: true}, true
 }

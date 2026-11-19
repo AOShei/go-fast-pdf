@@ -65,7 +65,7 @@ Bounds that are fixed:
 
 | What | Bound |
 |---|---|
-| Objects in a file | 4,194,304 |
+| Objects in a file | 8,388,607, the most the format allows |
 | Pages | 1,048,576 |
 | Nesting of arrays and dictionaries | 100 |
 | Nesting of forms drawn inside forms | 16, and 10,000 forms on one page |

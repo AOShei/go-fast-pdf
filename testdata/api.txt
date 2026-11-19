@@ -32,8 +32,6 @@ const (
 	WarnStringUndecryptable = "pdf.string_undecryptable"
 )
 
-const AttrField = "field"
-
 const Format = "pdf"
 
 func (*Extractor) Formats() []string

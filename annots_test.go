@@ -83,7 +83,7 @@ func TestAnnotationsAndFormFields(t *testing.T) {
 		if b.Hidden != 0 {
 			line += " hidden:" + b.Hidden.String()
 		}
-		for _, key := range []string{gofastpdf.AttrField, gofastcore.AttrNoteType, gofastcore.AttrAuthor, gofastcore.AttrDate} {
+		for _, key := range []string{gofastcore.AttrField, gofastcore.AttrNoteType, gofastcore.AttrAuthor, gofastcore.AttrDate} {
 			if v, ok := b.Attrs[key]; ok {
 				line += fmt.Sprintf(" %s=%s", key, v)
 			}
@@ -212,7 +212,7 @@ func TestAnnotationsAndFormFields(t *testing.T) {
 		}
 		ours := map[string]string{}
 		for _, b := range mustExtract(t, data, nil).Parts[0].Blocks {
-			if name, ok := b.Attrs[gofastpdf.AttrField]; ok {
+			if name, ok := b.Attrs[gofastcore.AttrField]; ok {
 				ours[name] = b.Text
 			}
 		}

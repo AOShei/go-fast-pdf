@@ -251,9 +251,19 @@ func checkContract(doc *gofastcore.Document, opts *gofastcore.Options) error {
 				}
 				continue
 			case gofastcore.KindNote:
-				// What an annotation says: the file says that it is one.
+				// What an annotation says, or the options of a choice
+				// field: the file says what they are.
 				text = true
-				if b.Origin != gofastcore.OriginNative || b.Attrs[gofastcore.AttrNoteType] != gofastcore.NoteComment || b.Text == "" {
+				switch b.Attrs[gofastcore.AttrNoteType] {
+				case gofastcore.NoteComment:
+				case gofastcore.NoteChoices:
+					if _, named := b.Attrs[gofastcore.AttrField]; !named {
+						return fmt.Errorf("%s: options of a field with attributes %v", where, b.Attrs)
+					}
+				default:
+					return fmt.Errorf("%s: a note of type %q", where, b.Attrs[gofastcore.AttrNoteType])
+				}
+				if b.Origin != gofastcore.OriginNative || b.Text == "" {
 					return fmt.Errorf("%s: a note with origin %s and attributes %v", where, b.Origin, b.Attrs)
 				}
 			default:

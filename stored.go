@@ -265,11 +265,18 @@ func stored(f *file.File, catalog syntax.Value, md *gofastcore.Metadata, scripts
 		if f.Resolve(field.Get("Subtype")).IsName("Widget") || field.Has("Rect") {
 			continue // it has a place on a page, and is read there
 		}
-		x, ok := fieldValue(f, field, r.text)
+		value, ok := fieldValue(f, field, r.text)
 		if !ok {
 			return blocks, true
 		}
-		if x.block.Text != "" {
+		choices, ok := fieldChoices(f, field, r.text)
+		if !ok {
+			return blocks, true
+		}
+		for _, x := range []extra{value, choices} {
+			if x.block.Text == "" {
+				continue
+			}
 			b := x.block
 			b.Origin, b.Hidden = gofastcore.OriginNative, gofastcore.HiddenInvisible
 			b.Attrs[gofastcore.AttrStored] = gofastcore.StoredFormField

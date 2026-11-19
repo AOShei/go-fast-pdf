@@ -6,3 +6,5 @@ github.com/AOShei/go-fast-core v0.0.0-20261119123958-abd5a60de262 h1:jiFP2bLZ5om
 github.com/AOShei/go-fast-core v0.0.0-20261119123958-abd5a60de262/go.mod h1:tb4zS0fiQj3cajROZQXB/R4gwiklGWMTNUb+rHbk28M=
 github.com/AOShei/go-fast-core v0.0.0-20261119162705-1c775f82cf04 h1:CYjTu/CNFKHXN6zYBd0poNp0KRveX73tB3iwXvJXB6U=
 github.com/AOShei/go-fast-core v0.0.0-20261119162705-1c775f82cf04/go.mod h1:tb4zS0fiQj3cajROZQXB/R4gwiklGWMTNUb+rHbk28M=
+github.com/AOShei/go-fast-core v0.0.0-20261119191115-031432aa57b0 h1:aEGXmtW0IJuhYakStJxkPks8WtVvTP6wMXUgVf7yVl4=
+github.com/AOShei/go-fast-core v0.0.0-20261119191115-031432aa57b0/go.mod h1:tb4zS0fiQj3cajROZQXB/R4gwiklGWMTNUb+rHbk28M=

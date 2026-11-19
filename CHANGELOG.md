@@ -35,7 +35,8 @@ files made to exhaust it, and is several times faster. The tag follows that of g
   they are in the file and 8-bit gray and RGB samples as PNG.
 - **Forms and annotations.** The appearances of annotations are read as part of the page: the values
   that filled form fields show, stamps, notes written on the page. What is written in a comment is a
-  `note` block; the value of a field that shows nothing is a block with the field's name. Hidden ones are
+  `note` block; the value of a field that shows nothing is a block with the field's name; the options of a list or
+  combo box are a `choices` note. Hidden ones are
   flagged.
 - **What a file stores and shows nowhere** is extracted and flagged: scripts, the metadata packet, entries
   of the file's own making in the document information, form fields on no page, the filled-in data of an

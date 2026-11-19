@@ -68,44 +68,56 @@ func pageNotes(r *reader, p *file.Page, shown []bool, m [6]float64, width, heigh
 		annots = annots[:maxAnnotations]
 	}
 	text := r.text
+	choicesOf := map[string]bool{}
 	for i, ref := range annots {
 		a := f.Resolve(ref)
 		if !a.IsDict() {
 			continue
 		}
 		visible := i < len(shown) && shown[i]
-		var x extra
-		var ok bool
+		var found [2]extra
+		ok := true
 		switch sub := f.Resolve(a.Get("Subtype")); {
 		case sub.IsName("Popup"):
 			continue // the window of another annotation, whose text is that one's
 		case sub.IsName("Widget"):
-			if visible {
-				continue
+			if !visible {
+				found[0], ok = fieldValue(f, a, text)
 			}
-			x, ok = fieldValue(f, a, text)
+			// The options of a choice field, once for the field,
+			// however many widgets show it.
+			if ok {
+				if name := fieldOf(f, a).name; !choicesOf[name] {
+					found[1], ok = fieldChoices(f, a, text)
+					if found[1].block.Text != "" && name != "" {
+						choicesOf[name] = true
+					}
+				}
+			}
 		case sub.IsName("FreeText") && visible:
 			continue // its text is what it shows
 		default:
-			x, ok = note(f, a, text)
+			found[0], ok = note(f, a, text)
 		}
 		if !ok {
 			return extras, true
 		}
-		if x.block.Text == "" {
-			continue
+		for _, x := range found {
+			if x.block.Text == "" {
+				continue
+			}
+			b := &x.block
+			b.Origin = gofastcore.OriginNative
+			var off bool
+			b.Loc.BBox, off = rectOnPage(f, a.Get("Rect"), m, width, height)
+			if off {
+				b.Hidden |= gofastcore.HiddenOffPage
+			}
+			if flags, _ := f.Resolve(a.Get("F")).Integer(); flags&(annotHidden|annotNoView) != 0 {
+				b.Hidden |= gofastcore.HiddenInvisible
+			}
+			extras = append(extras, x)
 		}
-		b := &x.block
-		b.Origin = gofastcore.OriginNative
-		var off bool
-		b.Loc.BBox, off = rectOnPage(f, a.Get("Rect"), m, width, height)
-		if off {
-			b.Hidden |= gofastcore.HiddenOffPage
-		}
-		if flags, _ := f.Resolve(a.Get("F")).Integer(); flags&(annotHidden|annotNoView) != 0 {
-			b.Hidden |= gofastcore.HiddenInvisible
-		}
-		extras = append(extras, x)
 	}
 	return extras, false
 }
@@ -137,10 +149,18 @@ func note(f *file.File, a syntax.Value, text func(syntax.Value) (string, bool)) 
 // gives the name of its state, once, at the widget that shows it. A
 // push button has no value, the value of a password field is not read,
 // and a signature is not text.
-func fieldValue(f *file.File, widget syntax.Value, text func(syntax.Value) (string, bool)) (extra, bool) {
+// formField is what a field of the form says of itself, in its own
+// dictionary or in a field above it.
+type formField struct {
+	name                 string // the full name, the names from the top joined by full stops
+	kind, value, options syntax.Value
+	flags                int64
+}
+
+// fieldOf walks from a widget, or a field, up to the top of the form.
+func fieldOf(f *file.File, widget syntax.Value) formField {
+	var ff formField
 	var names []string
-	var kind, value, options syntax.Value
-	var flags int64
 	haveFlags := false
 	node := widget
 	seen := map[int64]bool{}
@@ -148,18 +168,18 @@ func fieldValue(f *file.File, widget syntax.Value, text func(syntax.Value) (stri
 		if t := f.Resolve(node.Get("T")); t.Kind == syntax.String {
 			names = append(names, clipName(strings.TrimSpace(cleanString(charset.TextString(t.Data)))))
 		}
-		if kind.IsNull() {
-			kind = f.Resolve(node.Get("FT"))
+		if ff.kind.IsNull() {
+			ff.kind = f.Resolve(node.Get("FT"))
 		}
-		if value.IsNull() {
-			value = f.Resolve(node.Get("V"))
+		if ff.value.IsNull() {
+			ff.value = f.Resolve(node.Get("V"))
 		}
-		if options.IsNull() {
-			options = f.Resolve(node.Get("Opt"))
+		if ff.options.IsNull() {
+			ff.options = f.Resolve(node.Get("Opt"))
 		}
 		if !haveFlags {
-			if ff := f.Resolve(node.Get("Ff")); !ff.IsNull() {
-				flags, _ = ff.Integer()
+			if v := f.Resolve(node.Get("Ff")); !v.IsNull() {
+				ff.flags, _ = v.Integer()
 				haveFlags = true
 			}
 		}
@@ -172,6 +192,53 @@ func fieldValue(f *file.File, widget syntax.Value, text func(syntax.Value) (stri
 		}
 		node = f.Resolve(parent)
 	}
+	slices.Reverse(names)
+	ff.name = clipName(strings.Trim(strings.Join(names, "."), "."))
+	return ff
+}
+
+// maxChoices is the number of options of a choice field that are read.
+const maxChoices = 4096
+
+// fieldChoices is the note of the options a choice field offers (a list
+// box or a combo box), one per line in the order of the file, as they are
+// displayed. A reader who opens the list sees them, so the note is not
+// flagged for that.
+func fieldChoices(f *file.File, widget syntax.Value, text func(syntax.Value) (string, bool)) (extra, bool) {
+	ff := fieldOf(f, widget)
+	if !ff.kind.IsName("Ch") {
+		return extra{}, true
+	}
+	var lines []string
+	for i, o := range ff.options.Elems() {
+		if i >= maxChoices {
+			break
+		}
+		// An option is its text, or a pair of the value that is stored
+		// and the text that is displayed.
+		o = f.Resolve(o)
+		if pair := o.Elems(); len(pair) == 2 {
+			o = pair[1]
+		}
+		s, ok := text(o)
+		if !ok {
+			return extra{}, false
+		}
+		if s = strings.ReplaceAll(s, "\n", " "); s != "" {
+			lines = append(lines, s)
+		}
+	}
+	if len(lines) == 0 {
+		return extra{}, true
+	}
+	b := gofastcore.Block{Kind: gofastcore.KindNote, Text: charset.Letters(strings.Join(lines, "\n"))}
+	b.Attrs = map[string]string{gofastcore.AttrNoteType: gofastcore.NoteChoices, gofastcore.AttrField: ff.name}
+	return extra{block: b, field: true}, true
+}
+
+func fieldValue(f *file.File, widget syntax.Value, text func(syntax.Value) (string, bool)) (extra, bool) {
+	ff := fieldOf(f, widget)
+	kind, value, options, flags := ff.kind, ff.value, ff.options, ff.flags
 
 	var out string
 	ok := true
@@ -225,12 +292,7 @@ func fieldValue(f *file.File, widget syntax.Value, text func(syntax.Value) (stri
 		return extra{}, ok
 	}
 	b := gofastcore.Block{Kind: gofastcore.KindParagraph, Text: out}
-	slices.Reverse(names)
-	if name := strings.Trim(strings.Join(names, "."), "."); name != "" {
-		b.Attrs = map[string]string{gofastcore.AttrField: clipName(name)}
-	} else {
-		b.Attrs = map[string]string{gofastcore.AttrField: ""}
-	}
+	b.Attrs = map[string]string{gofastcore.AttrField: ff.name}
 	return extra{block: b, field: true}, true
 }
 

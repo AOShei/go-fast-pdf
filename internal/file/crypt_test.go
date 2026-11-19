@@ -2,6 +2,7 @@ package file
 
 import (
 	"bytes"
+	"crypto"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/md5"
@@ -253,6 +254,8 @@ type encDoc struct {
 	b    *pdftest.Builder
 	d    *decrypter
 	dict string // the encryption dictionary's entries after /O /U /P
+	// keys open a file encrypted for a certificate.
+	keys []crypto.Decrypter
 }
 
 func newEncDoc(cf, stmF, strF string, encryptMetadata bool) *encDoc {
@@ -314,6 +317,8 @@ func (doc *encDoc) seal(kind cipherKind, num int, data string) string {
 		return string(out)
 	case cipherAESV2:
 		return string(encryptAES(doc.d.objectKey(uint32(num), 0, true), []byte(data)))
+	case cipherAESV3:
+		return string(encryptAES(doc.d.key, []byte(data)))
 	}
 	return data
 }
@@ -325,6 +330,15 @@ func hexString(s string) string { return "<" + hex.EncodeToString([]byte(s)) + "
 // opened file.
 func (doc *encDoc) build(t *testing.T, stm, str cipherKind, add func(b *pdftest.Builder)) *File {
 	t.Helper()
+	f, err := OpenKeys(doc.layout(stm, str, add), Limits{}, "", doc.keys)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	return f
+}
+
+// layout is the file that build opens.
+func (doc *encDoc) layout(stm, str cipherKind, add func(b *pdftest.Builder)) []byte {
 	b := doc.b
 	catalog, pages, font, content, page, info, enc := b.Reserve(), b.Reserve(), b.Reserve(), b.Reserve(), b.Reserve(), b.Reserve(), b.Reserve()
 	b.Root = catalog
@@ -339,11 +353,7 @@ func (doc *encDoc) build(t *testing.T, stm, str cipherKind, add func(b *pdftest.
 	if add != nil {
 		add(b)
 	}
-	f, err := Open(b.Bytes(), Limits{})
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	return f
+	return b.Bytes()
 }
 
 const stdCF = "/StdCF << /CFM /AESV2 /AuthEvent /DocOpen /Length 16 >>"

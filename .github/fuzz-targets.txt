@@ -18,3 +18,4 @@
 . FuzzPage
 ./internal/inflate FuzzZlib
 . FuzzPacket
+./internal/file FuzzEnvelope

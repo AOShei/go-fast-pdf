@@ -32,6 +32,10 @@ jobs:
         run: testdata/fetch.sh
       - name: Fetch the files for the soak test
         run: testdata/fetch.sh soak
+      - name: Fetch the files encrypted for a certificate
+        run: testdata/fetch.sh pubsec
+      - name: Files encrypted for a certificate
+        run: go test -run '^TestPublicKey' -v .
       - name: Public corpus
         run: go test -run '^TestPublicCorpus$' -timeout 150m -v .
       - name: Soak

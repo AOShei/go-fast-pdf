@@ -108,11 +108,18 @@ default of 256 MiB a document has at most two million blocks, and holds at most 
 limit in memory (an image block was measured at 662 bytes). The largest real document met so far, 21
 pages that draw 271,808 images, takes an eighth of the default.
 
-## Password-protected files
+## Encrypted files
 
 A password is used to derive the file's key. It is not logged and is not put into any error, warning or
 result; an open `File` holds its options, the password among them, until it is closed.
 A file encrypted with a method this library does not have is `ErrUnsupported`.
+
+A file encrypted for a certificate is opened with a private key from `Options.Keys`, a `crypto.Decrypter`,
+so a key can stay in hardware or in another process: the library asks it to decrypt one small key per
+recipient and never sees the private key itself. The file's envelopes are read as DER with
+`encoding/asn1`; at most 1,024 envelopes of at most 1 MiB each are tried. A key is taken as the right one
+only when both layers of padding check and the content has the length of the file's seed; a key that
+does not fit gives `ErrKeyRequired`, never text decrypted with a wrong key.
 
 ## How this is tested
 

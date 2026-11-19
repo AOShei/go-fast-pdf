@@ -27,7 +27,8 @@ files made to exhaust it, and is several times faster. The tag follows that of g
 - **Reading a page at a time**: `Open`, `File.Parts`, `File.Page`. A file of any number of pages is read
   in bounded memory.
 - **Lines and words**: `Page.Lines`, with the font and size of each line and the box of each word.
-- **Encryption**: AES-256 (revisions 5 and 6) beside RC4 and AES-128; owner passwords; Unicode passwords.
+- **Encryption**: AES-256 (revisions 5 and 6) beside RC4 and AES-128; owner passwords; Unicode passwords;
+  files encrypted for a certificate, opened with a private key (`Options.Keys`).
 - **Damaged files**: cross-reference data that is broken or missing is rebuilt by scanning; a page that
   cannot be read is a part with `part.failed` and the rest is returned.
 - **Images** as blocks in reading order, with position and size; with `ImagesData`, JPEG and JPEG 2000 as

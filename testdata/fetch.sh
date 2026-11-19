@@ -6,10 +6,13 @@
 # is the one that was scored. Sources are pinned to a commit where the
 # source has commits, and to a hash where it is a single archive.
 #
-#   testdata/fetch.sh            fetch everything
+#   testdata/fetch.sh            fetch the corpus that is scored
 #   testdata/fetch.sh pdfjs      fetch one source (pdfjs, pdfium, govdocs)
+#   testdata/fetch.sh soak       fetch the files that only the soak test reads
 #
 # Cache: $GOFASTPDF_CACHE, or ~/.cache/gofastpdf-corpus.
+# An archive that is already in $GOFASTPDF_ARCHIVES is taken from there
+# and not downloaded; its hash is checked all the same.
 # Needs: git, curl, tar, unzip, sha256sum.
 #
 # Every program is run through "contained" (contain.sh): a time limit, a
@@ -54,8 +57,16 @@ replace_dir() {
 max_download_mb=1024
 max_unpacked_bytes=$((2 * 1024 * 1024 * 1024))
 
-# download <url> <file>
+# download <url> <file>: an archive that is at hand is copied.
 download() {
+	local have=${GOFASTPDF_ARCHIVES:-}/${1##*/}
+	if [ -n "${GOFASTPDF_ARCHIVES:-}" ] && [ -f "$have" ]; then
+		cp "$have" "$2"
+		return
+	fi
+	fetch "$@"
+}
+fetch() {
 	contained 1800 "$max_download_mb" curl -fsSL -A "$agent" --max-time 1700 \
 		--max-filesize $((max_download_mb * 1024 * 1024)) -o "$2" "$1"
 }
@@ -118,17 +129,46 @@ fetch_pdfium() {
 # Terms: public documents of United States government sites, published by
 # Digital Corpora for research. Used for testing only, not redistributed.
 govdocs_sha256=7fb4673ac1905a3ed16a9c5780a70c729c3abc575b06c155b7042b91fa5946aa
-fetch_govdocs() {
-	local dest=$cache/govdocs1-000
+fetch_govdocs() { govdocs_thread 000 "$govdocs_sha256" "$cache/govdocs1-000"; }
+
+# govdocs_thread <number> <sha256 of the archive> <directory>
+govdocs_thread() {
+	local dest=$3
 	[ -f "$dest/.done" ] && return
 	local work
 	work=$(workdir)
-	download "https://downloads.digitalcorpora.org/corpora/files/govdocs1/zipfiles/000.zip" "$work/000.zip"
-	echo "$govdocs_sha256  $work/000.zip" | sha256sum --check --quiet
-	check_size "$(unzip -Zt "$work/000.zip" | awk '{ print $3 }')" "the GovDocs archive"
+	download "https://downloads.digitalcorpora.org/corpora/files/govdocs1/zipfiles/$1.zip" "$work/$1.zip"
+	echo "$2  $work/$1.zip" | sha256sum --check --quiet
+	check_size "$(unzip -Zt "$work/$1.zip" | awk '{ print $3 }')" "the GovDocs archive $1"
 	replace_dir "$dest"
-	contained 600 512 unzip -q -j "$work/000.zip" '*.pdf' -d "$dest"
+	contained 600 512 unzip -q -j "$work/$1.zip" '*.pdf' -d "$dest"
+	# The archive is large and there may be more to come: remove it now
+	# and not when the script ends.
+	case $work in
+	"$cache"/.work.*) rm -rf -- "$work" ;;
+	esac
 	touch "$dest/.done"
+}
+
+# Further threads of GovDocs1, for the soak test alone (soak_test.go).
+# Their files are read, each under a time limit and a memory ceiling, and
+# are never scored: they are in directories named soak-*, which the
+# scored corpus leaves out. About 230 PDFs each.
+soak_threads="
+001 bb3d9c7a68c00b5da108a5614efd2922b53604a6824324f6ab392282d786e384
+002 ebfa5ad237ef8271b92ba043470003ea63464b80f481c1b87e8cc27dfc63de91
+003 d51fa1f5a9182639211609e16dd746d36dec9268068cdf277f0741914456bddb
+004 a9a217af7e8069ccb5f4f9df4ee97fb4479e4e880602bdfc91a8003065302a23
+005 14e83d59c359f4e9fce42a954d5f106993c38f1058070b9f69e7c4b9c5e74a66
+006 2f3807411eacfe710c2a13d380c71524266d8a1e98ade13862542cb1174ba342
+"
+fetch_soak() {
+	local n sum
+	while read -r n sum; do
+		if [ -n "$n" ]; then
+			govdocs_thread "$n" "$sum" "$cache/soak-govdocs1-$n"
+		fi
+	done <<<"$soak_threads"
 }
 
 sources=("$@")

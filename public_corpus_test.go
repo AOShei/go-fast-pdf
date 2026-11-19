@@ -447,7 +447,9 @@ func clipString(s string, n int) string {
 func buildPublicManifest(t *testing.T, cache string) []publicFile {
 	var paths []string
 	filepath.WalkDir(cache, func(path string, d fs.DirEntry, err error) error {
-		if err == nil && d.IsDir() && strings.HasPrefix(d.Name(), ".") {
+		// Not the reference texts, and not the files that are there for
+		// the soak test alone: those are read and never scored.
+		if err == nil && d.IsDir() && (strings.HasPrefix(d.Name(), ".") || strings.HasPrefix(d.Name(), soakOnly)) {
 			return filepath.SkipDir
 		}
 		if err == nil && !d.IsDir() && strings.EqualFold(filepath.Ext(path), ".pdf") {

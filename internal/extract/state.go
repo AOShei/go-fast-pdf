@@ -311,36 +311,57 @@ func (in *interp) extGState(raw []byte) {
 		return
 	}
 	g := &in.gs
-	if v, ok := in.f.Resolve(dict.Get("ca")).Float(); ok {
-		g.fillAlpha = float32(math.Min(math.Max(v, 0), 1)) * g.alphaScale
-	}
-	if v, ok := in.f.Resolve(dict.Get("CA")).Float(); ok {
-		g.strokeAlpha = float32(math.Min(math.Max(v, 0), 1)) * g.alphaScale
-	}
-	// A blend mode is a name, or a list of names of which the first that
-	// the reader knows is used.
-	if bm := in.f.Resolve(dict.Get("BM")); !bm.IsNull() {
-		if bm.Kind == syntax.Array && len(bm.List) > 0 {
-			bm = in.f.Resolve(bm.List[0])
+	// One pass over the entries, from the last to the first, so that of
+	// a key that is there twice the first counts. A page can use this
+	// operator before every piece of text.
+	var fillOver, strokeOver syntax.Value
+	for i := len(dict.List)&^1 - 2; i >= 0; i -= 2 {
+		k := &dict.List[i]
+		if k.Kind != syntax.Name || len(k.Data) < 2 || len(k.Data) > 5 {
+			continue
 		}
-		g.blendMode = !bm.IsName("Normal") && !bm.IsName("Compatible")
-	}
-	if sm := in.f.Resolve(dict.Get("SMask")); !sm.IsNull() {
-		g.softMask = !sm.IsName("None")
+		switch string(k.Data) {
+		case "ca":
+			if v, ok := in.f.Resolve(dict.List[i+1]).Float(); ok {
+				g.fillAlpha = float32(math.Min(math.Max(v, 0), 1)) * g.alphaScale
+			}
+		case "CA":
+			if v, ok := in.f.Resolve(dict.List[i+1]).Float(); ok {
+				g.strokeAlpha = float32(math.Min(math.Max(v, 0), 1)) * g.alphaScale
+			}
+		case "BM":
+			// A blend mode is a name, or a list of names of which the
+			// first that the reader knows is used.
+			if bm := in.f.Resolve(dict.List[i+1]); !bm.IsNull() {
+				if bm.Kind == syntax.Array && len(bm.List) > 0 {
+					bm = in.f.Resolve(bm.List[0])
+				}
+				g.blendMode = !bm.IsName("Normal") && !bm.IsName("Compatible")
+			}
+		case "SMask":
+			if sm := in.f.Resolve(dict.List[i+1]); !sm.IsNull() {
+				g.softMask = !sm.IsName("None")
+			}
+		case "op":
+			fillOver = in.f.Resolve(dict.List[i+1])
+		case "OP":
+			strokeOver = in.f.Resolve(dict.List[i+1])
+		case "Font":
+			if f := in.f.Resolve(dict.List[i+1]).Elems(); len(f) == 2 {
+				if loaded := font.Load(in.f, f[0]); loaded != nil {
+					g.font, g.fontSet = loaded, true
+				}
+				g.size = finite(in.f.Resolve(f[1]).Number())
+			}
+		}
 	}
 	g.blend = g.blendMode || g.softMask || g.outerBlend
 	// OP sets overprinting for strokes, and for fills too unless op is
 	// there to say otherwise.
-	if op := in.f.Resolve(dict.Get("op")); op.Kind == syntax.Bool {
-		g.overprint = op.N != 0
-	} else if op := in.f.Resolve(dict.Get("OP")); op.Kind == syntax.Bool {
-		g.overprint = op.N != 0
-	}
-	if f := in.f.Resolve(dict.Get("Font")).Elems(); len(f) == 2 {
-		if loaded := font.Load(in.f, f[0]); loaded != nil {
-			g.font, g.fontSet = loaded, true
-		}
-		g.size = finite(in.f.Resolve(f[1]).Number())
+	if fillOver.Kind == syntax.Bool {
+		g.overprint = fillOver.N != 0
+	} else if strokeOver.Kind == syntax.Bool {
+		g.overprint = strokeOver.N != 0
 	}
 }
 

@@ -157,6 +157,18 @@ const uprightSlack = 1e-3
 func (in *interp) outline() (box [4]float64, rect, known, hollow bool) {
 	p := &in.path
 	c := &in.gs.ctm
+	if !p.plain && !in.opts.Shapes {
+		return box, false, false, false
+	}
+	if p.plain && p.rect && c[1] == 0 && c[2] == 0 {
+		// By far the most paths that matter: a rectangle, in coordinates
+		// that are not turned.
+		x, y := rawNumber(p.raw[0]), rawNumber(p.raw[1])
+		w, h := rawNumber(p.raw[2]), rawNumber(p.raw[3])
+		x0, x1 := c[0]*x+c[4], c[0]*(x+w)+c[4]
+		y0, y1 := c[3]*y+c[5], c[3]*(y+h)+c[5]
+		return [4]float64{min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1)}, true, true, false
+	}
 	box = [4]float64{math.Inf(1), math.Inf(1), math.Inf(-1), math.Inf(-1)}
 	add := func(x, y float64) (float64, float64) {
 		x, y = c.apply(x, y)
@@ -179,9 +191,6 @@ func (in *interp) outline() (box [4]float64, rect, known, hollow bool) {
 		}
 	}
 	if !p.plain {
-		if !in.opts.Shapes {
-			return box, false, false, false
-		}
 		if p.more {
 			for _, q := range [4][2]float64{{p.box[0], p.box[1]}, {p.box[2], p.box[1]}, {p.box[2], p.box[3]}, {p.box[0], p.box[3]}} {
 				add(q[0], q[1])

@@ -25,7 +25,7 @@ A high-performance, dependency-free Go library for extracting text and image met
 - **Text extraction** - fonts with and without ToUnicode maps, composite fonts, the standard encodings, the Adobe Glyph List, ligatures as letters
 - **Encryption** - RC4, AES-128 and AES-256, with user and owner passwords
 - **Damaged files** - broken cross-reference data is rebuilt; a page that cannot be read is reported and the rest is returned
-- **Images** - position and size of every image; JPEG and JPEG 2000 data as it is in the file, 8-bit gray and RGB samples as PNG
+- **Images** - a block for every image, where it stands among the text, with its position and size; on request JPEG and JPEG 2000 data as it is in the file, and 8-bit gray and RGB samples as PNG. The command lists images unless told `--images none`
 - **Outline, page labels, document information, attached files** - attached files are handed to a child extractor that you supply
 - **Limits** - input size, decoded size, page count and nesting are bounded; the result is the same for any number of workers
 - **Page by page** - `Open` gives a file handle whose parts are read on demand and not kept; reading stops when the context ends, also inside a long page
@@ -38,7 +38,7 @@ A high-performance, dependency-free Go library for extracting text and image met
 - **Structure** - every text block is a paragraph. Headings, lists, tables and running headers are not recognised yet
 - **Scripts written from right to left** - the text is given in the order the page draws it, with a warning
 - **Fonts without any mapping** - glyphs of embedded CFF and TrueType programs that the PDF does not describe are read by their codes or reported as unmapped; the legacy CJK encodings are not built in
-- **Images** - CMYK, indexed, 1-bit, CCITT and JBIG2 images are listed without their data
+- **Images** - CMYK, indexed, 1-bit, CCITT and JBIG2 images are listed without their data. An image block has no text: the alternative text that a tagged PDF may give a figure (`/Alt`) is not read yet
 - **Hidden text** - a flag is evidence that text is hidden; no flag is not evidence that a document is safe. Shapes are followed as upright rectangles: text on a photograph, a shading or a shape with round corners is not judged for contrast, and only a rectangle or an image is taken to cover text. The package documentation lists what is not detected. With `DeepHidden`, 65,536 shapes are followed on a page (`Extractor.MaxShapes`); a page that paints more says so, and the number may be raised later
 
 ## Installation
@@ -63,8 +63,11 @@ gofastpdf --format markdown -o document.md document.pdf
 # Several files, or every PDF under a directory: one JSON document per line
 gofastpdf reports/ appendix.pdf > all.jsonl
 
-# Some pages, eight at a time, with the images listed
-gofastpdf --pages 10-20 --workers 8 --images meta document.pdf
+# Some pages, eight at a time, without blocks for the images
+gofastpdf --pages 10-20 --workers 8 --images none document.pdf
+
+# With the data of the images
+gofastpdf --images data document.pdf
 
 # An encrypted file
 gofastpdf --password secret document.pdf

@@ -277,11 +277,11 @@ func TestDeepHiddenTextLayer(t *testing.T) {
 			d := synthDoc{Objects: []string{grayImage}, Pages: []synthPage{{Content: v.content, Resources: "/XObject << /Im1 1 0 R >>"}}}
 			doc := mustExtract(t, d.bytes(), &gofastcore.Options{DeepHidden: true})
 			part := &doc.Parts[0]
-			if len(part.Blocks) == 0 {
+			if len(textBlocks(part)) == 0 {
 				t.Fatal("no text block")
 			}
 			for i := range part.Blocks {
-				if b := &part.Blocks[i]; b.Hidden != gofastcore.HiddenTextLayer {
+				if b := &part.Blocks[i]; b.Kind != gofastcore.KindImage && b.Hidden != gofastcore.HiddenTextLayer {
 					t.Errorf("reasons %q, want text_layer alone\n%s", b.Hidden, describe(part))
 				}
 			}
@@ -334,7 +334,7 @@ func TestClippedImages(t *testing.T) {
 	}
 	for box, want := range map[string]string{"[0 0 612 792]": "occluded: secret words", "[200 0 612 792]": "secret words"} {
 		part := &mustExtract(t, form(box).bytes(), nil).Parts[0]
-		if got := texts(part); len(got) != 2 || got[1] != want {
+		if got := textBlocks(part); len(got) != 2 || got[1] != want {
 			t.Errorf("an image in a form with the box %s: blocks %q, want the second to be %q", box, got, want)
 		}
 	}

@@ -1,6 +1,7 @@
 package layout
 
 import (
+	"cmp"
 	"slices"
 	"strings"
 
@@ -278,26 +279,39 @@ func (b *builder) insertByPosition(final, set []int32) []int32 {
 
 // placeImages puts a block for each image among the text blocks: before
 // the text that is set over it, or else where it lies on the page.
+// Images that belong at the same place among the text stand in the
+// order of the page, from the top and from the left.
+//
+// Every image is placed against the text blocks alone and the blocks
+// are then put together in one pass, so that a page of a hundred
+// thousand images costs what a hundred thousand images cost, and not
+// the square of it.
 func (b *builder) placeImages(res *Result) {
 	c := b.c
-	boxes := make([]box, len(res.Blocks), len(res.Blocks)+len(c.Images))
+	n, m := len(res.Blocks), len(c.Images)
+	boxes := make([]box, n)
 	for k := range res.Blocks {
 		r := res.Blocks[k].Loc.BBox
 		boxes[k] = box{r.X0, r.Y0, r.X1, r.Y1}
 	}
-	res.Images = make([]int32, len(res.Blocks), len(res.Blocks)+len(c.Images))
-	for k := range res.Images {
-		res.Images[k] = -1
+
+	// Where each image goes: before the text block at[i], or after all
+	// of them.
+	type placed struct {
+		at     int
+		cx, cy float64
+		bb     box
+		image  int32
 	}
-	byPosition := len(res.Blocks)*len(c.Images) <= maxPlacing
+	images := make([]placed, m)
+	byPosition := n*m <= maxPlacing
 	for i := range c.Images {
-		img := &c.Images[i]
-		_, bb := b.quadBox(img.Quad)
-		at := len(res.Blocks)
+		_, bb := b.quadBox(c.Images[i].Quad)
+		at := n
 		if byPosition {
 			at = -1
 			for k := range boxes {
-				if res.Images[k] < 0 && bb.contains((boxes[k].x0+boxes[k].x1)/2, (boxes[k].y0+boxes[k].y1)/2) {
+				if bb.contains((boxes[k].x0+boxes[k].x1)/2, (boxes[k].y0+boxes[k].y1)/2) {
 					at = k
 					break
 				}
@@ -306,29 +320,47 @@ func (b *builder) placeImages(res *Result) {
 				at = place(boxes, bb)
 			}
 		}
-		block := gofastcore.Block{
-			Kind:  gofastcore.KindImage,
-			Image: &gofastcore.Image{Width: int(img.Width), Height: int(img.Height)},
-			Loc:   gofastcore.Location{BBox: rect(bb.x0, bb.y0, bb.x1, bb.y1)},
+		images[i] = placed{at: at, cx: (bb.x0 + bb.x1) / 2, cy: (bb.y0 + bb.y1) / 2, bb: bb, image: int32(i)}
+	}
+	slices.SortStableFunc(images, func(x, y placed) int {
+		switch {
+		case x.at != y.at:
+			return cmp.Compare(x.at, y.at)
+		case x.cy != y.cy:
+			return cmp.Compare(x.cy, y.cy)
 		}
-		if img.ColorSpace != "" || img.Inline {
-			block.Attrs = map[string]string{}
-			if img.ColorSpace != "" {
-				block.Attrs["color_space"] = cleanName(strings.TrimPrefix(img.ColorSpace, "/"))
+		return cmp.Compare(x.cx, y.cx)
+	})
+
+	text := res.Blocks
+	res.Blocks = make([]gofastcore.Block, 0, n+m)
+	res.Images = make([]int32, 0, n+m)
+	next := 0
+	for k := 0; k <= n; k++ {
+		for ; next < m && images[next].at == k; next++ {
+			p := &images[next]
+			img := &c.Images[p.image]
+			block := gofastcore.Block{
+				Kind:  gofastcore.KindImage,
+				Image: &gofastcore.Image{Width: int(img.Width), Height: int(img.Height)},
+				Loc:   gofastcore.Location{BBox: rect(p.bb.x0, p.bb.y0, p.bb.x1, p.bb.y1)},
 			}
-			if img.Inline {
-				block.Attrs["inline"] = "true"
+			if img.ColorSpace != "" || img.Inline {
+				block.Attrs = map[string]string{}
+				if img.ColorSpace != "" {
+					block.Attrs["color_space"] = cleanName(strings.TrimPrefix(img.ColorSpace, "/"))
+				}
+				if img.Inline {
+					block.Attrs["inline"] = "true"
+				}
 			}
+			res.Blocks = append(res.Blocks, block)
+			res.Images = append(res.Images, p.image)
 		}
-		res.Blocks = append(res.Blocks, gofastcore.Block{})
-		copy(res.Blocks[at+1:], res.Blocks[at:])
-		res.Blocks[at] = block
-		res.Images = append(res.Images, 0)
-		copy(res.Images[at+1:], res.Images[at:])
-		res.Images[at] = int32(i)
-		boxes = append(boxes, box{})
-		copy(boxes[at+1:], boxes[at:])
-		boxes[at] = bb
+		if k < n {
+			res.Blocks = append(res.Blocks, text[k])
+			res.Images = append(res.Images, -1)
+		}
 	}
 }
 

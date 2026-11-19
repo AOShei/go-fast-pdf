@@ -87,7 +87,13 @@
 //     data: JPEG and JPEG 2000 as they are in the file, samples of 8
 //     bits in a gray or RGB colour space as PNG. An image in another
 //     encoding has no data, and its page gets
-//     image.unsupported_encoding.
+//     image.unsupported_encoding. With ImagesNone there are no image
+//     blocks. Which of the three options mean when they name none is
+//     for gofastcore to say. An image block has no text: the
+//     alternative text that a tagged PDF may give a figure is not read
+//     yet. A block for every image costs under one percent of the time
+//     on most documents, and up to as much again on a page that is
+//     nearly all images.
 //   - Password: tried as the user password and as the owner password.
 //     The empty user password is always tried.
 //   - Parts: a range of pages, for Extract, File.Parts and

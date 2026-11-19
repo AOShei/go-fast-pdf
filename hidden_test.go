@@ -224,7 +224,7 @@ func TestFlattenedTransparency(t *testing.T) {
 		"q " + strings.Replace(words, "%s", "7 Tr", 1) + patch + "Q\n"
 	d := synthDoc{Objects: []string{grayImage}, Pages: []synthPage{{Content: content, Resources: "/XObject << /Im1 1 0 R >>"}}}
 	part := &mustExtract(t, d.bytes(), nil).Parts[0]
-	if got := texts(part); len(got) != 2 || got[0] != visibleText || got[1] != "Modified for the Web" {
+	if got := textBlocks(part); len(got) != 2 || got[0] != visibleText || got[1] != "Modified for the Web" {
 		t.Errorf("blocks %q", got)
 	}
 	if part.Has(gofastcore.WarnTextHidden) {
@@ -237,7 +237,7 @@ func TestFlattenedTransparency(t *testing.T) {
 		"q " + strings.Replace(words, "%s", "7 Tr", 1) + patch + "Q\n"
 	d.Pages[0].Content = other
 	part = &mustExtract(t, d.bytes(), nil).Parts[0]
-	if got := texts(part); len(got) != 3 || got[1] != "occluded: Something else entirely" && got[2] != "occluded: Something else entirely" {
+	if got := textBlocks(part); len(got) != 3 || got[1] != "occluded: Something else entirely" && got[2] != "occluded: Something else entirely" {
 		t.Errorf("blocks %q", got)
 	}
 }
@@ -355,7 +355,7 @@ func TestTextLayer(t *testing.T) {
 				Resources: "/XObject << /Im1 1 0 R >>", Extra: "/CropBox [0 400 612 792]"}},
 		}
 		part := &mustExtract(t, d.bytes(), nil).Parts[0]
-		if got := texts(part); len(got) != 2 || got[0] != "text_layer: "+text || got[1] != "invisible+off_page: below the crop" {
+		if got := textBlocks(part); len(got) != 2 || got[0] != "text_layer: "+text || got[1] != "invisible+off_page: below the crop" {
 			t.Errorf("blocks %q", got)
 		}
 	})
@@ -368,7 +368,7 @@ func TestTextLayer(t *testing.T) {
 			Pages:   []synthPage{{Content: "q 612 0 0 380 0 412 cm /Im1 Do Q\n" + layer("3 Tr"), Resources: "/XObject << /Im1 1 0 R >>"}},
 		}
 		part := &mustExtract(t, d.bytes(), nil).Parts[0]
-		if got := texts(part); len(got) != 1 || got[0] != "invisible: "+text {
+		if got := textBlocks(part); len(got) != 1 || got[0] != "invisible: "+text {
 			t.Errorf("blocks %q", got)
 		}
 		if w, _ := warning(part.Warnings, gofastcore.WarnTextHidden); w.Severity != gofastcore.SeverityWarning {

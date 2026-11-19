@@ -77,6 +77,19 @@ func equivalenceDocs(t *testing.T) map[string][]byte {
 // TestThreeWaysToTheSameParts: Extract, the Parts iterator and
 // Page(n).Part() give the same parts, and a document put together from
 // what the latter two hand out keeps the contract.
+// alone is a part as its page gives it when it is read by itself: no
+// block is a header or a footer, and none continues the page before.
+func alone(p gofastcore.Part) gofastcore.Part {
+	p.Blocks = append(make([]gofastcore.Block, 0, len(p.Blocks)), p.Blocks...)
+	for i := range p.Blocks {
+		if b := &p.Blocks[i]; b.Kind.Furniture() {
+			b.Kind = gofastcore.KindParagraph
+		}
+		p.Blocks[i].Continued = false
+	}
+	return p
+}
+
 func TestThreeWaysToTheSameParts(t *testing.T) {
 	ctx := context.Background()
 	for name, data := range equivalenceDocs(t) {
@@ -120,10 +133,17 @@ func TestThreeWaysToTheSameParts(t *testing.T) {
 				}
 				single = append(single, part)
 			}
-			if !reflect.DeepEqual(single, doc.Parts) {
+			// A page read by itself is not compared with the pages around
+			// it: it has no running headers or footers, and nothing in it
+			// continues the page before. That is the one difference.
+			byItself := make([]gofastcore.Part, len(doc.Parts))
+			for i := range doc.Parts {
+				byItself[i] = alone(doc.Parts[i])
+			}
+			if !reflect.DeepEqual(single, byItself) {
 				for i := range single {
-					if !reflect.DeepEqual(single[i], doc.Parts[i]) {
-						t.Errorf("%s: page %d read by itself is not the part of Extract:\n%s\nand\n%s", where, single[i].Number, describe(&single[i]), describe(&doc.Parts[i]))
+					if !reflect.DeepEqual(single[i], byItself[i]) {
+						t.Errorf("%s: page %d read by itself is not the part of Extract:\n%s\nand\n%s", where, single[i].Number, describe(&single[i]), describe(&byItself[i]))
 						break
 					}
 				}

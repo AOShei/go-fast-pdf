@@ -62,8 +62,18 @@
 // Text blocks are paragraphs, in reading order. A PDF without tags
 // does not say where a paragraph ends or in which order a page is read,
 // so both are worked out from where the text is, and every text block
-// has OriginInferred. Headings, lists, tables and running headers are
-// not recognised yet: their text is in paragraph blocks.
+// has OriginInferred. Headings, lists and tables are not recognised yet:
+// their text is in paragraph blocks.
+//
+// Running headers and footers are blocks of kind header and footer: text
+// that the pages repeat at their top or bottom, a title, a date, a page
+// number, found by comparing each page with up to four pages on each
+// side of it. The renderers of the shared model leave them out unless
+// RenderOptions.Furniture asks for them. A paragraph that a page break
+// splits is marked Continued on the page where it goes on, and the
+// renderers run its two pieces into one. Both are decided as the pages
+// are put in order, by Extract, File.Parts and File.Document; a page read
+// by itself with File.Page is compared with nothing and has neither.
 //
 // What the annotations of a page display is part of the page: the
 // value shown in a form field, a note written on the page, a stamp.

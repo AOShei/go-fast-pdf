@@ -575,15 +575,13 @@ func (f *File) Parts(ctx context.Context) iter.Seq2[gofastcore.Part, error] {
 		defer st.end()
 		var limit error
 		last, stopped := 0, false
-		err := f.each(ctx, want{}, func(out *pageOut) bool {
-			if st.budget -= out.decoded; st.budget < 0 {
-				limit = fmt.Errorf("%w: the document decodes to more than the limit of %d bytes; what follows page %d is not read",
-					gofastcore.ErrLimitExceeded, st.decodeLimit, last)
-				return false
-			}
-			st.finish(out)
+		// Each page is compared with the pages around it before it is
+		// handed on (furniture.go).
+		var win furnitureWindow
+		emit := func(out *pageOut) bool {
+			// What the handle says of the file follows the parts it has
+			// handed out, not the pages that wait to be compared.
 			f.note(out)
-			last = out.part.Number
 			whole := st.charge(&out.part)
 			if !yield(out.part, nil) {
 				stopped = true
@@ -591,10 +589,23 @@ func (f *File) Parts(ctx context.Context) iter.Seq2[gofastcore.Part, error] {
 			}
 			if !whole {
 				limit = fmt.Errorf("%w: the text and the blocks of the document are more than the limit on text of %d bytes; page %d is cut and what follows it is not read",
-					gofastcore.ErrLimitExceeded, st.textLimit, last)
+					gofastcore.ErrLimitExceeded, st.textLimit, out.part.Number)
 			}
 			return whole
+		}
+		err := f.each(ctx, want{}, func(out *pageOut) bool {
+			if st.budget -= out.decoded; st.budget < 0 {
+				limit = fmt.Errorf("%w: the document decodes to more than the limit of %d bytes; what follows page %d is not read",
+					gofastcore.ErrLimitExceeded, st.decodeLimit, last)
+				return false
+			}
+			st.finish(out)
+			last = out.part.Number
+			return win.push(out, emit)
 		})
+		if err == nil && !stopped {
+			win.flush(emit)
+		}
 		if !stopped && err == nil && limit == nil {
 			// What the file holds and shows on no page comes last.
 			if part, ok, whole := st.stored(); ok {
@@ -651,7 +662,8 @@ func (p *Page) Number() int { return p.p.Number }
 // the first block that shows it on this page, also when an earlier page
 // shows it too, where Document and Parts give the data once for the
 // document. The limits on decoded bytes and on text apply to the page
-// by itself.
+// by itself. And it is compared with no other page: it has no running
+// headers or footers, and no paragraph of it continues the page before.
 func (p *Page) Part() (gofastcore.Part, error) {
 	out, err := p.read(want{})
 	return out.part, err
@@ -693,6 +705,17 @@ func (f *File) Document(ctx context.Context) (*gofastcore.Document, error) {
 	var attachments []attachment
 	active, external, incomplete, spent := false, false, false, false
 	last, cut := 0, 0
+	// Each page is compared with the pages around it before it is put
+	// in the document (furniture.go).
+	var win furnitureWindow
+	emit := func(out *pageOut) bool {
+		whole := st.charge(&out.part)
+		if !whole {
+			cut = out.part.Number
+		}
+		doc.Parts = append(doc.Parts, out.part)
+		return whole
+	}
 	err := f.each(ctx, want{}, func(out *pageOut) bool {
 		if st.budget -= out.decoded; st.budget < 0 {
 			spent = true
@@ -703,16 +726,12 @@ func (f *File) Document(ctx context.Context) (*gofastcore.Document, error) {
 		last = out.part.Number
 		active, external, incomplete = active || out.active, external || out.external, incomplete || out.deepIncomplete
 		attachments = append(attachments, out.attachments...)
-		whole := st.charge(&out.part)
-		if !whole {
-			cut = last
-		}
-		doc.Parts = append(doc.Parts, out.part)
-		return whole
+		return win.push(out, emit)
 	})
 	if err != nil {
 		return nil, err
 	}
+	win.flush(emit)
 
 	d := f.describe()
 	if !spent && cut == 0 {

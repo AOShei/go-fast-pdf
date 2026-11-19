@@ -3,6 +3,7 @@
 package gofastpdf_test
 
 import (
+	"runtime"
 	"syscall"
 	"time"
 )
@@ -16,4 +17,17 @@ func cpuTime() time.Duration {
 		return 0
 	}
 	return time.Duration(ru.Utime.Nano() + ru.Stime.Nano())
+}
+
+// peakResident returns the most memory this process has had resident,
+// in bytes.
+func peakResident() int64 {
+	var ru syscall.Rusage
+	if syscall.Getrusage(syscall.RUSAGE_SELF, &ru) != nil {
+		return 0
+	}
+	if runtime.GOOS == "darwin" || runtime.GOOS == "ios" {
+		return int64(ru.Maxrss) // bytes there, kilobytes elsewhere
+	}
+	return int64(ru.Maxrss) << 10
 }

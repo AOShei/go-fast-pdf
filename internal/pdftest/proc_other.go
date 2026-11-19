@@ -3,9 +3,13 @@
 package pdftest
 
 import (
+	"os"
 	"os/exec"
 	"time"
 )
+
+// peakResident is not measured on this system.
+func peakResident(*os.ProcessState) int64 { return 0 }
 
 // contain is the containment of programs started by the harness. Process
 // groups and resource limits as used on Unix have no direct equivalent

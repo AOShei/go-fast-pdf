@@ -167,7 +167,25 @@ type resources struct {
 	fonts, xobjs, gstates, spaces, props     syntax.Value
 	hasFonts, hasXObjs, hasGS, hasCS, hasPrs bool
 	fontCache                                map[string]*font.Font
+	// index is where each name of a large dictionary is, by the kind of
+	// resource. It is made the first time such a dictionary is searched.
+	index [resKinds]map[string]int
 }
+
+// The kinds of resource that are looked up by name.
+const (
+	resFont = iota
+	resXObject
+	resGState
+	resSpace
+	resProps
+	resKinds
+)
+
+// indexedFrom is the number of entries from which a dictionary of
+// resources is indexed. A shorter one is searched from its start, which
+// is faster than making the index.
+const indexedFrom = 24
 
 func (r *resources) reset(dict syntax.Value) {
 	*r = resources{dict: dict, fontCache: r.fontCache}
@@ -866,6 +884,31 @@ func (in *interp) propertyDict() syntax.Value {
 	return r.props
 }
 
+// named finds a resource by its name in the dictionary of its kind. The
+// first of two entries with one name counts. A page can use ten
+// thousand names, each from a dictionary that lists as many, so a large
+// dictionary is not searched from its start for every one.
+func (in *interp) named(kind int, dict syntax.Value, name []byte) syntax.Value {
+	if len(dict.List) < 2*indexedFrom || !dict.IsDict() {
+		return dict.Get(string(name))
+	}
+	r := &in.rs[in.level]
+	index := r.index[kind]
+	if index == nil {
+		index = make(map[string]int, len(dict.List)/2)
+		for i := len(dict.List)&^1 - 2; i >= 0; i -= 2 {
+			if k := &dict.List[i]; k.Kind == syntax.Name {
+				index[string(k.Data)] = i + 1
+			}
+		}
+		r.index[kind] = index
+	}
+	if i, ok := index[string(name)]; ok {
+		return dict.List[i]
+	}
+	return syntax.Value{}
+}
+
 func (in *interp) lookupFont(raw []byte) *font.Font {
 	name := in.decodeName(raw)
 	cache := in.rs[in.level].fontCache
@@ -873,7 +916,7 @@ func (in *interp) lookupFont(raw []byte) *font.Font {
 		return f
 	}
 	var f *font.Font
-	if ref := in.fontDict().Get(string(name)); !ref.IsNull() {
+	if ref := in.named(resFont, in.fontDict(), name); !ref.IsNull() {
 		f = font.Load(in.f, ref)
 	}
 	cache[string(name)] = f
@@ -899,7 +942,7 @@ func (in *interp) beginMarked(tag []byte, props content.Operand) {
 			dict, _ = parser.Object()
 		}
 	case content.Name:
-		ref := in.propertyDict().Get(string(in.decodeName(props.Raw)))
+		ref := in.named(resProps, in.propertyDict(), in.decodeName(props.Raw))
 		if string(tag) == "OC" {
 			m.off = in.contentOff(ref)
 		} else {
@@ -1045,7 +1088,7 @@ func (in *interp) inlineImage(args []content.Operand) {
 // decoded for an image: its size is in its dictionary.
 func (in *interp) drawXObject(rawName []byte) {
 	name := in.decodeName(rawName)
-	xobj := in.f.Resolve(in.xobjectDict().Get(string(name)))
+	xobj := in.f.Resolve(in.named(resXObject, in.xobjectDict(), name))
 	if !xobj.IsDict() {
 		return
 	}

@@ -1,45 +1,44 @@
-# GoFast PDF 🛸 Loader
+# GoFast PDF 🛸
 
 [![Go Version](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go)](https://golang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A high-performance, dependency-free Go library for extracting text and image metadata from PDF files. Built from scratch without external PDF libraries, optimized for RAG (Retrieval-Augmented Generation) and LLM document processing pipelines.
+A Go library that extracts the text and structure of PDF files, fast, for retrieval, knowledge graphs
+and language models. It is written from scratch on the standard library: its one dependency is
+[go-fast-core](https://github.com/AOShei/go-fast-core), the document model that the go-fast libraries
+share.
 
-**Now featuring concurrent processing and smart caching for 10x-500x performance gains over standard Python libraries.**
+- It returns **paragraphs in reading order**, each with its place on the page, as JSON, Markdown or text.
+- It **flags text that a reader of the PDF cannot see** and says why, and leaves nothing out.
+- It reads files that are **encrypted or damaged**, and is bounded in time and memory on files made to
+  exhaust them.
+- It starts no program, fetches nothing, runs nothing that a file contains, and does no OCR.
 
-> **Status.** The `main` branch is being rebuilt towards v0.2.0 and no longer has the
-> API of v0.1.1 (`pkg/loader`). It returns the document model shared by the go-fast
-> libraries ([go-fast-core](https://github.com/AOShei/go-fast-core)). The benchmark
-> figures further down were measured on v0.1.1 and will be measured again before the
-> release.
+> **Status.** This is the tree of v0.2.0. The release is tagged once go-fast-core has its v0.1.0 tag;
+> until then `go get github.com/AOShei/go-fast-pdf@main`. The API is not that of v0.1:
+> [MIGRATION.md](MIGRATION.md) says what became what.
 
-## Features
+## Speed
 
-### ✅ Implemented
+<!-- comparison:begin (written by go run ./bench/compare -readme README.md) -->
+| | Pages per second | Time against go-fast-pdf | Most memory |
+|---|---:|---:|---:|
+| go-fast-pdf | 12,342 | 1 | 28 MB |
+| go-fast-pdf, all processors | 20,903 | 0.59 times | 36 MB |
+| gofastpdf (the command) | 9,383 | 1.32 times | 17 MB |
+| pdftotext (poppler) | 1,969 | 6.27 times | 18 MB |
+| PyMuPDF | 2,230 | 5.53 times | 61 MB |
+| pypdfium2 (PDFium) | 2,212 | 5.58 times | 30 MB |
+| pypdf | 347 | 35.6 times | 71 MB |
+| pdfplumber | 56 | 218 times | 52 MB |
 
-- **Standard library only** - the single dependency is `go-fast-core`, the shared document model
-- **One model for every format** - `gofastpdf.Extract` returns a `*gofastcore.Document`: one part per page, blocks in reading order, JSON, Markdown and plain text
-- **Paragraphs and reading order** - lines are joined into paragraphs; columns, tables drawn by rows, and pages drawn out of order are put in reading order
-- **Hidden text is flagged, never dropped** - invisible, tiny, off-page, transparent, white-on-white and covered text is extracted with the reason it cannot be seen; the text layer of a scan is told apart from the rest
-- **Deeper checks on request** - with `DeepHidden`, text is also checked against the shapes a page paints: text in the colour of the box it stands on, text under a box drawn over it, text cut off by a clipping path
-- **Text extraction** - fonts with and without ToUnicode maps, composite fonts, the standard encodings, the Adobe Glyph List, ligatures as letters
-- **Encryption** - RC4, AES-128 and AES-256, with user and owner passwords
-- **Damaged files** - broken cross-reference data is rebuilt; a page that cannot be read is reported and the rest is returned
-- **Images** - a block for every image, where it stands among the text, with its position and size; on request JPEG and JPEG 2000 data as it is in the file, and 8-bit gray and RGB samples as PNG. The command lists images unless told `--images none`
-- **Outline, page labels, document information, attached files** - attached files are handed to a child extractor that you supply
-- **Limits** - input size, decoded size, page count and nesting are bounded; the result is the same for any number of workers
-- **Page by page** - `Open` gives a file handle whose parts are read on demand and not kept; reading stops when the context ends, also inside a long page
-- **Lines and words** - `Page.Lines` gives every line with its font and size and the box of each word
-- **A command** - `gofastpdf` writes JSON, Markdown or text for files and directories
-- **No OCR, no network, no code from the file is run**
+8 documents, 530 pages, 9.7 MB: the long documents of the public corpus's tuning set and one small one.
+Each program reads each document 5 times and its best time counts. Measured on AMD Ryzen 9 9900X 12-Core Processor (24 threads, linux/amd64) with go1.27.3-X:nodwarf5, 2026-11-19.
+The method, the versions and the time for each document are in [bench/comparison.md](bench/comparison.md).
+<!-- comparison:end -->
 
-### ⚠️ Limitations
-
-- **Structure** - every text block is a paragraph. Headings, lists, tables and running headers are not recognised yet
-- **Scripts written from right to left** - the text is given in the order the page draws it, with a warning
-- **Fonts without any mapping** - glyphs of embedded CFF and TrueType programs that the PDF does not describe are read by their codes or reported as unmapped; the legacy CJK encodings are not built in
-- **Images** - CMYK, indexed, 1-bit, CCITT and JBIG2 images are listed without their data. An image block has no text: the alternative text that a tagged PDF may give a figure (`/Alt`) is not read yet
-- **Hidden text** - a flag is evidence that text is hidden; no flag is not evidence that a document is safe. Shapes are followed as upright rectangles: text on a photograph, a shading or a shape with round corners is not judged for contrast, and only a rectangle or an image is taken to cover text. The package documentation lists what is not detected. With `DeepHidden`, 65,536 shapes are followed on a page (`Extractor.MaxShapes`); a page that paints more says so, and the number may be raised later
+Reading the 1,650 files of the public test corpus, damaged ones included, takes 1.2 seconds on one
+thread. `go run ./bench/compare` makes the table again on your machine.
 
 ## Installation
 
@@ -47,9 +46,11 @@ A high-performance, dependency-free Go library for extracting text and image met
 go get github.com/AOShei/go-fast-pdf
 ```
 
+Go 1.25 or later.
+
 ## Usage
 
-### Command Line
+### Command line
 
 ```bash
 go install github.com/AOShei/go-fast-pdf/cmd/gofastpdf@latest
@@ -84,7 +85,7 @@ JSON always has everything, hidden text included and flagged. Warnings of a file
 was read are named on standard error (`--quiet` leaves that out); a file that cannot be
 read is reported there and makes the exit status 1.
 
-### Library API
+### Library
 
 ```go
 package main
@@ -100,18 +101,8 @@ import (
 )
 
 func main() {
-    f, err := os.Open("document.pdf")
-    if err != nil {
-        log.Fatal(err)
-    }
-    defer f.Close()
-    info, err := f.Stat()
-    if err != nil {
-        log.Fatal(err)
-    }
-
-    // nil options: text and structure of every page, one worker per CPU.
-    doc, err := gofastpdf.Extract(context.Background(), f, info.Size(), nil)
+    // nil options: text and structure of every page, one worker per processor.
+    doc, err := gofastpdf.ExtractFile(context.Background(), "document.pdf", nil)
     if err != nil {
         log.Fatal(err)
     }
@@ -133,9 +124,6 @@ func main() {
     doc.WriteText(os.Stdout, &gofastcore.RenderOptions{
         ExcludeHidden: gofastcore.HiddenAny &^ gofastcore.HiddenTextLayer,
     })
-    // doc.HiddenChecked says which reasons were checked in full. Extract
-    // with &gofastcore.Options{DeepHidden: true} to have low contrast,
-    // covering shapes and clipping paths checked in full as well.
 
     // What went wrong, per page and for the file.
     for part, w := range doc.AllWarnings() {
@@ -148,7 +136,7 @@ func main() {
 }
 ```
 
-`gofastpdf.ExtractFile(ctx, "document.pdf", opts)` does the same for a path.
+`gofastpdf.Extract(ctx, readerAt, size, opts)` does the same for anything that can be read at an offset.
 
 #### Page by page
 
@@ -189,9 +177,25 @@ for _, line := range lines {
 Options are `gofastcore.Options`: `Workers`, `Images` (none, description, data), `Password`,
 `Parts` (a range of pages), `Limits`, `DeepHidden` and `Child` (an extractor for attached files).
 Settings that only PDF has are fields of `gofastpdf.Extractor`. The
-package documentation says what each does for PDF.
+[package documentation](https://pkg.go.dev/github.com/AOShei/go-fast-pdf) says what each does for PDF.
 
-## Output Format
+## What it reads
+
+- **Text** - fonts with and without ToUnicode maps, composite fonts, the standard encodings, the Adobe
+  Glyph List; ligatures are written as their letters
+- **Paragraphs and reading order** - lines are joined into paragraphs; columns, tables drawn by rows, and
+  pages drawn out of order are put in reading order
+- **Hidden text** - flagged with its reason, never dropped: see below
+- **Encryption** - RC4, AES-128 and AES-256, with user and owner passwords
+- **Damaged files** - broken cross-reference data is rebuilt; a page that cannot be read is reported in
+  its place and the rest is returned
+- **Images** - a block for every image, where it stands among the text, with its position and size; on
+  request JPEG and JPEG 2000 data as it is in the file, and 8-bit gray and RGB samples as PNG
+- **Outline, page labels, document information, attached files** - attached files are handed to a child
+  extractor that you supply
+- **Lines and words** - `Page.Lines` gives every line with its font and size and the box of each word
+
+## Output
 
 ```json
 {
@@ -228,7 +232,88 @@ package documentation says what each does for PDF.
 Coordinates are in points on the page as it is displayed (crop box, rotation and user
 unit applied), with the origin at the top left.
 
-## Architecture & Performance
+## Hidden text
+
+A PDF can hold text that nobody who opens it sees: white on white, behind a picture, outside the page,
+in a rendering mode that paints nothing. A person does not read it and a model that is given the
+extracted text does. This library extracts such text like any other and flags it, with the reason, in
+`Block.Hidden`; the page gets the warning `text.hidden`. Nothing is left out. You decide what to do with
+it, for instance with `RenderOptions.ExcludeHidden`. Hidden text is laid out apart from the rest, so the
+visible paragraphs are what they would be without it.
+
+| Reason | What it means | Checked by default | With `DeepHidden` |
+|---|---|---|---|
+| `invisible` | Rendering mode that paints nothing; content of a layer that is switched off | in full | in full |
+| `text_layer` | The text of a scan: not painted, or covered, within an image over half the page | in full | in full |
+| `tiny` | Displayed smaller than 2 points | in full | in full |
+| `off_page` | Wholly outside the visible page | in full | in full |
+| `transparent` | Every painted part has opacity 0 | in full | in full |
+| `invisible_chars` | Characters without width or display, found by go-fast-core in any text | in full | in full |
+| `low_contrast` | Cannot be told from what is behind it | against a white page, where nothing was painted before the text | against the rectangle it stands on |
+| `occluded` | Something opaque is painted over it | under an image | under an image or a rectangle |
+| `clipped` | Outside what a clipping path leaves | outside the box of the form it is drawn in | outside the clipping paths in force |
+
+**How to read the result.** `Document.HiddenChecked` lists the reasons that were checked in full. For a
+reason on the list, a block without the flag was checked and found in view, as far as the check goes.
+For a reason not on the list (the last three, without `DeepHidden`) a flag stands where the check found
+one, and no flag says nothing. With `DeepHidden` all nine are listed, unless a page paints more shapes
+than are followed (65,536, `Extractor.MaxShapes`): that page gets `pdf.deep_hidden_incomplete` and
+`low_contrast` and `occluded` are left off the list.
+
+**What it costs.** Measured in instructions executed, on the benchmark documents and over the 3,150
+files of the corpus and the soak set that can be read:
+
+| | Benchmark documents | All 3,150 files |
+|---|---|---|
+| The default checks, against none | 0.1 to 0.8 percent | 1.1 percent |
+| `DeepHidden`, against the default | 3 to 9 percent | 20 percent |
+
+Without `DeepHidden` no shape is recorded and no path is followed further than its first operands.
+
+**What is not detected.** A flag is evidence that text is hidden. No flag is not evidence that a
+document is safe. Not detected at all: a font whose glyphs draw nothing, or something other than what
+its mapping says; text inside images; text hidden by a soft mask, a blend mode or a pattern; text that
+is partly visible; text covered by other text, by a shape that is not an upright rectangle, or by the
+appearance of an annotation. Text on a photograph, a shading or a shape with round corners is not judged
+for contrast. The document information, the outline and the names of attached files are never shown on
+a page and are extracted by design: treat them as you treat any text from the file.
+
+## Untrusted files
+
+The library is made to be given files from anywhere. Every size that a file decides is bounded: the
+input (1 GiB by default), what its streams decode to (1 GiB together, 64 MiB each), pages, objects,
+nesting, the text and the shapes of one page. A limit that cuts a document is reported as a warning or
+an error, never passed over. Reading stops when the context ends, also inside a long page. One opened
+file can be read from many goroutines, and the result is the same for any number of workers.
+[SECURITY.md](SECURITY.md) has the threat model, every default, and how to report a problem.
+
+## How it is tested
+
+- **A public corpus** of 1,650 PDFs (the test suites of pdf.js and PDFium, and documents of GovDocs1),
+  scored against `pdftotext` word by word. A third of it is held out: scored, and never looked at when
+  a heuristic is changed. A change may not lower the score of any file.
+- **A soak run** over 3,186 files and 50,569 pages, each file in a process of its own under a time limit
+  and a memory ceiling, with the default options and with `DeepHidden`: no crash, no file over its
+  limits, every result within the contract of the shared model.
+- **Fuzzing** of 14 targets, 30 seconds each on every change and an hour each every night. The
+  decompressor is compared with `compress/zlib` on every input.
+- **Budgets**: the allocations per page of the benchmark documents, and the instructions a benchmark
+  executes against the last release.
+- **Every change** runs on linux/amd64, linux/arm64, darwin/arm64 and windows/amd64 under the race
+  detector, and as a 32-bit build. The tests run over 90 percent of the statements.
+
+## Limitations
+
+- **Structure** - every text block is a paragraph. Headings, lists, tables and running headers are not
+  recognised yet
+- **Scripts written from right to left** - the text is given in the order the page draws it, with a warning
+- **Fonts without any mapping** - glyphs of embedded CFF and TrueType programs that the PDF does not
+  describe are read by their codes or reported as unmapped; the legacy CJK encodings are not built in
+- **Images** - CMYK, indexed, 1-bit, CCITT and JBIG2 images are listed without their data. An image block
+  has no text: the alternative text that a tagged PDF may give a figure (`/Alt`) is not read yet
+- **No OCR** - a scan without a text layer gives its images and the warning `part.image_only`
+
+## How it works
 
 ```
 PDF file → objects and cross-references → content interpreter → layout → document
@@ -236,37 +321,27 @@ PDF file → objects and cross-references → content interpreter → layout →
 ```
 
 1. **Nothing is decoded that is not needed:** image and font streams are not touched during text extraction.
-2. **Fonts are parsed once** per document and shared by all pages.
-3. **Pages are independent:** each worker fills one part, and the parts are put together in page order.
-4. **Drawing operators are skipped without converting their operands**, which keeps pages full of vector graphics cheap.
-5. **The layout keeps the order in which a page draws its text wherever the geometry does not speak against it**, and uses it to choose between readings the geometry leaves open (a table drawn by rows against two columns).
-
-## Benchmarks
-
-Measured on v0.1.1; to be measured again for v0.2.0.
-
-Compared against `pypdf` on an 8-core workstation:
-
-| Document Type | Pages | Content | Go (Seq) | Go (Conc) | Python | Speedup |
-| --- | --- | --- | --- | --- | --- | --- |
-| Standard Doc | 41 | Mixed | 0.03s | 0.03s | 0.32s | **~10x** |
-| Scientific | 17 | Graphs | 0.02s | 0.01s | 12.7s | **~600x** |
-| Large Manual | 157 | Images/Enc | 0.40s | 0.27s | 3.22s | **~12x** |
+2. **Streams are decompressed by a decoder made for a slice in memory** (`internal/inflate`), about twice as fast as the standard library's, which has to serve a reader.
+3. **Fonts are parsed once** per document and shared by all pages.
+4. **Pages are independent:** each worker fills one part, and the parts are put together in page order.
+5. **Drawing operators are skipped without converting their operands**, which keeps pages full of vector graphics cheap.
+6. **The layout keeps the order in which a page draws its text wherever the geometry does not speak against it**, and uses it to choose between readings the geometry leaves open (a table drawn by rows against two columns).
 
 ## Roadmap
 
 * [x] The shared document model (`go-fast-core`)
 * [x] Paragraphs and reading order
-* [x] Hidden-text detection, default checks
+* [x] Hidden-text detection, and the deeper checks that follow drawn shapes
 * [x] AES-256 encryption
 * [x] Image data (JPEG, JPEG 2000, 8-bit gray and RGB)
-* [ ] Hidden-text checks that need drawn shapes
-* [ ] Page iterator and the full command-line tool
+* [x] Page iterator, lines and words, the command-line tool
 * [ ] Headings, lists, tables, running headers and footers
+* [ ] Tagged PDF: structure, alternative text
 * [ ] Text from right to left in reading order
 
 ## License
 
 MIT License - see [LICENSE](LICENSE). Notices for the tables generated from published data are in [NOTICE](NOTICE).
+Changes are listed in [CHANGELOG.md](CHANGELOG.md).
 
 Copyright (c) 2025 Andrew O'Shei

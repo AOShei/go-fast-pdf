@@ -113,8 +113,16 @@ func TestOutline(t *testing.T) {
 		}
 		walk(parsed.Outlines, 1)
 		var ours []string
-		for _, o := range mustExtract(t, data, nil).Outline {
-			ours = append(ours, fmt.Sprintf("%d %s -> %d", o.Level, o.Title, o.Part))
+		for i, o := range mustExtract(t, data, nil).Outline {
+			line := fmt.Sprintf("%d %s -> %d", o.Level, o.Title, o.Part)
+			// Page 0 is qpdf's word for a destination it did not find.
+			// Version 11 does not find one that the old dictionary of
+			// destinations gives as a dictionary with /D; later ones do.
+			// Where qpdf does not know, there is nothing to compare.
+			if unknown := fmt.Sprintf("%d %s -> 0", o.Level, o.Title); i < len(theirs) && theirs[i] == unknown {
+				line = unknown
+			}
+			ours = append(ours, line)
 		}
 		if !reflect.DeepEqual(ours, theirs) {
 			t.Errorf("ours   %q\nqpdf's %q", ours, theirs)

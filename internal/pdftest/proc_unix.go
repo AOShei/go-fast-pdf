@@ -4,10 +4,28 @@ package pdftest
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
+	"runtime"
 	"syscall"
 	"time"
 )
+
+// peakResident returns the most memory a program that has ended had
+// resident, in bytes.
+func peakResident(state *os.ProcessState) int64 {
+	if state == nil {
+		return 0
+	}
+	ru, ok := state.SysUsage().(*syscall.Rusage)
+	if !ok {
+		return 0
+	}
+	if runtime.GOOS == "darwin" || runtime.GOOS == "ios" {
+		return int64(ru.Maxrss) // bytes there, kilobytes elsewhere
+	}
+	return int64(ru.Maxrss) << 10
+}
 
 // contain makes sure a program started by the harness cannot outlive its
 // time limit, be left running when the harness dies, or fill the disk,

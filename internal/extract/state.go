@@ -243,7 +243,7 @@ func (in *interp) setComponents(p *paint, args []content.Operand) {
 // setSpace handles cs and CS. The colour becomes the space's initial
 // one, which is black in the spaces this library converts.
 func (in *interp) setSpace(p *paint, raw []byte) {
-	p.space = in.space(string(in.decodeName(raw)))
+	p.space = in.space(in.decodeName(raw))
 	p.color = black
 	if p.space >= csUnknown {
 		p.color = Color{}
@@ -252,8 +252,8 @@ func (in *interp) setSpace(p *paint, raw []byte) {
 
 // space returns the kind of a colour space given by name: a device
 // space, or an entry of the /ColorSpace resources.
-func (in *interp) space(name string) colorSpace {
-	switch name {
+func (in *interp) space(name []byte) colorSpace {
+	switch string(name) {
 	case "DeviceGray", "G", "CalGray":
 		return csGray
 	case "DeviceRGB", "RGB", "CalRGB":
@@ -263,7 +263,7 @@ func (in *interp) space(name string) colorSpace {
 	case "Pattern":
 		return csPattern
 	}
-	def := in.f.Resolve(in.spaceDict().Get(name))
+	def := in.f.Resolve(in.named(resSpace, in.spaceDict(), name))
 	switch def.Kind {
 	case syntax.Name:
 		switch def.NameString() {
@@ -306,7 +306,7 @@ func (in *interp) space(name string) colorSpace {
 // extGState handles gs: the entries of a graphics state parameter
 // dictionary that text, and what is seen of it, depend on.
 func (in *interp) extGState(raw []byte) {
-	dict := in.f.Resolve(in.gstateDict().Get(string(in.decodeName(raw))))
+	dict := in.f.Resolve(in.named(resGState, in.gstateDict(), in.decodeName(raw)))
 	if !dict.IsDict() {
 		return
 	}

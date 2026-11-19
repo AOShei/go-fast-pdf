@@ -2,13 +2,13 @@ package file
 
 import (
 	"bytes"
-	"compress/zlib"
 	"errors"
 	"fmt"
 	"io"
 	"sync"
 
 	gofastcore "github.com/AOShei/go-fast-core"
+	zlib "github.com/AOShei/go-fast-pdf/internal/inflate"
 	"github.com/AOShei/go-fast-pdf/internal/syntax"
 )
 
@@ -223,66 +223,18 @@ func filterName(v syntax.Value) string {
 	}
 }
 
-var zlibReaders sync.Pool
-
 // inflate appends the zlib-decompressed form of src to dst. It stops at
 // limit bytes of output with ErrTruncated. On a damaged stream it returns
 // what was decompressed before the damage, with the error.
 func inflate(dst, src []byte, limit int64) ([]byte, error) {
-	br := bytes.NewReader(src)
-	var zr io.ReadCloser
-	if pooled := zlibReaders.Get(); pooled != nil {
-		zr = pooled.(io.ReadCloser)
-		if err := zr.(zlib.Resetter).Reset(br, nil); err != nil {
-			zlibReaders.Put(zr)
-			return dst, fmt.Errorf("%w: %v", gofastcore.ErrMalformed, err)
-		}
-	} else {
-		var err error
-		if zr, err = zlib.NewReader(br); err != nil {
-			return dst, fmt.Errorf("%w: %v", gofastcore.ErrMalformed, err)
-		}
+	out, err := zlib.Zlib(dst, src, limit)
+	switch {
+	case err == nil:
+		return out, nil
+	case err == zlib.ErrLimit:
+		return out, ErrTruncated
 	}
-	defer zlibReaders.Put(zr)
-
-	base := len(dst)
-	if cap(dst)-len(dst) < 512 {
-		// A first guess at the size: text compresses to about a third.
-		guess := min(int64(len(src))*3+512, limit)
-		grown := make([]byte, len(dst), int64(len(dst))+guess)
-		copy(grown, dst)
-		dst = grown
-	}
-	for {
-		used := int64(len(dst) - base)
-		if used >= limit {
-			// At the limit. One more byte of output means the stream is
-			// longer than allowed.
-			var one [1]byte
-			if n, _ := zr.Read(one[:]); n > 0 {
-				return dst, ErrTruncated
-			}
-			return dst, nil
-		}
-		if len(dst) == cap(dst) {
-			grow := max(min(int64(cap(dst)), limit-used), 512)
-			grown := make([]byte, len(dst), int64(cap(dst))+grow)
-			copy(grown, dst)
-			dst = grown
-		}
-		end := cap(dst)
-		if int64(end-base) > limit {
-			end = base + int(limit)
-		}
-		n, err := zr.Read(dst[len(dst):end])
-		dst = dst[:len(dst)+n]
-		if err == io.EOF {
-			return dst, nil
-		}
-		if err != nil {
-			return dst, fmt.Errorf("%w: %v", gofastcore.ErrMalformed, err)
-		}
-	}
+	return out, fmt.Errorf("%w: %v", gofastcore.ErrMalformed, err)
 }
 
 // unpredict undoes the predictor named in a filter's parameters on

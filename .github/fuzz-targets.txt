@@ -16,3 +16,4 @@
 ./internal/extract FuzzExtract
 . FuzzOpen
 . FuzzPage
+./internal/inflate FuzzZlib

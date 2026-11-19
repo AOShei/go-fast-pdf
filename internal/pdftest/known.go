@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"runtime"
 	"runtime/debug"
+	"runtime/metrics"
 	"strings"
 	"testing"
 	"time"
@@ -83,10 +84,36 @@ const (
 	childGrace = 3 * time.Second
 	// exitSelfStopped is the exit status of a child that ended itself.
 	exitSelfStopped = 5
+	// exitOverMemory is the exit status of a child that ended itself
+	// because it held more memory than GuardMemory allows.
+	exitOverMemory = 6
 	// childMaxFileBytes bounds any file a child writes. A child writes
 	// the document under test to a temporary file and nothing else.
 	childMaxFileBytes = 1 << 30
 )
+
+// GuardMemory ends this process, a child started by Spawn, as soon as it
+// holds more than ceiling bytes of memory. Spawn then returns an error
+// that says so. Without it, a child that allocates without end is
+// stopped only by the time limit, and until then takes what the machine
+// has.
+//
+// What is counted is the memory the Go runtime has from the system and
+// has not given back: the heap with what is free in it, stacks, and the
+// runtime's own structures.
+func GuardMemory(ceiling uint64) {
+	samples := []metrics.Sample{{Name: "/memory/classes/total:bytes"}, {Name: "/memory/classes/heap/released:bytes"}}
+	go func() {
+		for {
+			metrics.Read(samples)
+			if held := samples[0].Value.Uint64() - samples[1].Value.Uint64(); held > ceiling {
+				fmt.Fprintf(os.Stderr, "the child holds %d MiB, more than its ceiling of %d MiB\n", held>>20, ceiling>>20)
+				os.Exit(exitOverMemory)
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	}()
+}
 
 func settle(t *testing.T, key string, err error) {
 	t.Helper()
@@ -184,6 +211,9 @@ func spawn(t *testing.T, id string, timeout time.Duration, enforce bool) (string
 	if exit, ok := err.(*exec.ExitError); ok && exit.ExitCode() == exitSelfStopped {
 		return "", fmt.Errorf("no result after %v (hang; the child stopped itself)", timeout)
 	}
+	if exit, ok := err.(*exec.ExitError); ok && exit.ExitCode() == exitOverMemory {
+		return "", fmt.Errorf("over the memory ceiling: %s", lastLine(out))
+	}
 	if err != nil {
 		return "", errors.New(childFailure(out, err))
 	}
@@ -194,6 +224,11 @@ func spawn(t *testing.T, id string, timeout time.Duration, enforce bool) (string
 		}
 	}
 	return result, nil
+}
+
+func lastLine(out []byte) string {
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	return lines[len(lines)-1]
 }
 
 // tailBuffer keeps the last part of what is written to it.

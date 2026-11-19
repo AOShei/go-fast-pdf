@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io"
 	"math"
+	"sync"
 )
 
 // Errors returned by the parser. io.EOF means there was no object left.
@@ -29,6 +30,54 @@ type Parser struct {
 	maxDepth int
 	// Skipped counts the bytes that were skipped as unreadable.
 	Skipped int
+	// stack holds the elements of the arrays and dictionaries that are
+	// open, while they are read. A container gets a list of its own, of
+	// the size it turned out to have, when it closes.
+	stack []Value
+	box   *[]Value
+	// opened is the number of containers that are open.
+	opened int
+}
+
+// stacks keeps the room for elements between objects. Without it a
+// list would be grown step by step for every array and dictionary, and
+// that was a third of all the memory allocated in reading a file.
+var stacks = sync.Pool{New: func() any {
+	s := make([]Value, 0, 64)
+	return &s
+}}
+
+// maxKeptStack is the largest room that is kept for the next object.
+const maxKeptStack = 4096
+
+// open starts a container and returns where its elements begin.
+func (p *Parser) open() int {
+	if p.box == nil {
+		p.box = stacks.Get().(*[]Value)
+		p.stack = (*p.box)[:0]
+	}
+	p.opened++
+	return len(p.stack)
+}
+
+// close ends the container whose elements begin at base and returns
+// them, in a list of their own.
+func (p *Parser) close(base int) []Value {
+	var list []Value
+	if n := len(p.stack) - base; n > 0 {
+		list = make([]Value, n)
+		copy(list, p.stack[base:])
+		clear(p.stack[base:]) // nothing of the file is held by the room that is kept
+	}
+	p.stack = p.stack[:base]
+	if p.opened--; p.opened == 0 {
+		if cap(p.stack) <= maxKeptStack {
+			*p.box = p.stack
+			stacks.Put(p.box)
+		}
+		p.stack, p.box = nil, nil
+	}
+	return list
 }
 
 // NewParser returns a parser positioned at pos. maxDepth bounds the
@@ -259,7 +308,7 @@ func (p *Parser) array(depth int) (Value, error) {
 		return Value{}, ErrTooDeep
 	}
 	p.pos++ // the opening bracket
-	var list []Value
+	base := p.open()
 	for {
 		p.pos = SkipSpace(p.data, p.pos)
 		if p.pos >= len(p.data) {
@@ -271,6 +320,7 @@ func (p *Parser) array(depth int) (Value, error) {
 		}
 		v, err := p.object(depth + 1)
 		if err == ErrTooDeep {
+			p.close(base)
 			return Value{}, err
 		}
 		if err != nil {
@@ -278,9 +328,9 @@ func (p *Parser) array(depth int) (Value, error) {
 			p.Skipped++
 			continue
 		}
-		list = append(list, v)
+		p.stack = append(p.stack, v)
 	}
-	return Value{Kind: Array, List: list}, nil
+	return Value{Kind: Array, List: p.close(base)}, nil
 }
 
 func (p *Parser) dict(depth int) (Value, error) {
@@ -288,7 +338,7 @@ func (p *Parser) dict(depth int) (Value, error) {
 		return Value{}, ErrTooDeep
 	}
 	p.pos += 2 // the opening brackets
-	var list []Value
+	base := p.open()
 	for {
 		p.pos = SkipSpace(p.data, p.pos)
 		if p.pos >= len(p.data) {
@@ -304,6 +354,7 @@ func (p *Parser) dict(depth int) (Value, error) {
 		if p.data[p.pos] != '/' {
 			// Not a key. Read past whatever it is.
 			if _, err := p.object(depth + 1); err == ErrTooDeep {
+				p.close(base)
 				return Value{}, err
 			} else if err != nil {
 				p.pos++
@@ -319,6 +370,7 @@ func (p *Parser) dict(depth int) (Value, error) {
 		if p.pos < len(p.data) && p.data[p.pos] != '>' {
 			v, err := p.object(depth + 1)
 			if err == ErrTooDeep {
+				p.close(base)
 				return Value{}, err
 			}
 			if err != nil {
@@ -328,9 +380,9 @@ func (p *Parser) dict(depth int) (Value, error) {
 			}
 			val = v
 		}
-		list = append(list, key, val)
+		p.stack = append(p.stack, key, val)
 	}
-	return Value{Kind: Dict, List: list}, nil
+	return Value{Kind: Dict, List: p.close(base)}, nil
 }
 
 // numberOrRef reads a number and, when it is a non-negative integer

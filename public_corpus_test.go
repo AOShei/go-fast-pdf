@@ -80,6 +80,11 @@ type publicResult struct {
 	F1     float64 `json:"f1"`
 	Order  float64 `json:"order"`
 	Detail string  `json:"detail,omitempty"`
+	// Ref identifies the words of the reference text that the scores
+	// were measured against. Another version of pdftotext reads some
+	// files differently; a score against other words says nothing about
+	// the library, and is not compared.
+	Ref string `json:"ref,omitempty"`
 }
 
 var statusRank = map[string]int{"timeout": 0, "crash": 0, "invalid": 1, "error": 2, "locked": 2, "ok": 3}
@@ -138,13 +143,12 @@ func TestPublicCorpus(t *testing.T) {
 		readJSON(t, "testdata/corpus-public.json", &manifest)
 	}
 	baseline := map[string]publicResult{}
-	tolerance := 5e-4
+	const tolerance = 5e-4
 	if !update {
 		readJSON(t, "testdata/baseline-public.json", &baseline)
 		recorded, _ := os.ReadFile("testdata/baseline-public.ref")
 		if got, want := referenceVersion(), strings.TrimSpace(string(recorded)); got != want {
-			tolerance = 0.02
-			t.Logf("the baseline was scored against %q and this machine has %q: scores are compared with a tolerance of %.2f", want, got, tolerance)
+			t.Logf("the baseline was scored against %q and this machine has %q: a file that the two read differently is not compared", want, got)
 		}
 	}
 
@@ -170,7 +174,7 @@ func TestPublicCorpus(t *testing.T) {
 	}
 	wg.Wait()
 
-	ran, worse := 0, 0
+	ran, worse, otherWords := 0, 0, 0
 	now := map[string]publicResult{}
 	for i, f := range manifest {
 		r := results[i]
@@ -186,6 +190,8 @@ func TestPublicCorpus(t *testing.T) {
 		if statusRank[r.Status] < statusRank[old.Status] {
 			worse++
 			t.Errorf("%s: was %s, now %s (%s)", f.Name, old.Status, r.Status, r.Detail)
+		} else if r.Status == "ok" && old.Status == "ok" && r.Ref != old.Ref {
+			otherWords++
 		} else if r.Status == "ok" && old.Status == "ok" && (r.F1 < old.F1-tolerance || r.Order < old.Order-tolerance) {
 			worse++
 			t.Errorf("%s: F1 %.4f (was %.4f), order %.4f (was %.4f)", f.Name, r.F1, old.F1, r.Order, old.Order)
@@ -193,6 +199,13 @@ func TestPublicCorpus(t *testing.T) {
 	}
 	summary := summarizePublic(manifest, now)
 	t.Logf("%d of %d files present, %d worse than the baseline\n%s", ran, len(manifest), worse, summary)
+	if otherWords > 0 {
+		t.Logf("%d files have other words in their reference text than when the baseline was recorded; their scores are not compared", otherWords)
+		// The comparison must not become empty without anybody noticing.
+		if otherWords > ran/5 {
+			t.Errorf("%d of %d files have another reference text than the baseline: record the baseline with this version of pdftotext", otherWords, ran)
+		}
+	}
 
 	if update {
 		var names []string
@@ -296,8 +309,23 @@ func scorePublicFile(path, refFile string) publicResult {
 		want := strings.Split(string(ref), "\f")
 		s := pdftest.ComparePages(got.pageTexts(), want)
 		r.F1, r.Order = round4(s.F1), round4(s.Order)
+		r.Ref = wordsHash(want)
 	}
 	return r
+}
+
+// wordsHash identifies the words of a text, page by page, as the scorer
+// reads them.
+func wordsHash(pages []string) string {
+	h := sha256.New()
+	for _, page := range pages {
+		for _, w := range pdftest.Words(page) {
+			h.Write([]byte(w))
+			h.Write([]byte{0})
+		}
+		h.Write([]byte{'\f'})
+	}
+	return hex.EncodeToString(h.Sum(nil))[:12]
 }
 
 // deepAgainstDefault checks what the checks of DeepHidden may change of
@@ -447,7 +475,9 @@ func clipString(s string, n int) string {
 func buildPublicManifest(t *testing.T, cache string) []publicFile {
 	var paths []string
 	filepath.WalkDir(cache, func(path string, d fs.DirEntry, err error) error {
-		if err == nil && d.IsDir() && strings.HasPrefix(d.Name(), ".") {
+		// Not the reference texts, and not the files that are there for
+		// the soak test alone: those are read and never scored.
+		if err == nil && d.IsDir() && (strings.HasPrefix(d.Name(), ".") || strings.HasPrefix(d.Name(), soakOnly)) {
 			return filepath.SkipDir
 		}
 		if err == nil && !d.IsDir() && strings.EqualFold(filepath.Ext(path), ".pdf") {

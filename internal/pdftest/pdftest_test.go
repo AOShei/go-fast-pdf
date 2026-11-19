@@ -149,6 +149,20 @@ func TestIsolation(t *testing.T) {
 		"T/panic":    func() error { panic("boom") },
 		"T/overflow": func() error { recurse(0); return nil },
 		"T/hang":     func() error { time.Sleep(time.Hour); return nil },
+		"T/memory": func() error {
+			// Takes memory without end, a little at a time: the guard has
+			// to stop it long before the machine has none left.
+			GuardMemory(256 << 20)
+			var held [][]byte
+			for {
+				b := make([]byte, 4<<20)
+				for i := 0; i < len(b); i += 4096 {
+					b[i] = 1
+				}
+				held = append(held, b)
+				time.Sleep(2 * time.Millisecond)
+			}
+		},
 	}
 	if fn, ok := cases[os.Getenv(isolatedEnv)]; ok {
 		childMain(fn)
@@ -170,6 +184,9 @@ func TestIsolation(t *testing.T) {
 	}
 	if got := run("T/overflow", time.Minute); !strings.Contains(got, "stack") {
 		t.Errorf("stack overflow case: %q", got)
+	}
+	if got := run("T/memory", time.Minute); !strings.Contains(got, "over the memory ceiling") {
+		t.Errorf("a child that takes memory without end: %q", got)
 	}
 	if got := run("T/hang", 2*time.Second); !strings.Contains(got, "hang") {
 		t.Errorf("hang case: %q", got)

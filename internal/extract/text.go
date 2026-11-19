@@ -1,7 +1,6 @@
 package extract
 
 import (
-	"bytes"
 	gofastcore "github.com/AOShei/go-fast-core"
 	"github.com/AOShei/go-fast-pdf/internal/content"
 	"github.com/AOShei/go-fast-pdf/internal/font"
@@ -454,20 +453,14 @@ func (in *interp) showCodes(f *font.Font, raw []byte) {
 	// another entry of a row, or text that leaves room for a word drawn
 	// later, and a reader of the runs has to see the gap.
 	//
-	// So does a step back along the line to before the string shown
-	// last: it is a piece of the line drawn out of its order, or the line
-	// printed again, and the layout can tell which only if it is a run of
-	// its own. A line that is printed again begins where the run began,
-	// with the text it began with.
-	//
-	// A string that ends where the last one began is the next one of text
-	// written from right to left, if its script is. In any other script it
-	// is a step back like the others: a line of two strings that is
-	// printed again starts that way.
-	back := sep == ' ' && along < 0
-	if n := len(in.runs); n > 0 && sep == 0 && along < 0 && !replaced {
-		back = leftward && !writtenLeftward(in.text[start:]) || in.printedFromStart(&in.runs[n-1], x0, y0, start)
-	}
+	// So does a step back along the line to the start of the string shown
+	// last or before it: it is a piece of the line drawn out of its
+	// order, or the line printed again, and the layout can tell which
+	// only if it is a run of its own. A string that ends where the last
+	// one began is the next one of text written from right to left, if
+	// its script is; in any other script it is such a step back, and a
+	// line of two strings that is printed again starts that way.
+	back := sep == ' ' && along < 0 || leftward && !writtenLeftward(in.text[start:])
 	if n := len(in.runs); n > 0 && sep != '\n' && !replaced && !back && !(sep == ' ' && along > ge.size) && in.runs[n-1].Clip == clip && in.continues(&in.runs[n-1], f, cut) {
 		last := &in.runs[n-1]
 		if sep == ' ' && start > 0 && in.text[start-1] != ' ' && len(in.text) > start && in.text[start] != ' ' {
@@ -514,20 +507,6 @@ func writtenLeftward(text []byte) bool {
 		}
 	}
 	return false
-}
-
-// printedFromStart reports whether the string whose text is
-// in.text[start:] and which starts at (x0, y0) is the beginning of the
-// run last, printed again: it starts where the run starts, and the run's
-// text starts with it.
-func (in *interp) printedFromStart(last *Run, x0, y0 float64, start int) bool {
-	slack := overprintSlack * last.Em()
-	dx, dy := x0-last.X0, y0-last.Y0
-	if dx > slack || dx < -slack || dy > slack || dy < -slack {
-		return false
-	}
-	text := in.text[start:]
-	return len(text) > 0 && int(last.Off) <= start && bytes.HasPrefix(in.text[last.Off:start], text)
 }
 
 // printedAgain reports whether the string whose text is in.text[start:]

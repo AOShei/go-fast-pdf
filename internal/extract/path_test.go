@@ -99,6 +99,8 @@ func TestShapes(t *testing.T) {
 			[]string{"[10 20 110 70] seq 0 exact rgb(0,0,0), not opaque", "[0 0 5 5] seq 1 exact rgb(0,0,0)"}},
 		{"a soft mask", "/Mask gs 10 20 100 50 re f /NoMask gs 0 0 5 5 re f",
 			[]string{"[10 20 110 70] seq 0 region", "[0 0 5 5] seq 1 exact rgb(0,0,0)"}},
+		{"overprinting", "/Over gs 10 20 100 50 re f /NoOver gs 0 0 5 5 re f /OverAll gs 0 0 6 6 re f",
+			[]string{"[10 20 110 70] seq 0 exact rgb(0,0,0), not opaque", "[0 0 5 5] seq 1 exact rgb(0,0,0)", "[0 0 6 6] seq 2 exact rgb(0,0,0), not opaque"}},
 		{"optional content that is off", "/OC /L BDC 10 20 100 50 re f EMC 0 0 5 5 re f", []string{"[0 0 5 5] seq 1 exact rgb(0,0,0)"}},
 		{"cut by a clip", "0 0 50 50 re W n 10 20 100 50 re f", []string{"[10 20 50 50] seq 0 exact rgb(0,0,0)"}},
 		{"outside the clip", "0 0 5 5 re W n 10 20 100 50 re f", nil},
@@ -160,7 +162,7 @@ func pathDoc(content string) []byte {
 		Content: content,
 		Resources: "/Font << /F1 12 0 R >> /XObject << /Moved 1 0 R /Small 2 0 R /Turned 3 0 R /Open 4 0 R /Im 5 0 R /Seven 7 0 R /Eight 8 0 R /Nine 9 0 R >> " +
 			"/ExtGState << /Half << /ca 0.5 /CA 0.25 >> /Clear << /ca 0 /CA 0 >> /Opaque << /ca 1 /CA 1 >> /Mul << /BM /Multiply >> /Norm << /BM [/Normal /Multiply] >> " +
-			"/Mask << /SMask << /S /Alpha >> >> /NoMask << /SMask /None >> >> " +
+			"/Mask << /SMask << /S /Alpha >> >> /NoMask << /SMask /None >> /Over << /op true >> /NoOver << /OP true /op false >> /OverAll << /OP true >> >> " +
 			"/ColorSpace << /Spot [/Separation /Gold /DeviceRGB << /FunctionType 2 /Domain [0 1] /N 1 >>] >> /Properties << /L 6 0 R >>",
 	})
 	// Objects: the nine above, then 10 catalog, 11 page tree, 12 font.

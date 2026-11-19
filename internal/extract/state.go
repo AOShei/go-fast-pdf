@@ -125,9 +125,14 @@ type gstate struct {
 	// group as a whole is painted with what was in force outside it:
 	// alphaScale is the opacity of the groups being drawn, and
 	// outerBlend is set when one of them is painted with a blend mode or
-	// through a soft mask.
-	blendMode, softMask, outerBlend bool
-	alphaScale                      float32
+	// through a soft mask. fillAlpha and strokeAlpha above include
+	// alphaScale, and blend is set when any of the three flags is: text
+	// is shown far more often than any of this changes.
+	blendMode, softMask, outerBlend, blend bool
+	alphaScale                             float32
+	// overprint is set when what is filled is printed over what is under
+	// it and does not take its place, where the reader shows that.
+	overprint bool
 
 	// lineWidth is the width of stroked lines. It is followed only when
 	// shapes are recorded.
@@ -138,10 +143,6 @@ func initialState() gstate {
 	return gstate{ctm: identity, th: 1, fill: paint{color: black}, stroke: paint{color: black},
 		fillAlpha: 1, strokeAlpha: 1, alphaScale: 1, lineWidth: 1}
 }
-
-// blend reports whether what is painted now is combined with what is
-// under it in a way this package does not follow.
-func (g *gstate) blend() bool { return g.blendMode || g.softMask || g.outerBlend }
 
 // Region is the part of the page that the clipping paths in force leave
 // to paint on, as far as it is followed: a box in the page's coordinates.
@@ -311,10 +312,10 @@ func (in *interp) extGState(raw []byte) {
 	}
 	g := &in.gs
 	if v, ok := in.f.Resolve(dict.Get("ca")).Float(); ok {
-		g.fillAlpha = float32(math.Min(math.Max(v, 0), 1))
+		g.fillAlpha = float32(math.Min(math.Max(v, 0), 1)) * g.alphaScale
 	}
 	if v, ok := in.f.Resolve(dict.Get("CA")).Float(); ok {
-		g.strokeAlpha = float32(math.Min(math.Max(v, 0), 1))
+		g.strokeAlpha = float32(math.Min(math.Max(v, 0), 1)) * g.alphaScale
 	}
 	// A blend mode is a name, or a list of names of which the first that
 	// the reader knows is used.
@@ -326,6 +327,14 @@ func (in *interp) extGState(raw []byte) {
 	}
 	if sm := in.f.Resolve(dict.Get("SMask")); !sm.IsNull() {
 		g.softMask = !sm.IsName("None")
+	}
+	g.blend = g.blendMode || g.softMask || g.outerBlend
+	// OP sets overprinting for strokes, and for fills too unless op is
+	// there to say otherwise.
+	if op := in.f.Resolve(dict.Get("op")); op.Kind == syntax.Bool {
+		g.overprint = op.N != 0
+	} else if op := in.f.Resolve(dict.Get("OP")); op.Kind == syntax.Bool {
+		g.overprint = op.N != 0
 	}
 	if f := in.f.Resolve(dict.Get("Font")).Elems(); len(f) == 2 {
 		if loaded := font.Load(in.f, f[0]); loaded != nil {

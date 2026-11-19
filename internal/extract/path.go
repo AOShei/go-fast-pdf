@@ -36,7 +36,8 @@ type Shape struct {
 	// followed: it may leave out any part of it.
 	Exact bool
 	// Opaque is set for an exact shape that lets nothing under it show:
-	// its opacity is 1 and it is painted with the normal blend mode.
+	// its opacity is 1, and it is painted with the normal blend mode and
+	// without overprinting.
 	Opaque bool
 }
 
@@ -240,10 +241,10 @@ func (in *interp) addShape(box [4]float64, rect, fill, stroke bool) {
 	g := &in.gs
 	// How wide the stroke is on the page.
 	var width float64
-	if stroke && g.strokeAlpha*g.alphaScale > 0 {
+	if stroke && g.strokeAlpha > 0 {
 		width = g.lineWidth * math.Sqrt(abs(g.ctm[0]*g.ctm[3]-g.ctm[1]*g.ctm[2]))
 	}
-	alpha := g.fillAlpha * g.alphaScale
+	alpha := g.fillAlpha
 	if !fill || alpha <= 0 {
 		if width <= 0 {
 			return // nothing is painted
@@ -264,7 +265,7 @@ func (in *interp) addShape(box [4]float64, rect, fill, stroke bool) {
 	s := Shape{Box: box}
 	if exact {
 		s.Exact, s.Color = true, g.fill.color
-		s.Opaque = alpha >= 1 && !g.blendMode
+		s.Opaque = alpha >= 1 && !g.blendMode && !g.overprint
 	}
 	in.pushShape(s)
 }

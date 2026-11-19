@@ -47,7 +47,8 @@ type Image struct {
 	Seq, After int32
 	// Opaque is false for an image that lets what is under it show: one
 	// with a mask or a soft mask, a stencil, or one painted with an
-	// opacity below 1, with a blend mode or through a soft mask.
+	// opacity below 1, with a blend mode, through a soft mask or with
+	// overprinting.
 	Opaque bool
 	// Region is what the clipping paths in force leave of the page: the
 	// image is painted only there.
@@ -948,7 +949,7 @@ func (in *interp) addImage(img Image) {
 	// drawn in.
 	img.Quad = in.gs.ctm.quad([4]float64{0, 0, 1, 1})
 	img.Seq, img.After = in.seq, int32(len(in.runs))
-	img.Opaque = img.Opaque && in.gs.fillAlpha*in.gs.alphaScale >= 1 && !in.gs.blend() && in.offDepth == 0
+	img.Opaque = img.Opaque && in.gs.fillAlpha >= 1 && !in.gs.blend && !in.gs.overprint && in.offDepth == 0
 	img.Region = in.gs.region
 	in.images = append(in.images, img)
 }
@@ -1063,9 +1064,9 @@ func (in *interp) drawForm(xobj syntax.Value) {
 	// it they start afresh.
 	if group := in.f.Resolve(xobj.Get("Group")); group.IsDict() && in.f.Resolve(group.Get("S")).IsName("Transparency") {
 		g := &in.gs
-		g.alphaScale *= g.fillAlpha
-		g.outerBlend = g.blend()
-		g.fillAlpha, g.strokeAlpha, g.blendMode, g.softMask = 1, 1, false, false
+		g.alphaScale = g.fillAlpha
+		g.strokeAlpha = g.fillAlpha
+		g.outerBlend, g.blendMode, g.softMask = g.blend, false, false
 	}
 	in.path.reset()
 

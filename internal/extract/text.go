@@ -472,7 +472,7 @@ func (in *interp) showCodes(f *font.Font, raw []byte) {
 		X0: x0, Y0: y0, X1: x1, Y1: y1, LX: x0, LY: y0, Dx: ge.dx, Dy: ge.dy, Nx: ge.nx, Ny: ge.ny,
 		Size: ge.size, SizeX: ge.sizeX, Rise: g.rise * ge.lenY, SpaceWidth: ge.space, Font: f,
 		Mode: g.mode, Clip: clip, Fill: g.fill.color, Stroke: g.stroke.color,
-		FillAlpha: g.fillAlpha * g.alphaScale, StrokeAlpha: g.strokeAlpha * g.alphaScale, Blend: g.blend(), CutOff: cut,
+		FillAlpha: g.fillAlpha, StrokeAlpha: g.strokeAlpha, Blend: g.blend, CutOff: cut,
 		OptionalOff: in.offDepth > 0, Seq: in.seq, Form: in.form,
 		Sep: sep, ActualText: replaced, Glyphs: int32(sh.Glyphs), Unmapped: int32(sh.Unmapped), Assumed: int32(sh.Assumed),
 	})
@@ -589,8 +589,8 @@ func (in *interp) cutOff(x0, y0, x1, y1 float64, vertical bool) bool {
 func (in *interp) sameVisibility(last *Run, cut bool) bool {
 	g := &in.gs
 	return last.Mode == g.mode && last.Fill == g.fill.color && last.Stroke == g.stroke.color &&
-		last.FillAlpha == g.fillAlpha*g.alphaScale && last.StrokeAlpha == g.strokeAlpha*g.alphaScale &&
-		last.Blend == g.blend() && last.CutOff == cut &&
+		last.FillAlpha == g.fillAlpha && last.StrokeAlpha == g.strokeAlpha &&
+		last.Blend == g.blend && last.CutOff == cut &&
 		last.OptionalOff == (in.offDepth > 0) && last.Seq == in.seq && last.Form == in.form
 }
 

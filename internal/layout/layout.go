@@ -111,25 +111,27 @@ type builder struct {
 	opts  Options
 	scale float64 // points per unit of the page's coordinates
 
-	pieces        []piece
-	order         []int32 // piece indices, grouped
-	lines         []line
-	lidx          []int32 // backing store of the lines' piece lists
-	text          []byte  // the lines' texts
-	cands         []cand
-	frags         []frag
-	blocks        []blk
-	bidx          []int32 // backing store of the blocks' line lists
-	sorted        []int32
-	sortB         []int32
-	pred          []int32
-	claims        []int32
-	hist          []int32
-	alt           []int32
-	occ           []occluder
-	big           []box
-	patches       []patch
-	grid, regions grid
+	pieces  []piece
+	order   []int32 // piece indices, grouped
+	lines   []line
+	lidx    []int32 // backing store of the lines' piece lists
+	text    []byte  // the lines' texts
+	cands   []cand
+	frags   []frag
+	blocks  []blk
+	bidx    []int32 // backing store of the blocks' line lists
+	sorted  []int32
+	sortB   []int32
+	pred    []int32
+	claims  []int32
+	hist    []int32
+	alt     []int32
+	occ     []occluder
+	big     []box
+	patches []patch
+	// The grids of the checks with shapes. They are made when a page is
+	// first read with those checks, and not before: they are large.
+	grid, regions *grid
 	out           []byte
 	stats         Stats
 
@@ -287,10 +289,10 @@ func (b *builder) trim() {
 	if cap(b.patches) > keep {
 		b.patches = nil
 	}
-	if cap(b.grid.nodes) > keep {
+	if b.grid != nil && cap(b.grid.nodes) > keep {
 		b.grid.nodes = nil
 	}
-	if cap(b.regions.nodes) > keep {
+	if b.regions != nil && cap(b.regions.nodes) > keep {
 		b.regions.nodes = nil
 	}
 	// The blocks hold strings: they are not kept alive by the pool.

@@ -70,8 +70,9 @@ type grid struct {
 	free   int32
 	cw, ch float64
 	w, h   float64
-	// all is the shape painted last that covers the whole page, -1 if
-	// there is none; what was painted before it is forgotten.
+	// all is a shape that covers the whole page, -1 if there is none:
+	// the one added last. Where shapes take the place of what they
+	// cover, the grid was emptied when it was added.
 	all int32
 }
 
@@ -92,9 +93,10 @@ func (g *grid) clear(all int32) {
 }
 
 // cells returns the range of cells that a box touches, and false if it
-// lies off the page.
+// lies off the page. A box without width or height, as of text whose
+// font gives its glyphs no width, is on the cells of the line it is.
 func (g *grid) cells(bx box) (x0, y0, x1, y1 int, ok bool) {
-	if !(bx.x1 > 0 && bx.y1 > 0 && bx.x0 < g.w && bx.y0 < g.h && bx.x1 > bx.x0 && bx.y1 > bx.y0) {
+	if !(bx.x1 >= 0 && bx.y1 >= 0 && bx.x0 < g.w && bx.y0 < g.h && bx.x1 >= bx.x0 && bx.y1 >= bx.y0) {
 		return 0, 0, 0, 0, false
 	}
 	x0, y0 = int(max(bx.x0, 0)/g.cw), int(max(bx.y0, 0)/g.ch)
@@ -130,9 +132,14 @@ func (g *grid) add(shape int32, bx box, replace bool) int {
 	if !ok {
 		return 1
 	}
-	if replace && bx.x0 <= 0 && bx.y0 <= 0 && bx.x1 >= g.w && bx.y1 >= g.h {
-		// It covers the page: start afresh.
-		g.clear(shape)
+	if bx.x0 <= 0 && bx.y0 <= 0 && bx.x1 >= g.w && bx.y1 >= g.h {
+		// It covers the page. Where it takes the place of what it covers,
+		// that is everything.
+		if replace {
+			g.clear(shape)
+		} else {
+			g.all = shape
+		}
 		return 1
 	}
 	steps := 0
@@ -265,7 +272,10 @@ func (b *builder) deep() (complete bool) {
 		q := b.cover(&b.pieces[i])
 		minW, minH = min(minW, q.x1-q.x0), min(minH, q.y1-q.y0)
 	}
-	covers, regions := &b.grid, &b.regions
+	if b.grid == nil {
+		b.grid, b.regions = new(grid), new(grid)
+	}
+	covers, regions := b.grid, b.regions
 	covers.reset(b.page.Width, b.page.Height)
 	regions.reset(b.page.Width, b.page.Height)
 	k := len(us) - 1
@@ -306,7 +316,7 @@ func (b *builder) deep() (complete bool) {
 
 	// Backgrounds: the runs in the order drawn, each against what was
 	// painted before it.
-	g := &b.grid
+	g := b.grid
 	g.reset(b.page.Width, b.page.Height)
 	k = 0
 	for i := range b.pieces {
@@ -414,7 +424,10 @@ func (g *grid) top(us []patch, q box) (top int32, steps int) {
 // the work that took. A shape that holds the box holds its middle, so
 // the cell of the middle has it.
 func (g *grid) covered(us []patch, q box) (covered bool, steps int) {
-	mid := box{(q.x0 + q.x1) / 2, (q.y0 + q.y1) / 2, (q.x0+q.x1)/2 + 1e-9, (q.y0+q.y1)/2 + 1e-9}
+	if g.all >= 0 && us[g.all].box.holds(q) {
+		return true, 1
+	}
+	mid := box{(q.x0 + q.x1) / 2, (q.y0 + q.y1) / 2, (q.x0 + q.x1) / 2, (q.y0 + q.y1) / 2}
 	x, y, _, _, ok := g.cells(mid)
 	if !ok {
 		return false, 1

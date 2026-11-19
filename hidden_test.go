@@ -16,16 +16,18 @@ type hiddenCase struct {
 	// paragraph. The hidden text says "secret words".
 	before, after string
 	resources     string
-	objects       []string
-	catalog       string
-	extra         string
+	// fonts are further entries of the page's font dictionary.
+	fonts   string
+	objects []string
+	catalog string
+	extra   string
 	// want is the set of reasons of the hidden block, 0 if the added
 	// text must not be flagged.
 	want gofastcore.Hidden
 }
 
 func (c hiddenCase) doc(with bool) synthDoc {
-	p := synthPage{Content: visibleLines, Resources: c.resources, Extra: c.extra}
+	p := synthPage{Content: visibleLines, Resources: c.resources, Fonts: c.fonts, Extra: c.extra}
 	if with {
 		p.Content = c.before + visibleLines + c.after
 	}

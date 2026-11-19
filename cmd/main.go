@@ -17,9 +17,10 @@ func main() {
 	workers := flag.Int("workers", 0, "pages extracted at a time (0: one per CPU)")
 	images := flag.Bool("images", false, "list the images on each page")
 	password := flag.String("password", "", "password of an encrypted file")
+	deep := flag.Bool("deep", false, "check text against the shapes of each page as well (Options.DeepHidden)")
 	flag.Parse()
 	if flag.NArg() != 1 {
-		log.Fatal("usage: go-fast-pdf [-workers N] [-images] [-password P] <file.pdf>")
+		log.Fatal("usage: go-fast-pdf [-workers N] [-images] [-deep] [-password P] <file.pdf>")
 	}
 	file, err := os.Open(flag.Arg(0))
 	if err != nil {
@@ -30,7 +31,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	opts := &gofastcore.Options{Workers: *workers, Password: *password, Name: info.Name()}
+	opts := &gofastcore.Options{Workers: *workers, Password: *password, Name: info.Name(), DeepHidden: *deep}
 	if *images {
 		opts.Images = gofastcore.ImagesMeta
 	}

@@ -21,6 +21,7 @@ A high-performance, dependency-free Go library for extracting text and image met
 - **One model for every format** - `gofastpdf.Extract` returns a `*gofastcore.Document`: one part per page, blocks in reading order, JSON, Markdown and plain text
 - **Paragraphs and reading order** - lines are joined into paragraphs; columns, tables drawn by rows, and pages drawn out of order are put in reading order
 - **Hidden text is flagged, never dropped** - invisible, tiny, off-page, transparent, white-on-white and covered text is extracted with the reason it cannot be seen; the text layer of a scan is told apart from the rest
+- **Deeper checks on request** - with `DeepHidden`, text is also checked against the shapes a page paints: text in the colour of the box it stands on, text under a box drawn over it, text cut off by a clipping path
 - **Text extraction** - fonts with and without ToUnicode maps, composite fonts, the standard encodings, the Adobe Glyph List, ligatures as letters
 - **Encryption** - RC4, AES-128 and AES-256, with user and owner passwords
 - **Damaged files** - broken cross-reference data is rebuilt; a page that cannot be read is reported and the rest is returned
@@ -35,7 +36,7 @@ A high-performance, dependency-free Go library for extracting text and image met
 - **Scripts written from right to left** - the text is given in the order the page draws it, with a warning
 - **Fonts without any mapping** - glyphs of embedded CFF and TrueType programs that the PDF does not describe are read by their codes or reported as unmapped; the legacy CJK encodings are not built in
 - **Images** - CMYK, indexed, 1-bit, CCITT and JBIG2 images are listed without their data
-- **Hidden text** - the checks that need the shapes drawn on a page (text on a coloured background, text under a filled rectangle, clipping paths) are not implemented yet
+- **Hidden text** - a flag is evidence that text is hidden; no flag is not evidence that a document is safe. Shapes are followed as upright rectangles: text on a photograph, a shading or a shape with round corners is not judged for contrast, and only a rectangle or an image is taken to cover text. The package documentation lists what is not detected
 
 ## Installation
 
@@ -56,6 +57,9 @@ go run ./cmd -workers 8 -images document.pdf
 
 # An encrypted file
 go run ./cmd -password secret document.pdf
+
+# With the hidden-text checks that follow the shapes of each page
+go run ./cmd -deep document.pdf
 ```
 
 ### Library API
@@ -107,6 +111,9 @@ func main() {
     doc.WriteText(os.Stdout, &gofastcore.RenderOptions{
         ExcludeHidden: gofastcore.HiddenAny &^ gofastcore.HiddenTextLayer,
     })
+    // doc.HiddenChecked says which reasons were checked in full. Extract
+    // with &gofastcore.Options{DeepHidden: true} to have low contrast,
+    // covering shapes and clipping paths checked in full as well.
 
     // What went wrong, per page and for the file.
     for part, w := range doc.AllWarnings() {
@@ -120,7 +127,7 @@ func main() {
 ```
 
 Options are `gofastcore.Options`: `Workers`, `Images` (none, description, data), `Password`,
-`Parts` (a range of pages), `Limits` and `Child` (an extractor for attached files). The
+`Parts` (a range of pages), `Limits`, `DeepHidden` and `Child` (an extractor for attached files). The
 package documentation says what each does for PDF.
 
 ## Output Format

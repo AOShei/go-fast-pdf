@@ -100,7 +100,7 @@ func TestEvidence(t *testing.T) {
 		fileReasons := map[string]bool{}
 		active, external := false, false
 		for i := range f.Pages() {
-			out := e.page(f, &f.Pages()[i], opts)
+			out := e.page(f, &f.Pages()[i], opts, want{})
 			part := &out.part
 			c.pages++
 			active, external = active || out.active, external || out.external

@@ -38,11 +38,12 @@
 //     any number.
 //   - Images: with ImagesMeta an image block stands where each image
 //     is, with its size in pixels; its ID is "obj-" and the number of
-//     the image's object, or "inline-" and a count for an image inside
-//     a content stream. With ImagesData the first block of each image
-//     also has its data: JPEG and JPEG 2000 as they are in the file,
-//     samples of 8 bits in a gray or RGB colour space as PNG. An image
-//     in another encoding has no data, and its page gets
+//     the image's object, or, for an image inside a content stream,
+//     "inline-", the number of its page, a hyphen and its count on that
+//     page. With ImagesData the first block of each image also has its
+//     data: JPEG and JPEG 2000 as they are in the file, samples of 8
+//     bits in a gray or RGB colour space as PNG. An image in another
+//     encoding has no data, and its page gets
 //     image.unsupported_encoding.
 //   - Password: tried as the user password and as the owner password.
 //     The empty user password is always tried.

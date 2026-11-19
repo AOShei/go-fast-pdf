@@ -232,9 +232,9 @@ func TestImages(t *testing.T) {
 			t.Errorf("attrs %v", b.Attrs)
 		}
 		// An image in the content stream has no object number; it is
-		// named by its place.
+		// named by its page and its place on it.
 		last := &doc.Parts[2].Blocks[len(doc.Parts[2].Blocks)-1]
-		if last.Kind != gofastcore.KindImage || last.Image.ID != "inline-1" || last.Attrs["inline"] != "true" {
+		if last.Kind != gofastcore.KindImage || last.Image.ID != "inline-3-1" || last.Attrs["inline"] != "true" {
 			t.Errorf("inline image: %+v, %+v, %v", last, last.Image, last.Attrs)
 		}
 		for i := range doc.Parts {
@@ -282,7 +282,7 @@ func TestImages(t *testing.T) {
 		}
 		// What cannot be delivered is a block with its size and no
 		// data, and the page says so.
-		for _, id := range []string{"obj-4", "obj-5", "obj-6", "obj-7", "inline-1"} {
+		for _, id := range []string{"obj-4", "obj-5", "obj-6", "obj-7", "inline-3-1"} {
 			imgs := byID[id]
 			if len(imgs) != 1 || imgs[0].Data != nil || imgs[0].Width == 0 || imgs[0].Height == 0 {
 				t.Errorf("%s: %+v", id, imgs)

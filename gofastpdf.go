@@ -4,9 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"math"
-	"runtime"
-	"sync"
+	"sync/atomic"
 
 	gofastcore "github.com/AOShei/go-fast-core"
 	"github.com/AOShei/go-fast-pdf/internal/extract"
@@ -31,17 +29,33 @@ const (
 const maxStreamBytes = 64 << 20
 
 // Extractor extracts PDF files into the shared document model. The zero
-// value is ready to use and safe for concurrent use.
+// value is ready to use and safe for concurrent use; the functions of
+// this package that are not its methods use the zero value.
 //
-// Settings that only PDF has become fields of this type.
+// Settings that only PDF has are fields of this type. Zero means the
+// default for each.
 type Extractor struct {
+	// MaxStreamBytes is the most that one stream of the file may decode
+	// to: a page's content, an image, an attached file. The default is
+	// 64 MiB, or Limits.MaxDecodedBytes where that is lower. A stream
+	// that is larger is cut there and its part gets limit.exceeded.
+	MaxStreamBytes int64
+	// ObjectStreamCacheBytes is how much decoded object-stream data is
+	// kept, so that an object stream is not decoded again for every
+	// object in it. The default is 64 MiB.
+	ObjectStreamCacheBytes int64
+	// MaxShapes is the number of shapes followed on one page by the
+	// checks of Options.DeepHidden. The default is 65,536. A page that
+	// paints more gets pdf.deep_hidden_incomplete.
+	MaxShapes int
+
 	// noHiddenChecks leaves out the checks for hidden text. It exists
 	// to measure what they cost and is not reachable from outside.
 	noHiddenChecks bool
-	// maxShapes and maxDeepSteps bound what the checks of DeepHidden
-	// follow on one page; 0 means the defaults. Tests set them to reach
-	// the bounds with a small page.
-	maxShapes, maxDeepSteps int
+	// maxDeepSteps bounds the work of the checks of DeepHidden on one
+	// page; 0 means the default. Tests set it to reach the bound with a
+	// small page.
+	maxDeepSteps int
 }
 
 var _ gofastcore.Extractor = (*Extractor)(nil)
@@ -54,166 +68,42 @@ func (*Extractor) Formats() []string { return []string{Format} }
 // reading order.
 //
 // opts may be nil. See the package documentation for what each option
-// does here.
+// does here. Extract is Open, Document and Close in one.
 func Extract(ctx context.Context, r io.ReaderAt, size int64, opts *gofastcore.Options) (*gofastcore.Document, error) {
 	return new(Extractor).Extract(ctx, r, size, opts)
 }
 
+// ExtractFile is Extract for the file at path. The name of the file is
+// the document's Source.Name unless opts gives another.
+func ExtractFile(ctx context.Context, path string, opts *gofastcore.Options) (*gofastcore.Document, error) {
+	return new(Extractor).ExtractFile(ctx, path, opts)
+}
+
 // Extract implements gofastcore.Extractor. See the function Extract.
 func (e *Extractor) Extract(ctx context.Context, r io.ReaderAt, size int64, opts *gofastcore.Options) (*gofastcore.Document, error) {
-	if opts == nil {
-		opts = &gofastcore.Options{}
-	}
-	if size < 0 {
-		return nil, fmt.Errorf("%w: negative size", gofastcore.ErrMalformed)
-	}
-	if limit := gofastcore.ResolveLimit(opts.Limits.MaxInputBytes, DefaultMaxInputBytes); size > limit {
-		return nil, fmt.Errorf("%w: the input is %d bytes and the limit is %d", gofastcore.ErrLimitExceeded, size, limit)
-	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	// The whole file is held in memory: a PDF is read from its end and
-	// by offsets all over it.
-	data := make([]byte, size)
-	if _, err := io.ReadFull(io.NewSectionReader(r, 0, size), data); err != nil {
-		return nil, fmt.Errorf("reading the input: %w", err)
-	}
-
-	budget := gofastcore.ResolveLimit(opts.Limits.MaxDecodedBytes, DefaultMaxDecodedBytes)
-	limits := file.Limits{MaxStreamBytes: min(budget, maxStreamBytes)}
-	if opts.Limits.MaxDecodedBytes < 0 {
-		limits.MaxStreamBytes = 1 << 40
-	}
-	f, err := file.OpenPassword(data, limits, opts.Password)
+	f, err := e.OpenReaderAt(r, size, opts)
 	if err != nil {
 		return nil, err
 	}
-	pages := f.Pages()
-	if len(pages) == 0 {
-		return nil, fmt.Errorf("%w: %w", gofastcore.ErrMalformed, file.ErrNoPages)
-	}
+	defer f.Close()
+	return f.Document(ctx)
+}
 
-	// The pages asked for.
-	rng := opts.Parts
-	if rng.First < 1 {
-		rng.First = 1
-	}
-	if rng.Last < 0 || rng.Last != 0 && rng.First > rng.Last || rng.First > len(pages) {
-		return nil, fmt.Errorf("%w: pages %d to %d of a document of %d", gofastcore.ErrNoPartsSelected, opts.Parts.First, opts.Parts.Last, len(pages))
-	}
-	if rng.Last == 0 || rng.Last > len(pages) {
-		rng.Last = len(pages)
-	}
-	selected := pages[rng.First-1 : rng.Last]
-
-	doc := gofastcore.New(Format)
-	doc.Source.Name, doc.Source.MIME, doc.Source.Size = opts.Name, "application/pdf", size
-	tooMany := false
-	if most := gofastcore.ResolveLimit(int64(opts.Limits.MaxParts), math.MaxInt64); int64(len(selected)) > most {
-		selected, tooMany = selected[:most], true
-	}
-
-	// The pages, each by itself.
-	outs := make([]pageOut, len(selected))
-	workers := opts.Workers
-	if workers <= 0 {
-		workers = runtime.GOMAXPROCS(0)
-	}
-	if workers = min(workers, len(selected)); workers <= 1 {
-		for i := range selected {
-			if ctx.Err() != nil {
-				break
-			}
-			outs[i] = e.page(f, &selected[i], opts)
-		}
-	} else {
-		var wg sync.WaitGroup
-		next := make(chan int)
-		for range workers {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				for i := range next {
-					if ctx.Err() == nil {
-						outs[i] = e.page(f, &selected[i], opts)
-					}
-				}
-			}()
-		}
-		for i := range selected {
-			next <- i
-		}
-		close(next)
-		wg.Wait()
-	}
+// ExtractFile is Extract for the file at path. See the function
+// ExtractFile.
+func (e *Extractor) ExtractFile(ctx context.Context, path string, opts *gofastcore.Options) (*gofastcore.Document, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-
-	// The parts are put together in page order, and the budget for
-	// decoded bytes is charged in that order, so where a document is cut
-	// does not depend on how the workers were scheduled.
-	m := merger{f: f, opts: opts, doc: doc, budget: budget, images: map[string]bool{}}
-	doc.Parts = make([]gofastcore.Part, 0, len(selected))
-	for i := range outs {
-		if !m.add(&outs[i]) {
-			break
-		}
+	f, err := e.Open(path, opts)
+	if err != nil {
+		return nil, err
 	}
-	e.describe(ctx, &m, pages)
-
-	// What concerns the file as a whole, in an order that does not
-	// depend on which worker found it.
-	found := f.Warnings()
-	for i := range found {
-		found[i].Message = cleanString(found[i].Message)
-	}
-	doc.Warnings = append(found, doc.Warnings...)
-	if rebuilt, redefined := f.Rebuilt(); rebuilt && redefined > 0 {
-		doc.Warn(gofastcore.SeverityWarning, gofastcore.WarnInputAmbiguous,
-			fmt.Sprintf("the cross-reference data is unusable and %d objects are defined more than once; the last definition of each was read", redefined))
-	}
-	if m.active {
-		doc.Warn(gofastcore.SeverityInfo, gofastcore.WarnInputActiveContent, "the document has scripts or actions that start a program; none was read or run")
-	}
-	if m.external {
-		doc.Warn(gofastcore.SeverityWarning, gofastcore.WarnInputExternalReference, "the document refers to files or addresses outside itself other than by links; nothing was fetched")
-	}
-	if tooMany {
-		doc.Warn(gofastcore.SeverityError, gofastcore.WarnLimitExceeded,
-			fmt.Sprintf("%d pages were asked for and the limit is %d; the pages after it are not read", rng.Last-rng.First+1, len(selected)))
-	}
-	if m.spent {
-		doc.Warn(gofastcore.SeverityError, gofastcore.WarnLimitExceeded,
-			fmt.Sprintf("the document decodes to more than the limit of %d bytes; what follows page %d is not read", budget, m.lastPage))
-	}
-
-	if m.attachmentsCut {
-		doc.Warn(gofastcore.SeverityError, gofastcore.WarnLimitExceeded,
-			fmt.Sprintf("the document decodes to more than the limit of %d bytes; some attached files were not extracted", budget))
-	}
-	if m.imagesCut {
-		doc.Warn(gofastcore.SeverityError, gofastcore.WarnLimitExceeded,
-			fmt.Sprintf("the document decodes to more than the limit of %d bytes; the data of some images is not included", budget))
-	}
-
-	// The reasons that were checked completely. Without DeepHidden, low
-	// contrast, covering and clipping are checked in part and are not
-	// listed. With it they are, unless a page has more shapes than are
-	// followed: then the first two were not checked on all of that page,
-	// and are not listed for the document.
-	doc.HiddenChecked = hiddenChecked
-	if opts.DeepHidden && !e.noHiddenChecks {
-		doc.HiddenChecked |= gofastcore.HiddenClipped
-		if !m.deepIncomplete {
-			doc.HiddenChecked |= gofastcore.HiddenLowContrast | gofastcore.HiddenOccluded
-		}
-	}
-	if invisibleInMetadata(doc) {
-		doc.Warn(gofastcore.SeverityWarning, gofastcore.WarnTextHidden, "the document information or the outline has invisible characters")
-	}
-	return doc, nil
+	defer f.Close()
+	return f.Document(ctx)
 }
 
 // hiddenChecked is the set of reasons a run with default options checks
@@ -248,6 +138,8 @@ type pageOut struct {
 	decoded int64
 	// images says, for each image block of the part, which image it is.
 	images []imageRef
+	// lines are the lines of the page, when they were asked for.
+	lines []layout.Line
 	// What the page contributes to the document's warnings.
 	active, external bool
 	// deepIncomplete is set when the checks of DeepHidden were not made
@@ -267,9 +159,19 @@ type imageRef struct {
 	inline bool
 }
 
+// want says what a page is read for besides its part.
+type want struct {
+	// lines asks for the lines of the page with their words.
+	lines bool
+	// stop, when set, is looked at as the page is read: once it holds
+	// true the page is abandoned, and what is returned for it is to be
+	// thrown away.
+	stop *atomic.Bool
+}
+
 // page extracts one page into a part. It never fails: a page that
 // cannot be read is a part with a part.failed warning.
-func (e *Extractor) page(f *file.File, p *file.Page, opts *gofastcore.Options) (out pageOut) {
+func (e *Extractor) page(f *file.File, p *file.Page, opts *gofastcore.Options, w want) (out pageOut) {
 	out.done = true
 	part := &out.part
 	part.Kind, part.Number = gofastcore.PartPage, p.Number
@@ -278,15 +180,15 @@ func (e *Extractor) page(f *file.File, p *file.Page, opts *gofastcore.Options) (
 		part.Warn(gofastcore.SeverityError, gofastcore.WarnPartFailed, cleanString(p.Err.Error()))
 		return out
 	}
-	m, w, h := p.Display()
-	part.Width, part.Height = w, h
+	m, width, height := p.Display()
+	part.Width, part.Height = width, height
 
 	var lay layout.Result
 	images := 0
-	res := extract.Page(f, p, extract.Options{Shapes: opts.DeepHidden, MaxShapes: e.maxShapes, Use: func(c *extract.Content) {
-		lay = layout.Build(layout.Page{M: m, Width: w, Height: h}, c, layout.Options{
+	res := extract.Page(f, p, extract.Options{Shapes: opts.DeepHidden, MaxShapes: e.MaxShapes, Words: w.lines, Stop: w.stop, Use: func(c *extract.Content) {
+		lay = layout.Build(layout.Page{M: m, Width: width, Height: height}, c, layout.Options{
 			Images: opts.Images != gofastcore.ImagesNone, NoHiddenChecks: e.noHiddenChecks,
-			Deep: opts.DeepHidden, MaxDeepSteps: e.maxDeepSteps,
+			Deep: opts.DeepHidden, MaxDeepSteps: e.maxDeepSteps, Lines: w.lines,
 		})
 		images = len(c.Images)
 		for k, i := range lay.Images {
@@ -295,6 +197,7 @@ func (e *Extractor) page(f *file.File, p *file.Page, opts *gofastcore.Options) (
 			}
 		}
 	}})
+	out.lines = lay.Lines
 	out.decoded, out.external, out.stats = res.Decoded, res.External, lay.Stats
 	out.actualDiffers, out.actualLonger, out.longGlyph = res.ActualDiffers, res.ActualLonger, res.LongGlyphText
 	part.Blocks = lay.Blocks
@@ -328,49 +231,4 @@ func (e *Extractor) page(f *file.File, p *file.Page, opts *gofastcore.Options) (
 	}
 	e.annotations(f, p, &out)
 	return out
-}
-
-// merger puts the parts together in page order.
-type merger struct {
-	f      *file.File
-	opts   *gofastcore.Options
-	doc    *gofastcore.Document
-	budget int64 // decoded bytes left
-	// spent is set when the budget ran out, after lastPage.
-	spent    bool
-	lastPage int
-
-	active, external bool
-	deepIncomplete   bool
-	attachments      []attachment
-	images           map[string]bool // the IDs that have had their data
-	inline           int
-	// imagesCut is set when the data of an image was left out because
-	// the budget for decoded bytes ran out.
-	imagesCut bool
-	// attachmentsCut is the same for attached files.
-	attachmentsCut bool
-}
-
-// add appends the part of one page. It reports false when the budget
-// for decoded bytes is used up: the document ends before this page.
-func (m *merger) add(out *pageOut) bool {
-	if !out.done {
-		return false
-	}
-	if m.budget -= out.decoded; m.budget < 0 {
-		m.spent = true
-		return false
-	}
-	m.lastPage = out.part.Number
-	m.active = m.active || out.active
-	m.external = m.external || out.external
-	m.deepIncomplete = m.deepIncomplete || out.deepIncomplete
-	m.attachments = append(m.attachments, out.attachments...)
-	m.doc.Parts = append(m.doc.Parts, out.part)
-	part := &m.doc.Parts[len(m.doc.Parts)-1]
-	for _, ref := range out.images {
-		m.image(part, ref)
-	}
-	return true
 }

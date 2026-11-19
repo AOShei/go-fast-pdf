@@ -3,6 +3,7 @@
 package pdftest
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -63,5 +64,17 @@ func contain(cmd *exec.Cmd, maxFileBytes int64, maxCPU time.Duration) (cleanup f
 		return nil
 	}
 	cmd.Cancel = killGroup
-	return func() { killGroup() }
+	// On return the group is killed until nothing is left in it. One
+	// kill is not enough: a process the program starts in the instant of
+	// the kill is not among those it reaches, and lives on in the group
+	// after the program is gone (seen on macOS in CI: a writer still
+	// appending to a file after the call returned).
+	return func() {
+		for range 100 {
+			if err := killGroup(); errors.Is(err, syscall.ESRCH) || cmd.Process == nil {
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
 }

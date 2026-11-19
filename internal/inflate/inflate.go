@@ -300,7 +300,9 @@ func Zlib(dst, src []byte, limit int64) ([]byte, error) {
 	}
 	if cap(dst)-len(dst) < 512 {
 		// A first guess at the size: text compresses to about a third.
-		guess := min(len(src)*3+512, end-base)
+		// Counted in 64 bits: three times a large input is more than
+		// an int holds on a 32-bit system.
+		guess := int(min(int64(len(src))*3+512, int64(end-base)))
 		grown := make([]byte, len(dst), len(dst)+guess)
 		copy(grown, dst)
 		dst = grown

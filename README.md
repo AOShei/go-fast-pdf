@@ -196,6 +196,10 @@ Settings that only PDF has are fields of `gofastpdf.Extractor`. The
   of a field that displays nothing is a block with the field's name
 - **Outline, page labels, document information, attached files** - attached files are handed to a child
   extractor that you supply
+- **What a file stores and shows nowhere** - scripts, the metadata packet, entries of the file's own making
+  in the document information, form fields on no page: read as text, never run, flagged `invisible`, with
+  `Attrs["stored"]` saying what each is. A page's scripts are on the page; the rest is in a last part of
+  kind `stored`
 - **Lines and words** - `Page.Lines` gives every line with its font and size and the box of each word
 
 ## Output
@@ -246,7 +250,7 @@ visible paragraphs are what they would be without it.
 
 | Reason | What it means | Checked by default | With `DeepHidden` |
 |---|---|---|---|
-| `invisible` | Rendering mode that paints nothing; content of a layer that is switched off | in full | in full |
+| `invisible` | Rendering mode that paints nothing; content of a layer that is switched off; an annotation or a form field that its flags hide; what the file stores and shows nowhere (scripts, its metadata packet, entries of its own) | in full | in full |
 | `text_layer` | The text of a scan: not painted, or covered, within an image over half the page | in full | in full |
 | `tiny` | Displayed smaller than 2 points | in full | in full |
 | `off_page` | Wholly outside the visible page | in full | in full |

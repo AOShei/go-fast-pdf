@@ -34,6 +34,9 @@ type synthDoc struct {
 	// Font is the dictionary of /F1, Helvetica if empty.
 	Font  string
 	Pages []synthPage
+	// Info are the entries of the document information dictionary; none
+	// if empty.
+	Info string
 }
 
 func (d synthDoc) bytes() []byte {
@@ -56,6 +59,9 @@ func (d synthDoc) bytes() []byte {
 	pdftest.Doc(pdftest.DocOptions{Base: b, Font: d.Font}, specs...)
 	if d.Catalog != "" {
 		b.Set(catalog, fmt.Sprintf("<< /Type /Catalog /Pages %d 0 R %s >>", tree, d.Catalog))
+	}
+	if d.Info != "" {
+		b.Trailer += fmt.Sprintf(" /Info %d 0 R", b.Add("<< "+d.Info+" >>"))
 	}
 	return b.Bytes()
 }

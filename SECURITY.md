@@ -11,8 +11,11 @@ use all the memory of its machine, or to return something other than what the fi
 
 The library
 
-- **runs nothing that a file contains.** JavaScript, actions and launch commands are not read. Their
-  presence is reported as the warning `input.active_content`.
+- **runs nothing that a file contains.** JavaScript, actions and launch commands are not run, evaluated or
+  followed. Their presence is reported as the warning `input.active_content`, and the text of a script is
+  extracted as a code block flagged `invisible`, so that a consumer can see it and keep it from a model.
+- **reads the metadata packet as text and nothing more.** It is XML: tags, attributes, text and the five
+  entities of XML are read. No schema, no entity of the file's making, nothing fetched.
 - **fetches nothing and opens no other file.** A file that refers to data outside itself gets
   `input.external_reference`, and that data is not read.
 - **starts no program and writes no file.**
@@ -65,7 +68,7 @@ Bounds that are fixed:
 
 | What | Bound |
 |---|---|
-| Objects in a file | 4,194,304 |
+| Objects in a file | 8,388,607, the most the format allows |
 | Pages | 1,048,576 |
 | Nesting of arrays and dictionaries | 100 |
 | Nesting of forms drawn inside forms | 16, and 10,000 forms on one page |
@@ -77,7 +80,8 @@ Bounds that are fixed:
 | Outline items | 131,072, 64 levels deep |
 | Attached files | 4,096; the name and the stated type of each are held to 1,024 bytes |
 | Annotations looked at on one page, form fields in a file | 16,384 and 65,536 |
-| Text written in the annotations and held as values by the fields of one page | 16 MiB |
+| Text written in the annotations, held as values by the fields, and in the scripts of one page | 16 MiB |
+| Text of what the file stores and shows on no page (the stored part) | 16 MiB; 4,096 scripts, 1,024 entries of the document information and properties of the metadata packet |
 | Work of the `DeepHidden` checks on one page | 33,554,432 comparisons |
 | Warnings kept for one file | 100 |
 

@@ -43,8 +43,10 @@ type Limits struct {
 // DefaultLimits returns the limits used when none are given.
 func DefaultLimits() Limits {
 	return Limits{
-		MaxStreamBytes:   64 << 20,
-		MaxObjects:       4 << 20,
+		MaxStreamBytes: 64 << 20,
+		// The most indirect objects the format allows a file to have
+		// (ISO 32000-1, Annex C).
+		MaxObjects:       8388607,
 		MaxPages:         1 << 20,
 		MaxNesting:       syntax.DefaultMaxDepth,
 		MaxXRefSections:  1024,

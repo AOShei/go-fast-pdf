@@ -17,3 +17,4 @@
 . FuzzOpen
 . FuzzPage
 ./internal/inflate FuzzZlib
+. FuzzPacket

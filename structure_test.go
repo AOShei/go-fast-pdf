@@ -363,8 +363,23 @@ func TestActiveContentAndExternalReferences(t *testing.T) {
 				if active && a.Severity != gofastcore.SeverityInfo || external && e.Severity != gofastcore.SeverityWarning {
 					t.Errorf("severities %s and %s", a.Severity, e.Severity)
 				}
-				if got := doc.Parts[0].Text(); got != visibleText+"\n" {
+				// What a page shows is not changed by what it would run.
+				if got := pageText(&doc.Parts[0]); got != visibleText+"\n" {
 					t.Errorf("text %q", got)
+				}
+				// A script is read as text, never run: a code block, on its
+				// page or in the stored part, flagged.
+				scripts := 0
+				for _, b := range doc.AllBlocks() {
+					if b.Kind == gofastcore.KindCode {
+						scripts++
+						if b.Attrs[gofastcore.AttrStored] != gofastcore.StoredMacro || b.Hidden&gofastcore.HiddenInvisible == 0 || b.Attrs[gofastcore.AttrLanguage] != "javascript" {
+							t.Errorf("a script: %+v", b)
+						}
+					}
+				}
+				if js := strings.Contains(c.name, "JavaScript") && !strings.Contains(c.name, "empty"); js != (scripts > 0) {
+					t.Errorf("%d scripts", scripts)
 				}
 			}
 		})

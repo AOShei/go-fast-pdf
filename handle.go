@@ -364,19 +364,43 @@ func (st *state) settle() {
 	st.dec.Take(st.dec.Left() - st.budget)
 }
 
-// blockCost is what a block takes from the budget for text beyond its
-// own text: about what it takes to write a block down that has none,
-// its kind, its place and, for an image, what the image is. Over the
-// 3,150 files of the corpus and the soak set the JSON of a document is
-// 157 bytes a block beyond the text.
-//
-// Without it the budget would bound the text and not the document. A
-// file can draw one image a hundred thousand times on every page with a
-// few bytes of content for each, and a block of no text would be free.
-const blockCost = 128
+// stored is the part for what the file holds and shows on no page:
+// scripts, entries of its own in the document information, what its
+// metadata packet says beyond that, fields of a form that are on no
+// page. It comes after the pages and is numbered after them, and it is
+// there only when the whole document was asked for and read to its end.
+// ok is false when there is no such part, and whole when the limit on
+// text cut it.
+func (st *state) stored() (part gofastcore.Part, ok, whole bool) {
+	f := st.f
+	d := f.describe()
+	if len(d.stored) == 0 || f.opts.Parts != (gofastcore.PartRange{}) || f.tooMany {
+		return part, false, true
+	}
+	part = gofastcore.Part{Kind: gofastcore.PartStored, Number: len(f.pages) + 1, Hidden: gofastcore.HiddenInvisible}
+	// A copy: the part is the caller's to change, and what was read is
+	// read once for the file.
+	part.Blocks = make([]gofastcore.Block, len(d.stored))
+	for i, b := range d.stored {
+		attrs := make(map[string]string, len(b.Attrs))
+		for k, v := range b.Attrs {
+			attrs[k] = v
+		}
+		b.Attrs = attrs
+		part.Blocks[i] = b
+	}
+	if d.storedCut {
+		part.Warn(gofastcore.SeverityError, gofastcore.WarnLimitExceeded,
+			fmt.Sprintf("the file stores more than %d bytes of text that it shows on no page; the rest is not read", maxStoredBytes))
+	}
+	whole = st.charge(&part)
+	part.MarkHidden()
+	return part, true, whole
+}
 
 // charge takes a part from the budget for text: its name, where the
-// file gives it one, and for each of its blocks the text and blockCost.
+// file gives it one, and for each of its blocks the text and gofastcore.BlockCost, which is
+// the rule of the shared model: a block of no text is not free.
 // It reports whether all of it was there to take. If not, the part is
 // cut before the block that did not fit, and says so; nothing after it
 // is read.
@@ -387,7 +411,7 @@ func (st *state) charge(part *gofastcore.Part) bool {
 	}
 	kept := 0
 	for ok && kept < len(part.Blocks) {
-		if ok = st.text.Take(blockCost + len(part.Blocks[kept].Text)); ok {
+		if ok = st.text.Take(gofastcore.BlockCost + len(part.Blocks[kept].Text)); ok {
 			kept++
 		}
 	}
@@ -397,7 +421,7 @@ func (st *state) charge(part *gofastcore.Part) bool {
 	clear(part.Blocks[kept:])
 	part.Blocks = part.Blocks[:kept]
 	part.Warn(gofastcore.SeverityError, gofastcore.WarnLimitExceeded,
-		fmt.Sprintf("the text and the blocks of the document are more than the limit on text of %d bytes; this page is cut where the limit was reached", st.textLimit))
+		fmt.Sprintf("the text and the blocks of the document are more than the limit on text of %d bytes; this part is cut where the limit was reached", st.textLimit))
 	return false
 }
 
@@ -566,6 +590,18 @@ func (f *File) Parts(ctx context.Context) iter.Seq2[gofastcore.Part, error] {
 			}
 			return whole
 		})
+		if !stopped && err == nil && limit == nil {
+			// What the file holds and shows on no page comes last.
+			if part, ok, whole := st.stored(); ok {
+				if !yield(part, nil) {
+					return
+				}
+				if !whole {
+					limit = fmt.Errorf("%w: the text and the blocks of the document are more than the limit on text of %d bytes; what the file stores is cut",
+						gofastcore.ErrLimitExceeded, st.textLimit)
+				}
+			}
+		}
 		switch {
 		case stopped:
 		case err != nil:
@@ -674,6 +710,14 @@ func (f *File) Document(ctx context.Context) (*gofastcore.Document, error) {
 	}
 
 	d := f.describe()
+	if !spent && cut == 0 {
+		if part, ok, whole := st.stored(); ok {
+			if !whole {
+				cut = part.Number
+			}
+			doc.Parts = append(doc.Parts, part)
+		}
+	}
 	doc.Metadata, doc.Outline = f.Metadata(), f.Outline()[:st.outline]
 	st.attach(ctx, doc, append(append([]attachment(nil), d.attachments...), attachments...))
 	if err := ctx.Err(); err != nil {
@@ -703,7 +747,7 @@ func (f *File) Document(ctx context.Context) (*gofastcore.Document, error) {
 	}
 	if cut > 0 {
 		doc.Warn(gofastcore.SeverityError, gofastcore.WarnLimitExceeded,
-			fmt.Sprintf("the text and the blocks of the document are more than the limit on text of %d bytes; page %d is cut and what follows it is not read", st.textLimit, cut))
+			fmt.Sprintf("the text and the blocks of the document are more than the limit on text of %d bytes; part %d is cut and what follows it is not read", st.textLimit, cut))
 	}
 	if st.unread {
 		doc.Warn(gofastcore.SeverityError, gofastcore.WarnLimitExceeded,

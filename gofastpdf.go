@@ -177,6 +177,8 @@ type pageOut struct {
 	deepIncomplete bool
 	// attachments are the files attached to the page by annotations.
 	attachments []attachment
+	// scripts are the scripts of the actions that were looked at.
+	scripts []script
 	// What the layout and the interpreter counted. It is for
 	// measurement and goes into no document.
 	stats                                  layout.Stats
@@ -235,7 +237,8 @@ func (e *Extractor) page(f *file.File, p *file.Page, opts *gofastcore.Options, w
 
 	// What the page says outside its content: the text of its
 	// annotations and the values of its form fields.
-	extras, notesCut := pageNotes(f, p, res.Shown, m, width, height)
+	notes := &reader{f: f, room: maxPageNoteBytes}
+	extras, notesCut := pageNotes(notes, p, res.Shown, m, width, height)
 	out.addNotes(extras)
 	if notesCut {
 		noteWarning(part)
@@ -268,5 +271,15 @@ func (e *Extractor) page(f *file.File, p *file.Page, opts *gofastcore.Options, w
 		part.Warnings[i].Message = cleanString(part.Warnings[i].Message)
 	}
 	e.annotations(f, p, &out)
+	// The scripts of the page's actions and of its annotations: stored
+	// and never shown, so read as text and flagged, after everything
+	// else of the page.
+	if code, cut := scriptBlocks(notes, out.scripts, map[string]bool{}); len(code) > 0 || cut {
+		part.Blocks = append(part.Blocks, code...)
+		if cut && !notesCut {
+			noteWarning(part)
+		}
+	}
+	out.scripts = nil
 	return out
 }

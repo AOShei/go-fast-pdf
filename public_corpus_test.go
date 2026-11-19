@@ -400,6 +400,9 @@ func handleAgainstDocument(path string, doc *gofastcore.Document) string {
 	}
 	for i := range doc.Parts {
 		part := &doc.Parts[i]
+		if part.Kind == gofastcore.PartStored {
+			continue // not a page
+		}
 		page, err := f.Page(part.Number)
 		if err != nil {
 			return err.Error()
@@ -455,7 +458,7 @@ func linesAgainstPart(lines []gofastpdf.Line, part *gofastcore.Part) string {
 	}
 	for i := range part.Blocks {
 		b := &part.Blocks[i]
-		if _, field := b.Attrs[gofastpdf.AttrField]; field {
+		if _, field := b.Attrs[gofastcore.AttrField]; field {
 			continue // the value of a form field is not set in lines of the page
 		}
 		if b.Kind == gofastcore.KindParagraph && perBlock[i] != letters(b.Text) {

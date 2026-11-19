@@ -103,6 +103,10 @@ func TestThreeWaysToTheSameParts(t *testing.T) {
 			}
 			var single []gofastcore.Part
 			for i := range doc.Parts {
+				if doc.Parts[i].Kind == gofastcore.PartStored {
+					single = append(single, doc.Parts[i]) // not a page: there is no other way to it
+					continue
+				}
 				page, err := f.Page(doc.Parts[i].Number)
 				if err != nil {
 					t.Fatalf("%s: Page(%d): %v", where, doc.Parts[i].Number, err)
@@ -132,8 +136,14 @@ func TestThreeWaysToTheSameParts(t *testing.T) {
 			if !reflect.DeepEqual(f.Metadata(), doc.Metadata) || fmt.Sprint(f.Outline()) != fmt.Sprint(doc.Outline) {
 				t.Errorf("%s: metadata or outline differ from the document's", where)
 			}
-			if f.NumPages() < len(doc.Parts) {
-				t.Errorf("%s: %d pages and %d parts", where, f.NumPages(), len(doc.Parts))
+			pages := 0
+			for i := range doc.Parts {
+				if doc.Parts[i].Kind == gofastcore.PartPage {
+					pages++
+				}
+			}
+			if f.NumPages() < pages {
+				t.Errorf("%s: %d pages and %d parts of pages", where, f.NumPages(), pages)
 			}
 
 			// A document assembled by a caller from the parts handed out.

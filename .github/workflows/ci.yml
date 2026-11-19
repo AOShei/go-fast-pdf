@@ -35,7 +35,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        # linux/amd64, linux/arm64, darwin/arm64 and windows/amd64.
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, windows-latest]
         go: ['1.25.x', stable]
     runs-on: ${{ matrix.os }}
     steps:
@@ -50,6 +51,36 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y poppler-utils qpdf
       - name: Test
         run: go test -race -timeout 20m ./...
+
+  # A build for a 32-bit processor finds what assumes that an int holds
+  # 64 bits: a size or an offset of a file that is larger than 2 GiB on
+  # paper.
+  test-32bit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: Test as a 386 build
+        run: GOARCH=386 go test -timeout 20m ./...
+
+  # Without the race detector: the tests of allocations and of time,
+  # which skip themselves under it, and the share of the statements that
+  # the tests run.
+  budgets-and-coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: Install poppler and qpdf
+        run: sudo apt-get update && sudo apt-get install -y poppler-utils qpdf
+      - name: Test with coverage
+        run: go test -timeout 20m -coverpkg=./... -coverprofile=cover.out ./...
+      - name: Coverage
+        run: .github/scripts/check-coverage.sh cover.out
 
   fuzz:
     runs-on: ubuntu-latest

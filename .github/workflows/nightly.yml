@@ -9,6 +9,10 @@ permissions:
   contents: read
 
 jobs:
+  # The public corpus against its baseline, and the soak test: every
+  # file of the corpus and the files fetched for the soak test alone,
+  # each in a process of its own under a time limit and a memory
+  # ceiling, with the default options and with DeepHidden.
   corpus:
     runs-on: ubuntu-latest
     timeout-minutes: 180
@@ -26,8 +30,43 @@ jobs:
           key: corpus-${{ hashFiles('testdata/fetch.sh') }}
       - name: Fetch the public corpus
         run: testdata/fetch.sh
+      - name: Fetch the files for the soak test
+        run: testdata/fetch.sh soak
       - name: Public corpus
-        run: go test -run 'TestPublicCorpus' -timeout 150m -v .
+        run: go test -run '^TestPublicCorpus$' -timeout 150m -v .
+      - name: Soak
+        if: always()
+        run: GOFASTPDF_SOAK_OUT=soak.txt go test -run '^TestSoak$' -timeout 150m -v .
+      - name: Keep the soak report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: soak
+          path: soak.txt
+          if-no-files-found: ignore
+
+  # This tree against the commit named in bench/BASE, both measured on
+  # this runner, in turns. Fails if a benchmark is more than 10 percent
+  # slower.
+  benchmarks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: Compare with the base
+        run: bench/compare.sh
+      - name: Keep the numbers
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmarks
+          path: bench-compare.txt
+          if-no-files-found: ignore
 
   fuzz-targets:
     runs-on: ubuntu-latest
@@ -36,10 +75,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - id: list
-        run: |
-          json=$({ grep -Ev '^(#|[[:space:]]*$)' .github/fuzz-targets.txt || true; } |
-            awk 'BEGIN { printf "[" } { printf "%s{\"pkg\":\"%s\",\"target\":\"%s\"}", (n++ ? "," : ""), $1, $2 } END { printf "]" }')
-          echo "matrix=$json" >> "$GITHUB_OUTPUT"
+        run: echo "matrix=$(.github/scripts/fuzz-matrix.sh)" >> "$GITHUB_OUTPUT"
 
   fuzz:
     needs: fuzz-targets
@@ -61,5 +97,5 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: fuzz-${{ matrix.target }}
+          name: fuzz-${{ matrix.target }}-${{ strategy.job-index }}
           path: '**/testdata/fuzz/**'

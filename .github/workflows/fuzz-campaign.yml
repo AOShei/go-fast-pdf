@@ -1,0 +1,78 @@
+name: Fuzz campaign
+
+# The long fuzzing before a release (IMPLEMENTATION_PLAN.md, Phase 8 and
+# section 4.6): every target for some hours, each in a job of its own. A
+# runner has four processors, so 14 targets for two hours are 112
+# processor hours. Started by hand:
+#
+#   gh workflow run fuzz-campaign.yml -f hours=2
+#
+# A failing input is kept as an artifact; it becomes a seed under the
+# package's testdata/fuzz with the fix. What the fuzzing found on the way
+# (the inputs that reach new code) is kept too, to start the next
+# campaign from.
+
+on:
+  workflow_dispatch:
+    inputs:
+      hours:
+        description: Hours per target (a job ends after six)
+        default: '2'
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz-targets:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.list.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: list
+        run: echo "matrix=$(.github/scripts/fuzz-matrix.sh)" >> "$GITHUB_OUTPUT"
+
+  fuzz:
+    needs: fuzz-targets
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.fuzz-targets.outputs.matrix) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: Fuzz
+        shell: bash
+        env:
+          HOURS: ${{ inputs.hours }}
+        run: |
+          case $HOURS in
+          1 | 2 | 3 | 4 | 5) ;;
+          *) echo "hours must be 1 to 5, not '$HOURS'" >&2; exit 1 ;;
+          esac
+          echo "$(nproc) processors"
+          go test -run '^$' -fuzz "^${{ matrix.target }}\$" -fuzztime "${HOURS}h" "${{ matrix.pkg }}" 2>&1 | tee fuzz.log
+      - name: Keep the failing input
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failing-${{ matrix.target }}-${{ strategy.job-index }}
+          path: '**/testdata/fuzz/**'
+      - name: Collect what was found on the way
+        if: always()
+        run: |
+          mkdir -p found
+          cp -r "$(go env GOCACHE)/fuzz/." found/ 2>/dev/null || true
+          tail -5 fuzz.log || true
+      - name: Keep it
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: found-${{ matrix.target }}-${{ strategy.job-index }}
+          path: found
+          if-no-files-found: ignore
+          retention-days: 30

@@ -32,6 +32,10 @@ files made to exhaust it, and is several times faster. The tag follows that of g
   cannot be read is a part with `part.failed` and the rest is returned.
 - **Images** as blocks in reading order, with position and size; with `ImagesData`, JPEG and JPEG 2000 as
   they are in the file and 8-bit gray and RGB samples as PNG.
+- **Forms and annotations.** The appearances of annotations are read as part of the page: the values
+  that filled form fields show, stamps, notes written on the page. What is written in a comment is a
+  `note` block; the value of a field that shows nothing is a block with the field's name. Hidden ones are
+  flagged.
 - **Outline, page labels, document information, attached files** (through `Options.Child`).
 - **Warnings** for what a file has that a consumer may want to know: active content, references to
   other files, repaired input, fonts without a mapping, text from right to left given in drawing order.
@@ -88,7 +92,7 @@ What "ready for production" was taken to mean, and what each point was measured 
 |---|---|
 | Never crashes | 3,186 files and 50,569 pages read, each file in a process of its own, with the default options and with `DeepHidden`: no panic, no stack overflow, no hang. Fuzzing: 14 targets for an hour each on machines of four processors, 56 processor hours and 2.3 billion inputs, with nothing found |
 | Bounded resources | In that run no file took more than 5 s of the 60 s allowed or more than 711 MiB of the 1 GiB allowed, for a process that reads the file twice and checks the results. The limits and fixed bounds are listed in SECURITY.md; cancellation is tested between pages and inside a long page. The text and the number of blocks of a document, with the files attached to it, are bounded by `MaxTextBytes` |
-| Correct text | Word-level F1 against `pdftotext`: at least 0.988 on each of the 27 born-digital Latin files of the fixture corpus (the floor is 0.98), 1.0 on each of the 8 files in other scripts (floor 0.95). Public corpus: mean F1 0.892 and order 0.826 over 1,650 files; 0.983 and 0.907 on the 200 ordinary documents of GovDocs1 |
+| Correct text | Word-level F1 against `pdftotext`: at least 0.988 on each of the 27 born-digital Latin files of the fixture corpus (the floor is 0.98), 1.0 on each of the 8 files in other scripts (floor 0.95). Public corpus: mean F1 0.914 and order 0.849 over 1,650 files; 0.983 and 0.907 on the 200 ordinary documents of GovDocs1 |
 | Conforms to the shared model | Every document of the runs above passes `Validate` and the contract checks, and is equal after a round trip through JSON |
 | Honest failure | 21 files that need a password and 15 that are not readable PDFs return the matching error; 27 pages that cannot be read are parts with `part.failed`. No file gives text that is not valid UTF-8 |
 | Flags hidden text | Every reason has fixtures that assert the flag, the warning, and that the visible text is unchanged. The default checks cost 1.1 percent of the instructions over 3,150 files (the bound was 3), and nothing is recorded of shapes without `DeepHidden` |

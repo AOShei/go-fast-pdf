@@ -454,7 +454,11 @@ func linesAgainstPart(lines []gofastpdf.Line, part *gofastcore.Part) string {
 		}
 	}
 	for i := range part.Blocks {
-		if b := &part.Blocks[i]; b.Kind == gofastcore.KindParagraph && perBlock[i] != letters(b.Text) {
+		b := &part.Blocks[i]
+		if _, field := b.Attrs[gofastpdf.AttrField]; field {
+			continue // the value of a form field is not set in lines of the page
+		}
+		if b.Kind == gofastcore.KindParagraph && perBlock[i] != letters(b.Text) {
 			return fmt.Sprintf("block %d is %.30q and its lines have the letters %.30q", i, b.Text, perBlock[i])
 		}
 	}

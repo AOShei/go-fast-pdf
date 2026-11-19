@@ -233,10 +233,18 @@ func (e *Extractor) page(f *file.File, p *file.Page, opts *gofastcore.Options, w
 	part.Blocks = lay.Blocks
 	part.Warnings = append(part.Warnings, res.Warnings...)
 
+	// What the page says outside its content: the text of its
+	// annotations and the values of its form fields.
+	extras, notesCut := pageNotes(f, p, res.Shown, m, width, height)
+	out.addNotes(extras)
+	if notesCut {
+		noteWarning(part)
+	}
+
 	switch {
 	case res.Err != nil:
 		part.Warn(gofastcore.SeverityError, gofastcore.WarnPartFailed, res.Err.Error())
-	case lay.HasText:
+	case lay.HasText || len(extras) > 0:
 	case images > 0:
 		part.Warn(gofastcore.SeverityWarning, gofastcore.WarnPartImageOnly, fmt.Sprintf("the page has %d images and no text", images))
 	default:

@@ -89,7 +89,7 @@ func extractBytes(data []byte, o extractOpts) (*extraction, error) {
 				po.Images++
 			}
 		}
-		po.Text = p.Text()
+		po.Text = pageText(p)
 		po.Chars = utf8.RuneCountInString(po.Text)
 		if !utf8.ValidString(po.Text) {
 			return out, fmt.Errorf("%w: page %d: text is not valid UTF-8", errContract, p.Number)
@@ -102,6 +102,34 @@ func extractBytes(data []byte, o extractOpts) (*extraction, error) {
 		}
 	}
 	return out, nil
+}
+
+// pageText is the text that a page shows: what its content draws and
+// what its annotations display, which the reference reader gives too.
+// Two things are in the part and not here, because the reference reader
+// does not read them and a score against it would count them as wrong:
+// what is written in a note, which is shown beside the page if at all,
+// and the value of a form field whose appearance shows nothing.
+func pageText(p *gofastcore.Part) string {
+	extra := func(b *gofastcore.Block) bool {
+		_, field := b.Attrs[gofastpdf.AttrField]
+		return field || b.Kind == gofastcore.KindNote
+	}
+	any := false
+	for i := range p.Blocks {
+		any = any || extra(&p.Blocks[i])
+	}
+	if !any {
+		return p.Text()
+	}
+	q := *p
+	q.Blocks = nil
+	for i := range p.Blocks {
+		if !extra(&p.Blocks[i]) {
+			q.Blocks = append(q.Blocks, p.Blocks[i])
+		}
+	}
+	return q.Text()
 }
 
 // errContract marks a result that the library must never return: a
@@ -198,11 +226,21 @@ func checkContract(doc *gofastcore.Document, opts *gofastcore.Options) error {
 				continue
 			case gofastcore.KindParagraph:
 				text = true
+			case gofastcore.KindNote:
+				// What an annotation says: the file says that it is one.
+				text = true
+				if b.Origin != gofastcore.OriginNative || b.Attrs[gofastcore.AttrNoteType] != gofastcore.NoteComment || b.Text == "" {
+					return fmt.Errorf("%s: a note with origin %s and attributes %v", where, b.Origin, b.Attrs)
+				}
 			default:
 				return fmt.Errorf("%s: a %s block", where, b.Kind)
 			}
-			if b.Origin != gofastcore.OriginInferred {
-				return fmt.Errorf("%s: a text block that is not marked as inferred", where)
+			// The text of the page is put into paragraphs by this library.
+			// The value of a form field and a note are what the file says
+			// they are.
+			_, field := b.Attrs[gofastpdf.AttrField]
+			if native := field || b.Kind == gofastcore.KindNote; native != (b.Origin == gofastcore.OriginNative) || !native && b.Origin != gofastcore.OriginInferred {
+				return fmt.Errorf("%s: a %s block with origin %s (the value of a form field: %v)", where, b.Kind, b.Origin, field)
 			}
 			if len(b.Spans) > 0 && b.Hidden&gofastcore.HiddenChars == 0 {
 				return fmt.Errorf("%s: spans on a block without invisible characters", where)

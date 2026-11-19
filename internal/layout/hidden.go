@@ -1,6 +1,7 @@
 package layout
 
 import (
+	"bytes"
 	"math"
 	"sort"
 
@@ -324,44 +325,124 @@ func (b *builder) markDuplicates() {
 	for i := range b.pieces {
 		b.sorted = append(b.sorted, int32(i))
 	}
+	// Copies start at the same point.
 	sortStable(b.sorted, func(i, j int32) bool { return b.pieces[i].sx < b.pieces[j].sx })
+	b.twins(false)
+	if !b.split {
+		return
+	}
+	// A copy that a clipping path cuts in two is two pieces, and the
+	// second of them ends where the line it repeats ends.
+	sortStable(b.sorted, func(i, j int32) bool { return b.pieces[i].ex < b.pieces[j].ex })
+	b.twins(true)
+}
+
+// twins goes through the pieces in the order of b.sorted, which is by
+// the point where they start or, with atEnd, where they end, and marks
+// those that repeat another.
+func (b *builder) twins(atEnd bool) {
+	n := len(b.sorted)
+	at := func(p *piece) (float64, float64) {
+		if atEnd {
+			return p.ex, p.ey
+		}
+		return p.sx, p.sy
+	}
 	for i, ai := range b.sorted {
 		a := &b.pieces[ai]
 		slack := overprintSlack * a.em
-		ra := &b.c.Runs[a.run]
+		ax, ay := at(a)
 		// A bound on the neighbours looked at keeps a page that draws
 		// everything at one point from costing the square of its size.
 		for k := i + 1; k < n && k <= i+32; k++ {
 			o := &b.pieces[b.sorted[k]]
-			if o.sx-a.sx > slack {
+			ox, oy := at(o)
+			if ox-ax > slack {
 				break
 			}
-			ro := &b.c.Runs[o.run]
-			if o.dup || a.dup || ro.Font != ra.Font || ro.Len != ra.Len ||
-				math.Abs(o.sy-a.sy) > slack || math.Abs(o.size-a.size) > 0.001*a.size ||
-				o.dx*a.dx+o.dy*a.dy < 0.999 || string(b.runText(o.run)) != string(b.runText(a.run)) {
+			if o.dup || a.dup || math.Abs(oy-ay) > slack {
 				continue
 			}
-			// Of two copies, the later one goes. Of a copy a reader can
-			// see and one he cannot, the hidden one goes: it hides
-			// nothing that is not in plain sight in the same place. Two
-			// copies hidden for different reasons both stay.
-			var drop *piece
-			switch {
-			case o.hidden == a.hidden:
-				drop = o
-				if a.run > o.run {
-					drop = a
-				}
-			case a.hidden == 0:
-				drop = o
-			case o.hidden == 0:
-				drop = a
-			default:
-				continue
+			if drop := b.twin(ai, b.sorted[k], atEnd); drop != nil {
+				drop.dup = true
+				b.stats.Duplicates++
 			}
-			drop.dup = true
-			b.stats.Duplicates++
 		}
 	}
+}
+
+// twin says which of two pieces that start at the same point, or end at
+// the same point, is to be left out as a repetition of the other: nil
+// if neither.
+func (b *builder) twin(ai, oi int32, atEnd bool) *piece {
+	a, o := &b.pieces[ai], &b.pieces[oi]
+	ra, ro := &b.c.Runs[a.run], &b.c.Runs[o.run]
+	if ro.Font != ra.Font || math.Abs(o.size-a.size) > 0.001*a.size || o.dx*a.dx+o.dy*a.dy < 0.999 {
+		return nil
+	}
+	ta, to := b.runText(a.run), b.runText(o.run)
+	if len(ta) == len(to) {
+		if string(ta) != string(to) {
+			return nil
+		}
+		// Of two copies, the later one goes. Of a copy a reader can see
+		// and one he cannot, the hidden one goes: it hides nothing that
+		// is not in plain sight in the same place. Two copies hidden for
+		// different reasons both stay.
+		switch {
+		case o.hidden == a.hidden:
+			if a.run > o.run {
+				return a
+			}
+			return o
+		case a.hidden == 0:
+			return o
+		case o.hidden == 0:
+			return a
+		}
+		return nil
+	}
+	if !b.split {
+		return nil
+	}
+	// One is a part of the other: the start of it, or its end. A page
+	// that draws a line and then draws it again through a clipping path
+	// gives such parts, one cut off by the path and one not. The part
+	// goes when the whole line is seen as well as it is, or better, and
+	// only when it is such a part: cut off, or drawn next to text of its
+	// line that is.
+	part, whole, pi, tp, tw := a, o, ai, ta, to
+	if len(ta) > len(to) {
+		part, whole, pi, tp, tw = o, a, oi, to, ta
+	}
+	if atEnd && !bytes.HasSuffix(tw, tp) || !atEnd && !bytes.HasPrefix(tw, tp) {
+		return nil
+	}
+	if (part.hidden == whole.hidden || whole.hidden == 0) && b.cutInTwo(pi) {
+		return part
+	}
+	return nil
+}
+
+// cutInTwo reports whether a piece is one of the parts that a clipping
+// path makes of a line: it is cut off itself, or the piece drawn just
+// before it or just after it is, on the same line.
+func (b *builder) cutInTwo(i int32) bool {
+	p := &b.pieces[i]
+	if b.c.Runs[p.run].CutOff {
+		return true
+	}
+	slack := overprintSlack * p.em
+	for _, k := range [2]int32{i - 1, i + 1} {
+		if k < 0 || int(k) >= len(b.pieces) {
+			continue
+		}
+		o := &b.pieces[k]
+		// How far the other piece starts from the line of this one.
+		across := (o.sx-p.sx)*-p.dy + (o.sy-p.sy)*p.dx
+		if b.c.Runs[o.run].CutOff && math.Abs(across) <= slack {
+			return true
+		}
+	}
+	return false
 }

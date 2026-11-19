@@ -333,6 +333,49 @@ func TestClippedImages(t *testing.T) {
 	}
 }
 
+// TestDeepHiddenCopies: a page can draw a line and then draw it again
+// through a clipping path that lets only a part of it show, where the
+// same letters are already. The copy is in two pieces then, one cut off
+// and one not, and neither is new text: the line is there once, and
+// nothing is flagged.
+func TestDeepHiddenCopies(t *testing.T) {
+	const line = "BT /F1 12 Tf 72 500 Td [(The quick ) 0 (brown fox)] TJ ET\n"
+	const want = "The quick brown fox"
+	// In Helvetica at 12 points "The quick " ends at about 127.
+	cases := []struct {
+		name, content string
+		blocks        []string
+	}{
+		{"the copy shows its end", line + "q 130 0 400 792 re W n " + line + "Q", []string{want}},
+		{"the copy shows its start", line + "q 0 0 125 792 re W n " + line + "Q", []string{want}},
+		{"the copy shows nothing", line + "q 0 0 10 10 re W n " + line + "Q", []string{want}},
+		{"the copy is drawn first", "q 130 0 400 792 re W n " + line + "Q " + line, []string{want}},
+		{"two copies", line + "q 130 0 400 792 re W n " + line + "Q q 0 0 125 792 re W n " + line + "Q", []string{want}},
+		// Text that is cut off and is not a copy of what is in view stays,
+		// flagged: other words in the same place, the same words elsewhere.
+		{"other words in the same place", line + "q 130 0 400 792 re W n BT /F1 12 Tf 72 500 Td (Pay the) Tj ET Q",
+			[]string{"clipped: Pay the", want}},
+		{"the same words in another place", line + "q 130 0 400 792 re W n BT /F1 12 Tf 72 300 Td [(The quick ) 0 (brown fox)] TJ ET Q",
+			[]string{want, "clipped: The quick", "brown fox"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			part := &mustExtract(t, onePage(c.content).bytes(), &gofastcore.Options{DeepHidden: true}).Parts[0]
+			if got := texts(part); fmt.Sprint(got) != fmt.Sprint(c.blocks) {
+				t.Errorf("blocks %q, want %q", got, c.blocks)
+			}
+			if part.Has(gofastcore.WarnTextHidden) != (len(c.blocks) > 1) {
+				t.Errorf("warnings %v", codes(part.Warnings))
+			}
+			// Without the checks the copy is the same text printed twice.
+			plain := &mustExtract(t, onePage(c.content).bytes(), nil).Parts[0]
+			if plain.Has(gofastcore.WarnTextHidden) {
+				t.Errorf("without DeepHidden: warnings %v", codes(plain.Warnings))
+			}
+		})
+	}
+}
+
 // manyShapes is a page that paints n small rectangles in a corner, then
 // the visible lines, and around them what cases is.
 func manyShapes(n int, before, after string) []byte {
@@ -441,6 +484,13 @@ func TestDeepHiddenShapeBound(t *testing.T) {
 		if want := wantWhole[b.Text]; b.Hidden&^want != 0 {
 			t.Errorf("a bound on the work: %q is %s, and %s without the bound", b.Text, b.Hidden, want)
 		}
+	}
+
+	// A page without text has nothing left unchecked, however many
+	// shapes it paints.
+	bare := onePage(strings.Repeat("0 0 5 5 re f\n", 100)).bytes()
+	if doc := extract(gofastpdf.BoundedExtractor(shapes, 0), bare, deep); doc.Parts[0].Has(gofastpdf.WarnDeepHiddenIncomplete) || doc.HiddenChecked != defaultChecked|deepChecked {
+		t.Errorf("a page without text: checked %s, warnings %v", doc.HiddenChecked, codes(doc.Parts[0].Warnings))
 	}
 
 	// One page with too many shapes takes the two reasons off the list

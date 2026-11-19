@@ -224,9 +224,15 @@ func (b *builder) deep() (complete bool) {
 
 	// Cut off by a clipping path: wholly outside the box it leaves.
 	for i := range b.pieces {
-		if p := &b.pieces[i]; c.Runs[p.run].CutOff && p.hidden&gofastcore.HiddenTextLayer == 0 {
-			p.hidden |= gofastcore.HiddenClipped
+		if p := &b.pieces[i]; c.Runs[p.run].CutOff {
+			b.split = true
+			if p.hidden&gofastcore.HiddenTextLayer == 0 {
+				p.hidden |= gofastcore.HiddenClipped
+			}
 		}
+	}
+	if len(b.pieces) == 0 {
+		return true // no text to check
 	}
 	if !(b.page.Width > 0 && b.page.Height > 0) {
 		return complete

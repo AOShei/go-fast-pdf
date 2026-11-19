@@ -138,6 +138,9 @@ type builder struct {
 	controls   int
 	rtl        bool
 	incomplete bool
+	// split is set when a clipping path cuts some run off: a line that
+	// is drawn twice may then be in pieces the second time.
+	split bool
 }
 
 var builders = sync.Pool{New: func() any { return new(builder) }}
@@ -265,7 +268,7 @@ func (b *builder) reset(page Page, c *extract.Content, opts Options) {
 	b.text, b.cands, b.frags, b.blocks, b.bidx = b.text[:0], b.cands[:0], b.frags[:0], b.blocks[:0], b.bidx[:0]
 	b.occ, b.big = b.occ[:0], b.big[:0]
 	b.stats = Stats{Runs: len(c.Runs)}
-	b.controls, b.rtl, b.incomplete = 0, false, false
+	b.controls, b.rtl, b.incomplete, b.split = 0, false, false, false
 }
 
 // trim drops what one unusually large page grew.

@@ -269,6 +269,9 @@ func scorePublicFile(path, refFile string) publicResult {
 		if diff := sameDocument(deep.Doc, deepMany.Doc); diff != "" {
 			return publicResult{Status: "invalid", Detail: clipString("with DeepHidden, 1 worker and 8 workers: "+diff, 120)}
 		}
+		if diff := deepAgainstDefault(got.Doc, deep.Doc); diff != "" {
+			return publicResult{Status: "invalid", Detail: clipString("with DeepHidden: "+diff, 160)}
+		}
 	}
 	if err != nil {
 		if errors.Is(err, errContract) {
@@ -286,6 +289,54 @@ func scorePublicFile(path, refFile string) publicResult {
 		r.F1, r.Order = round4(s.F1), round4(s.Order)
 	}
 	return r
+}
+
+// deepAgainstDefault checks what the checks of DeepHidden may change of
+// a document: they flag text, and take back the flag of text that was
+// taken for white on white. They add no text and lose none.
+//
+// Letters are compared, page by page, since blocks cannot be: hidden
+// text is laid out apart from the rest, and of text that a page prints
+// twice the copy that is kept is the one in view, which may be drawn
+// at another time than the one kept without the checks.
+//
+//   - A letter in view with the checks is in view without them, or
+//     flagged without them for its contrast alone.
+//   - A letter of the page without the checks is on the page with them.
+func deepAgainstDefault(plain, deep *gofastcore.Document) string {
+	if len(plain.Parts) != len(deep.Parts) {
+		return fmt.Sprintf("%d parts, and %d without", len(deep.Parts), len(plain.Parts))
+	}
+	letters := func(p *gofastcore.Part, keep func(gofastcore.Hidden) bool) map[rune]int {
+		m := map[rune]int{}
+		for j := range p.Blocks {
+			if b := &p.Blocks[j]; keep(b.Hidden) {
+				for _, r := range b.Text {
+					if unicode.IsLetter(r) || unicode.IsDigit(r) {
+						m[r]++
+					}
+				}
+			}
+		}
+		return m
+	}
+	any := func(gofastcore.Hidden) bool { return true }
+	for i := range plain.Parts {
+		p, d := &plain.Parts[i], &deep.Parts[i]
+		was := letters(p, func(h gofastcore.Hidden) bool { return h&^gofastcore.HiddenLowContrast == 0 })
+		for r, n := range letters(d, func(h gofastcore.Hidden) bool { return h == 0 }) {
+			if n > was[r] {
+				return fmt.Sprintf("page %d: %q is in view %d times, and %d times without the checks", p.Number, r, n, was[r])
+			}
+		}
+		all := letters(d, any)
+		for r, n := range letters(p, any) {
+			if n > all[r] {
+				return fmt.Sprintf("page %d: %q is on the page %d times, and %d times without the checks", p.Number, r, all[r], n)
+			}
+		}
+	}
+	return ""
 }
 
 func clipString(s string, n int) string {

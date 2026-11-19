@@ -1,9 +1,11 @@
 package extract
 
 import (
+	"bytes"
 	gofastcore "github.com/AOShei/go-fast-core"
 	"github.com/AOShei/go-fast-pdf/internal/content"
 	"github.com/AOShei/go-fast-pdf/internal/font"
+	"unicode/utf8"
 )
 
 // Run is a stretch of text set in one go: one font, size, colour and
@@ -187,6 +189,9 @@ type lineEnd struct {
 	space          float64
 	vertical       bool
 	serial         uint32 // the geometry the fields above were copied from
+	// leftward is set by separator when it took the string for the next
+	// one of text written from right to left.
+	leftward bool
 	// The string itself: its font and its text in interp.text.
 	font           *font.Font
 	textLo, textHi int32
@@ -206,6 +211,7 @@ func extent(size float64, vertical bool) (below, above float64) {
 // that starts at (x0, y0), ends at (x1, y1) and is written in direction
 // (dx, dy) at the given size.
 func (p *lineEnd) separator(x0, y0, x1, y1, dx, dy, size float64) byte {
+	p.leftward = false
 	if !p.valid {
 		return 0
 	}
@@ -250,6 +256,7 @@ func (p *lineEnd) separator(x0, y0, x1, y1, dx, dy, size float64) byte {
 	// of the two.
 	before := (p.sx-x1)*p.dx + (p.sy-y1)*p.dy
 	if fromStart < -slack && before <= gap && before >= -rightToLeftSlack*min(p.em(), size) {
+		p.leftward = true
 		return 0
 	}
 	// Another piece of text. On the same baseline it is the same place
@@ -420,6 +427,7 @@ func (in *interp) showCodes(f *font.Font, raw []byte) {
 		return
 	}
 	sep := p.separator(x0, y0, x1, y1, ge.dx, ge.dy, ge.size)
+	leftward := p.leftward
 	along := (x0-p.ex)*p.dx + (y0-p.ey)*p.dy
 	p.font, p.textLo, p.textHi = f, int32(start), int32(len(in.text))
 	p.sx, p.sy, p.ex, p.ey = x0, y0, x1, y1
@@ -445,7 +453,22 @@ func (in *interp) showCodes(f *font.Font, raw []byte) {
 	// A gap wider than the font size ends the run: what follows may be
 	// another entry of a row, or text that leaves room for a word drawn
 	// later, and a reader of the runs has to see the gap.
-	if n := len(in.runs); n > 0 && sep != '\n' && !replaced && !(sep == ' ' && along > ge.size) && in.runs[n-1].Clip == clip && in.continues(&in.runs[n-1], f, cut) {
+	//
+	// So does a step back along the line to before the string shown
+	// last: it is a piece of the line drawn out of its order, or the line
+	// printed again, and the layout can tell which only if it is a run of
+	// its own. A line that is printed again begins where the run began,
+	// with the text it began with.
+	//
+	// A string that ends where the last one began is the next one of text
+	// written from right to left, if its script is. In any other script it
+	// is a step back like the others: a line of two strings that is
+	// printed again starts that way.
+	back := sep == ' ' && along < 0
+	if n := len(in.runs); n > 0 && sep == 0 && along < 0 && !replaced {
+		back = leftward && !writtenLeftward(in.text[start:]) || in.printedFromStart(&in.runs[n-1], x0, y0, start)
+	}
+	if n := len(in.runs); n > 0 && sep != '\n' && !replaced && !back && !(sep == ' ' && along > ge.size) && in.runs[n-1].Clip == clip && in.continues(&in.runs[n-1], f, cut) {
 		last := &in.runs[n-1]
 		if sep == ' ' && start > 0 && in.text[start-1] != ' ' && len(in.text) > start && in.text[start] != ' ' {
 			in.text = append(in.text, 0)
@@ -477,6 +500,34 @@ func (in *interp) showCodes(f *font.Font, raw []byte) {
 		Sep: sep, ActualText: replaced, Glyphs: int32(sh.Glyphs), Unmapped: int32(sh.Unmapped), Assumed: int32(sh.Assumed),
 	})
 	in.checkTextLimit()
+}
+
+// writtenLeftward reports whether text has a letter of a script that is
+// written from right to left.
+func writtenLeftward(text []byte) bool {
+	for i := 0; i < len(text); {
+		r, n := utf8.DecodeRune(text[i:])
+		i += n
+		if r >= 0x0590 && r <= 0x08FF || r >= 0xFB1D && r <= 0xFDFF || r >= 0xFE70 && r <= 0xFEFC ||
+			r >= 0x10800 && r <= 0x10FFF || r >= 0x1E800 && r <= 0x1EFFF {
+			return true
+		}
+	}
+	return false
+}
+
+// printedFromStart reports whether the string whose text is
+// in.text[start:] and which starts at (x0, y0) is the beginning of the
+// run last, printed again: it starts where the run starts, and the run's
+// text starts with it.
+func (in *interp) printedFromStart(last *Run, x0, y0 float64, start int) bool {
+	slack := overprintSlack * last.Em()
+	dx, dy := x0-last.X0, y0-last.Y0
+	if dx > slack || dx < -slack || dy > slack || dy < -slack {
+		return false
+	}
+	text := in.text[start:]
+	return len(text) > 0 && int(last.Off) <= start && bytes.HasPrefix(in.text[last.Off:start], text)
 }
 
 // printedAgain reports whether the string whose text is in.text[start:]

@@ -24,6 +24,7 @@ func BenchmarkResolve(b *testing.B) {
 		b.Run(name, func(b *testing.B) {
 			b.SetBytes(int64(len(data)))
 			b.ReportAllocs()
+			defer pdftest.BenchInstructions(b)()
 			for b.Loop() {
 				f, err := Open(data, Limits{})
 				if err != nil {

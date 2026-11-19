@@ -9,6 +9,8 @@ import (
 	"io"
 	"math/rand"
 	"testing"
+
+	"github.com/AOShei/go-fast-pdf/internal/pdftest"
 )
 
 // reference decompresses with compress/zlib, in the way this module did
@@ -338,6 +340,7 @@ func BenchmarkZlib(b *testing.B) {
 		b.Run(name+"/inflate", func(b *testing.B) {
 			b.SetBytes(int64(len(data)))
 			dst := make([]byte, 0, len(data)+fastRoom)
+			defer pdftest.BenchInstructions(b)()
 			for b.Loop() {
 				if _, err := Zlib(dst, src, 1<<30); err != nil {
 					b.Fatal(err)
@@ -348,6 +351,7 @@ func BenchmarkZlib(b *testing.B) {
 			b.SetBytes(int64(len(data)))
 			dst := make([]byte, 0, len(data)+fastRoom)
 			zr, _ := zlib.NewReader(bytes.NewReader(src))
+			defer pdftest.BenchInstructions(b)()
 			for b.Loop() {
 				zr.(zlib.Resetter).Reset(bytes.NewReader(src), nil)
 				out := dst[:cap(dst)]

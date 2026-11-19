@@ -37,8 +37,8 @@ var (
 const (
 	// The bits of a code that index the first level of a table. Codes
 	// longer than that go through a second level.
-	litBits  = 10
-	distBits = 8
+	litBits  = 9
+	distBits = 6
 	lenBits  = 7 // the code of the code lengths has no longer codes
 
 	maxCodeLen = 15
@@ -601,8 +601,13 @@ loop:
 			}
 			from := w - back
 			switch {
-			case back >= length && length > 32:
-				copy(out[w:w+length], out[from:])
+			case length > 32:
+				// A long match: in pieces that each end where the one
+				// before was written, so that none runs into itself. The
+				// pieces double.
+				for at, end := w, w+length; at < end; {
+					at += copy(out[at:end], out[from:at])
+				}
 			case back >= 8:
 				// Eight bytes at a time. The last step may write past the
 				// match, into room that is there.
@@ -701,8 +706,14 @@ loop:
 		for {
 			from := w - back
 			fits := min(length, len(out)-w)
-			for i := 0; i < fits; i++ {
-				out[w+i] = out[from+i]
+			if fits < 16 {
+				for i := 0; i < fits; i++ {
+					out[w+i] = out[from+i]
+				}
+			} else {
+				for at, end := w, w+fits; at < end; {
+					at += copy(out[at:end], out[from:at])
+				}
 			}
 			w += fits
 			length -= fits

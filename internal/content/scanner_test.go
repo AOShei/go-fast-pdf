@@ -172,6 +172,7 @@ func BenchmarkScanner(b *testing.B) {
 	b.SetBytes(int64(len(data)))
 	b.ReportAllocs()
 	var s Scanner
+	defer pdftest.BenchInstructions(b)()
 	for b.Loop() {
 		s.Reset(data)
 		for {

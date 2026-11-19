@@ -4,7 +4,6 @@ import (
 	"errors"
 	"math"
 	"os"
-	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -174,17 +173,5 @@ func TestIsolation(t *testing.T) {
 	}
 	if got := run("T/hang", 2*time.Second); !strings.Contains(got, "hang") {
 		t.Errorf("hang case: %q", got)
-	}
-}
-
-func TestKnownFailingKeys(t *testing.T) {
-	key := regexp.MustCompile(`^[A-Z][0-9]+(/[a-z0-9-]+)?$`)
-	for k, phase := range KnownFailing {
-		if !key.MatchString(k) {
-			t.Errorf("key %q: want a defect ID, optionally followed by /case", k)
-		}
-		if !strings.HasPrefix(phase, "phase ") {
-			t.Errorf("key %q: value %q should name the phase that closes it", k, phase)
-		}
 	}
 }

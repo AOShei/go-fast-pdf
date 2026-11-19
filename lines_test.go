@@ -215,6 +215,11 @@ func TestWordBoxesAgainstPdftotext(t *testing.T) {
 	} {
 		path := filepath.Join("testdata", "fixtures", name+".pdf")
 		out, err := exec.Command("pdftotext", "-bbox", path, "-").Output()
+		if err != nil && total == 0 {
+			// Poppler's pdftotext has -bbox. Another program of the same
+			// name, which some systems have, does not.
+			t.Skipf("this pdftotext does not write word boxes: %v", err)
+		}
 		if err != nil {
 			t.Fatalf("%s: pdftotext: %v", name, err)
 		}

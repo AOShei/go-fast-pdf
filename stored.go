@@ -163,6 +163,9 @@ func stored(f *file.File, catalog syntax.Value, md *gofastcore.Metadata, scripts
 	said := []string{md.Title, md.Subject, md.Application, md.Extra["producer"]}
 	said = append(append(said, md.Authors...), md.Keywords...)
 	variable := func(kind, name, value string) {
+		// The name is the file's too: a property of the packet can be
+		// called anything, a control character included.
+		name = clipName(strings.TrimSpace(cleanString(name)))
 		text := charset.Letters(strings.TrimSpace(name + ": " + value))
 		blocks = append(blocks, gofastcore.Block{Kind: gofastcore.KindParagraph, Text: text, Origin: gofastcore.OriginNative,
 			Hidden: gofastcore.HiddenInvisible, Attrs: map[string]string{gofastcore.AttrStored: kind}})
@@ -446,7 +449,7 @@ func xfaValues(src string, named map[string]bool) (blocks []gofastcore.Block, cu
 			}
 			blocks = append(blocks, gofastcore.Block{Kind: gofastcore.KindParagraph, Text: text, Origin: gofastcore.OriginNative,
 				Hidden: gofastcore.HiddenInvisible, Attrs: map[string]string{
-					gofastcore.AttrStored: gofastcore.StoredFormField, gofastcore.AttrField: clipName(field)}})
+					gofastcore.AttrStored: gofastcore.StoredFormField, gofastcore.AttrField: clipName(cleanString(field))}})
 		}
 	}
 	return blocks, true

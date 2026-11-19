@@ -79,7 +79,10 @@ func (f *File) setupEncryption() error {
 	if !dict.IsDict() {
 		return fmt.Errorf("%w: the encryption dictionary is a %s", gofastcore.ErrMalformed, dict.Kind)
 	}
-	if filter := f.Resolve(dict.Get("Filter")); !filter.IsName("Standard") {
+	switch filter := f.Resolve(dict.Get("Filter")); {
+	case filter.IsName("Adobe.PubSec"):
+		return f.setupPublicKey(dict)
+	case !filter.IsName("Standard"):
 		return fmt.Errorf("%w: security handler /%s", gofastcore.ErrUnsupported, filter.NameString())
 	}
 
@@ -113,41 +116,7 @@ func (f *File) setupEncryption() error {
 		d.stm, d.str = cipherRC4, cipherRC4
 	case e.v == 4 && e.r == 4, e.v == 5 && (e.r == 5 || e.r == 6):
 		// The crypt filters named by /StmF and /StrF say which cipher.
-		cf := f.Resolve(dict.Get("CF"))
-		d.named = map[string]cipherKind{}
-		for i := range cf.Entries() {
-			name, filter := cf.Entry(i)
-			switch method := f.Resolve(f.Resolve(filter).Get("CFM")); {
-			case method.IsName("V2") && e.v == 4:
-				d.named[string(name)] = cipherRC4
-			case method.IsName("AESV2") && e.v == 4:
-				d.named[string(name)] = cipherAESV2
-			case method.IsName("AESV3") && e.v == 5:
-				d.named[string(name)] = cipherAESV3
-			case method.IsName("None"), method.IsNull():
-				// Decryption left to the application: not something this
-				// reader can do. Streams that use it are refused.
-			default:
-				return fmt.Errorf("%w: crypt filter method /%s with encryption version %d",
-					gofastcore.ErrUnsupported, method.NameString(), e.v)
-			}
-		}
-		pick := func(key string) (cipherKind, error) {
-			name := f.Resolve(dict.Get(key))
-			if name.Kind != syntax.Name || name.IsName("Identity") {
-				return cipherNone, nil
-			}
-			kind, ok := d.named[name.NameString()]
-			if !ok {
-				return 0, fmt.Errorf("%w: /%s names the crypt filter /%s, which is not usable", gofastcore.ErrUnsupported, key, name.NameString())
-			}
-			return kind, nil
-		}
-		var err error
-		if d.stm, err = pick("StmF"); err != nil {
-			return err
-		}
-		if d.str, err = pick("StrF"); err != nil {
+		if err := f.cryptFilters(dict, e.v, d); err != nil {
 			return err
 		}
 	default:
@@ -192,6 +161,47 @@ func (f *File) setupEncryption() error {
 	d.key = key
 	f.enc = d
 	return nil
+}
+
+// cryptFilters reads the crypt filters of /CF for encryption version v
+// into d, and the ciphers that /StmF and /StrF choose.
+func (f *File) cryptFilters(dict syntax.Value, v int64, d *decrypter) error {
+	cf := f.Resolve(dict.Get("CF"))
+	d.named = map[string]cipherKind{}
+	for i := range cf.Entries() {
+		name, filter := cf.Entry(i)
+		switch method := f.Resolve(f.Resolve(filter).Get("CFM")); {
+		case method.IsName("V2") && v == 4:
+			d.named[string(name)] = cipherRC4
+		case method.IsName("AESV2") && v == 4:
+			d.named[string(name)] = cipherAESV2
+		case method.IsName("AESV3") && v == 5:
+			d.named[string(name)] = cipherAESV3
+		case method.IsName("None"), method.IsNull():
+			// Decryption left to the application: not something this
+			// reader can do. Streams that use it are refused.
+		default:
+			return fmt.Errorf("%w: crypt filter method /%s with encryption version %d",
+				gofastcore.ErrUnsupported, method.NameString(), v)
+		}
+	}
+	pick := func(key string) (cipherKind, error) {
+		name := f.Resolve(dict.Get(key))
+		if name.Kind != syntax.Name || name.IsName("Identity") {
+			return cipherNone, nil
+		}
+		kind, ok := d.named[name.NameString()]
+		if !ok {
+			return 0, fmt.Errorf("%w: /%s names the crypt filter /%s, which is not usable", gofastcore.ErrUnsupported, key, name.NameString())
+		}
+		return kind, nil
+	}
+	var err error
+	if d.stm, err = pick("StmF"); err != nil {
+		return err
+	}
+	d.str, err = pick("StrF")
+	return err
 }
 
 // authenticate finds the file key. It tries the password as the user

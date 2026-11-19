@@ -153,6 +153,15 @@
 //   - Password: tried as the user password and as the owner password.
 //     The empty user password is always tried.
 //
+//   - Keys: private keys, for a file encrypted for a certificate (the
+//     public-key security handler, /Adobe.PubSec). Every key is tried on
+//     every recipient the file names. Keys are RSA: the file's envelope
+//     holds its key encrypted with RSA, with PKCS #1 v1.5 or OAEP, and
+//     the envelope's own content in AES or triple DES. An envelope in
+//     RC2, which old versions of Acrobat wrote, is ErrUnsupported. A
+//     file that no key opens is gofastcore.ErrKeyRequired; a password
+//     does not open it.
+//
 //   - Parts: a range of pages, for Extract, File.Parts and
 //     File.Document. A range that holds no page of the file is
 //     gofastcore.ErrNoPartsSelected. File.Page gives any page.
@@ -374,8 +383,9 @@
 // An error means that there is no document. It wraps one of the errors
 // of the shared model: ErrMalformed for input that is not a readable
 // PDF, including one without pages; ErrPasswordRequired and
-// ErrWrongPassword; ErrUnsupported for an encryption this package does
-// not have; ErrLimitExceeded for input larger than MaxInputBytes;
+// ErrWrongPassword; ErrKeyRequired for a file encrypted for a
+// certificate that no key of Options.Keys opens; ErrUnsupported for an
+// encryption this package does not have; ErrLimitExceeded for input larger than MaxInputBytes;
 // ErrNoPartsSelected. A file that can be read in part is not an error:
 // a page that cannot be read is a part with part.failed, in its place.
 package gofastpdf

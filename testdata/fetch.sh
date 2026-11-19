@@ -9,6 +9,8 @@
 #   testdata/fetch.sh            fetch the corpus that is scored
 #   testdata/fetch.sh pdfjs      fetch one source (pdfjs, pdfium, govdocs)
 #   testdata/fetch.sh soak       fetch the files that only the soak test reads
+#   testdata/fetch.sh pubsec     fetch files encrypted for a certificate, with
+#                                their keys (needs openssl)
 #
 # Cache: $GOFASTPDF_CACHE, or ~/.cache/gofastpdf-corpus.
 # An archive that is already in $GOFASTPDF_ARCHIVES is taken from there
@@ -169,6 +171,46 @@ fetch_soak() {
 			govdocs_thread "$n" "$sum" "$cache/soak-govdocs1-$n"
 		fi
 	done <<<"$soak_threads"
+}
+
+# Four files of PDFBox's tests, encrypted for a certificate by programs
+# other than PDFBox, and the two keystores that open them: what proves
+# that the public-key security handler derives the key as the format
+# says (TestPublicKeyFiles). Apache License 2.0; used for testing only,
+# not redistributed. The keystores are PKCS #12, which the standard
+# library of Go does not read: openssl writes their keys as PEM. They go
+# into .pubsec, which the scored corpus and the soak leave out.
+pdfbox_commit=47d20cb71934f3fc7f048f6a36969a378a9062e0
+pubsec_files="
+AESkeylength128.pdf 4c9633e68c8a6ece14bc79ae997d44b24868d38d2beea182314807b51d925b7b
+AESkeylength256.pdf a6701f87b613013d960c740efe52ca7fb2ae61e52a109b0bbaee4affffe26d72
+AES128ExposedMeta.pdf 998e95a72db2ae5c89dcec07be00530cc4ad75df1ae82e27357f8ce735be690f
+AES256ExposedMeta.pdf c8dbdfb034d7deb98f2d2b05d63228db1336a26bfe7c74ecd1e60400cae1ee21
+PDFBOX-4421-keystore.pfx f03a7bcf0a7f68b2919111d286c7a407bc05b875e4a045428a16f351ee2b9d63
+PDFBOX-5249.p12 f1e393fcd5dd497b600defb122352f0acc02b52d0095c0bb8e948d4fc8c9c1e6
+"
+fetch_pubsec() {
+	local dest=$cache/.pubsec
+	[ -f "$dest/.done-$pdfbox_commit" ] && return
+	local work name sum
+	work=$(workdir)
+	while read -r name sum; do
+		if [ -n "$name" ]; then
+			download "https://raw.githubusercontent.com/apache/pdfbox/$pdfbox_commit/pdfbox/src/test/resources/org/apache/pdfbox/encryption/$name" "$work/$name"
+			echo "$sum  $work/$name" | sha256sum --check --quiet
+		fi
+	done <<<"$pubsec_files"
+	# The keystores' passwords are those of PDFBox's tests. Old keystores
+	# are encrypted with RC2, which OpenSSL 3 reads only with -legacy.
+	keystore() { # keystore <file> <password> <pem>
+		contained 60 16 openssl pkcs12 -in "$work/$1" -nocerts -nodes -passin "pass:$2" -out "$work/$3" 2>/dev/null ||
+			contained 60 16 openssl pkcs12 -legacy -in "$work/$1" -nocerts -nodes -passin "pass:$2" -out "$work/$3"
+	}
+	keystore PDFBOX-4421-keystore.pfx 'w!z%C*F-JaNdRgUk' PDFBOX-4421.pem
+	keystore PDFBOX-5249.p12 '' PDFBOX-5249.pem
+	replace_dir "$dest"
+	cp "$work"/*.pdf "$work"/*.pem "$dest/"
+	touch "$dest/.done-$pdfbox_commit"
 }
 
 sources=("$@")

@@ -7,6 +7,7 @@ package file
 
 import (
 	"bytes"
+	"crypto"
 	"errors"
 	"fmt"
 	"io"
@@ -114,8 +115,10 @@ type File struct {
 	kept  atomic.Int64
 	letGo atomic.Bool
 	enc   *decrypter
-	// password is what the caller gave to open an encrypted file.
+	// password is what the caller gave to open an encrypted file, and
+	// keys the private keys for a file encrypted for a certificate.
 	password string
+	keys     []crypto.Decrypter
 	encObj   int64 // object number of the encryption dictionary, -1 if none
 	stms     objStmCache
 	pages    []Page
@@ -154,6 +157,13 @@ func Open(data []byte, limits Limits) (*File, error) {
 // ErrPasswordRequired when no password was given and ErrWrongPassword
 // otherwise. Nothing is decrypted with a key that was not checked.
 func OpenPassword(data []byte, limits Limits, password string) (*File, error) {
+	return OpenKeys(data, limits, password, nil)
+}
+
+// OpenKeys is OpenPassword with private keys as well, for a file
+// encrypted for a certificate (the public-key security handler). Such a
+// file that none of the keys opens is ErrKeyRequired.
+func OpenKeys(data []byte, limits Limits, password string, keys []crypto.Decrypter) (*File, error) {
 	limits = limits.withDefaults()
 	// Offsets count from the %PDF- header, which need not be the first
 	// byte of the file. Some files with leading bytes count from the
@@ -165,7 +175,7 @@ func OpenPassword(data []byte, limits Limits, password string) (*File, error) {
 	}
 	var first error
 	for _, base := range bases {
-		f := &File{data: data[base:], limits: limits, encObj: -1, password: password}
+		f := &File{data: data[base:], limits: limits, encObj: -1, password: password, keys: keys}
 		err := f.load()
 		if err == nil {
 			return f.finish(), nil
@@ -177,7 +187,7 @@ func OpenPassword(data []byte, limits Limits, password string) (*File, error) {
 			first = err
 		}
 	}
-	f := &File{data: data[header:], limits: limits, encObj: -1, password: password}
+	f := &File{data: data[header:], limits: limits, encObj: -1, password: password, keys: keys}
 	if err := f.rebuild(); err != nil {
 		if !errors.Is(err, gofastcore.ErrMalformed) {
 			return nil, err

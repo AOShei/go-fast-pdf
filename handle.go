@@ -147,7 +147,7 @@ func (e *Extractor) OpenBytes(data []byte, opts *gofastcore.Options) (*File, err
 	if opts.Limits.MaxDecodedBytes < 0 && e.MaxStreamBytes <= 0 {
 		limits.MaxStreamBytes = 1 << 40
 	}
-	inner, err := file.OpenPassword(data, limits, opts.Password)
+	inner, err := file.OpenKeys(data, limits, opts.Password, opts.Keys)
 	if err != nil {
 		return nil, err
 	}

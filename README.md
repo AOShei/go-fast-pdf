@@ -186,7 +186,8 @@ Settings that only PDF has are fields of `gofastpdf.Extractor`. The
 - **Paragraphs and reading order** - lines are joined into paragraphs; columns, tables drawn by rows, and
   pages drawn out of order are put in reading order
 - **Hidden text** - flagged with its reason, never dropped: see below
-- **Encryption** - RC4, AES-128 and AES-256, with user and owner passwords
+- **Encryption** - RC4, AES-128 and AES-256, with user and owner passwords, and files encrypted for a
+  certificate, with the private key (`Options.Keys`)
 - **Damaged files** - broken cross-reference data is rebuilt; a page that cannot be read is reported in
   its place and the rest is returned
 - **Images** - a block for every image, where it stands among the text, with its position and size; on

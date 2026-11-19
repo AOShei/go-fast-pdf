@@ -623,7 +623,7 @@ func FuzzEncryptedOpen(f *testing.F) {
 			return
 		}
 		for _, p := range file.Pages() {
-			file.Decode(file.Resolve(p.Dict.Get("Contents")), nil, 0)
+			file.Decode(file.Resolve(p.Dict().Get("Contents")), nil, 0)
 		}
 		file.Info()
 	})

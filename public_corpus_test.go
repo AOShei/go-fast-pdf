@@ -1,6 +1,7 @@
 package gofastpdf_test
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
@@ -8,8 +9,10 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"sort"
 	"strings"
@@ -20,6 +23,7 @@ import (
 	"unicode"
 
 	gofastcore "github.com/AOShei/go-fast-core"
+	gofastpdf "github.com/AOShei/go-fast-pdf"
 	"github.com/AOShei/go-fast-pdf/internal/pdftest"
 )
 
@@ -272,6 +276,11 @@ func scorePublicFile(path, refFile string) publicResult {
 		if diff := deepAgainstDefault(got.Doc, deep.Doc); diff != "" {
 			return publicResult{Status: "invalid", Detail: clipString("with DeepHidden: "+diff, 160)}
 		}
+		// The parts handed out one by one are those of the document, and
+		// the lines of every page are those of its blocks.
+		if diff := handleAgainstDocument(path, got.Doc); diff != "" {
+			return publicResult{Status: "invalid", Detail: clipString("the file handle: "+diff, 160)}
+		}
 	}
 	if err != nil {
 		if errors.Is(err, errContract) {
@@ -334,6 +343,91 @@ func deepAgainstDefault(plain, deep *gofastcore.Document) string {
 			if n > all[r] {
 				return fmt.Sprintf("page %d: %q is on the page %d times, and %d times without the checks", p.Number, r, all[r], n)
 			}
+		}
+	}
+	return ""
+}
+
+// handleAgainstDocument reads a file through the native API and
+// compares what it hands out with the document that Extract gave: the
+// parts of the iterator, and for every page its lines.
+func handleAgainstDocument(path string, doc *gofastcore.Document) string {
+	f, err := gofastpdf.Open(path, &gofastcore.Options{Workers: 8})
+	if err != nil {
+		return "Open: " + err.Error()
+	}
+	defer f.Close()
+	i := 0
+	for part, err := range f.Parts(context.Background()) {
+		if err != nil {
+			return "Parts: " + err.Error()
+		}
+		if i >= len(doc.Parts) || !reflect.DeepEqual(part, doc.Parts[i]) {
+			return fmt.Sprintf("part %d of the iterator is not that of the document", i+1)
+		}
+		i++
+	}
+	if i != len(doc.Parts) {
+		return fmt.Sprintf("%d parts from the iterator and %d in the document", i, len(doc.Parts))
+	}
+	for i := range doc.Parts {
+		part := &doc.Parts[i]
+		page, err := f.Page(part.Number)
+		if err != nil {
+			return err.Error()
+		}
+		lines, err := page.Lines()
+		if err != nil {
+			return err.Error()
+		}
+		if diff := linesAgainstPart(lines, part); diff != "" {
+			return fmt.Sprintf("page %d: %s", part.Number, diff)
+		}
+	}
+	return ""
+}
+
+// linesAgainstPart checks the lines of a page against its part: each
+// line is in a text block, in the order of the blocks, hidden as its
+// block is; its words are its text; and the letters of the lines of a
+// block are those of the block.
+func linesAgainstPart(lines []gofastpdf.Line, part *gofastcore.Part) string {
+	letters := func(s string) string {
+		var sb strings.Builder
+		for _, r := range s {
+			if unicode.IsLetter(r) || unicode.IsDigit(r) {
+				sb.WriteRune(r)
+			}
+		}
+		return sb.String()
+	}
+	perBlock := map[int]string{}
+	last := -1
+	for _, l := range lines {
+		if l.Block < last || l.Block >= len(part.Blocks) || part.Blocks[l.Block].Kind != gofastcore.KindParagraph {
+			return fmt.Sprintf("a line of block %d after one of block %d, of %d blocks", l.Block, last, len(part.Blocks))
+		}
+		last = l.Block
+		if l.Hidden != part.Blocks[l.Block].Hidden {
+			return fmt.Sprintf("a line is %q and its block %q", l.Hidden, part.Blocks[l.Block].Hidden)
+		}
+		perBlock[l.Block] += letters(l.Text)
+		var words []string
+		for _, w := range l.Words {
+			words = append(words, w.Text)
+			for _, v := range [...]float64{w.BBox.X0, w.BBox.Y0, w.BBox.X1, w.BBox.Y1} {
+				if math.IsNaN(v) || math.IsInf(v, 0) {
+					return fmt.Sprintf("the word %.20q has a box that is not a number", w.Text)
+				}
+			}
+		}
+		if strings.Join(strings.Fields(strings.Join(words, " ")), " ") != strings.Join(strings.Fields(l.Text), " ") {
+			return fmt.Sprintf("the line %.40q has the words %.60q", l.Text, words)
+		}
+	}
+	for i := range part.Blocks {
+		if b := &part.Blocks[i]; b.Kind == gofastcore.KindParagraph && perBlock[i] != letters(b.Text) {
+			return fmt.Sprintf("block %d is %.30q and its lines have the letters %.30q", i, b.Text, perBlock[i])
 		}
 	}
 	return ""

@@ -15,8 +15,9 @@ import (
 )
 
 // One test per defect of IMPLEMENTATION_PLAN.md section 2: correctness
-// (B) and crashes, hangs and resource exhaustion (C). The cases that are
-// still open are listed in internal/pdftest/known_failing.go.
+// (B) and crashes, hangs and resource exhaustion (C). The cases that
+// were still open used to be listed in a register, which is gone: all
+// are closed.
 
 // textCase checks that data extracts to the words in want, as the defect
 // case key, or as an ordinary test when key is empty. With oracle set,

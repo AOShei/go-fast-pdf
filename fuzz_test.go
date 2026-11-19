@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"unicode"
@@ -95,6 +96,30 @@ func FuzzPage(f *testing.F) {
 		if a, b := visibleText0(docs[0]), visibleText0(docs[1]); a != b {
 			t.Fatalf("the text differs with image blocks:\n%q\n%q", a, b)
 		}
+		// The page read through a file handle: the same part from the
+		// iterator and from the page by itself, and lines that are those
+		// of its blocks.
+		f, err := gofastpdf.OpenBytes(data, &gofastcore.Options{Workers: 1})
+		if err != nil {
+			t.Fatalf("OpenBytes: %v", err)
+		}
+		for part, err := range f.Parts(context.Background()) {
+			if err != nil || !reflect.DeepEqual(part, docs[0].Parts[0]) {
+				t.Fatalf("the iterator's part is not that of Extract (%v)", err)
+			}
+		}
+		page, _ := f.Page(1)
+		if part, err := page.Part(); err != nil || !reflect.DeepEqual(part, docs[0].Parts[0]) {
+			t.Fatalf("the part of the page by itself is not that of Extract (%v)", err)
+		}
+		lines, err := page.Lines()
+		if err != nil {
+			t.Fatalf("Lines: %v", err)
+		}
+		if diff := linesAgainstPart(lines, &docs[0].Parts[0]); diff != "" {
+			t.Fatalf("the lines: %s\n%s", diff, describe(&docs[0].Parts[0]))
+		}
+
 		// The checks of DeepHidden hide text, and show none but text
 		// that was taken for white on white: what is in view with them is
 		// in view without them, or flagged for its contrast alone.

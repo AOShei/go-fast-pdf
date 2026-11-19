@@ -1,0 +1,107 @@
+API of github.com/AOShei/go-fast-pdf: the exported declarations, sorted.
+
+const (
+	DefaultMaxInputBytes = 1 << 30
+
+	DefaultMaxDecodedBytes = 1 << 30
+)
+
+const (
+	WarnRTLVisualOrder = "pdf.rtl_visual_order"
+
+	WarnDeepHiddenIncomplete = "pdf.deep_hidden_incomplete"
+
+	WarnGlyphTextAssumed = "pdf.glyph_text_assumed"
+
+	WarnFontMissing = "pdf.font_missing"
+)
+
+const Format = "pdf"
+
+func (*Extractor) Formats() []string
+
+func (e *Extractor) Extract(ctx context.Context, r io.ReaderAt, size int64, opts *gofastcore.Options) (*gofastcore.Document, error)
+
+func (e *Extractor) ExtractFile(ctx context.Context, path string, opts *gofastcore.Options) (*gofastcore.Document, error)
+
+func (e *Extractor) Open(path string, opts *gofastcore.Options) (*File, error)
+
+func (e *Extractor) OpenBytes(data []byte, opts *gofastcore.Options) (*File, error)
+
+func (e *Extractor) OpenReaderAt(r io.ReaderAt, size int64, opts *gofastcore.Options) (*File, error)
+
+func (f *File) Close() error
+
+func (f *File) Document(ctx context.Context) (*gofastcore.Document, error)
+
+func (f *File) HiddenChecked() gofastcore.Hidden
+
+func (f *File) Metadata() gofastcore.Metadata
+
+func (f *File) NumPages() int
+
+func (f *File) Outline() []gofastcore.OutlineItem
+
+func (f *File) Page(n int) (*Page, error)
+
+func (f *File) Parts(ctx context.Context) iter.Seq2[gofastcore.Part, error]
+
+func (f *File) Warnings() []gofastcore.Warning
+
+func (p *Page) Lines() ([]Line, error)
+
+func (p *Page) Number() int
+
+func (p *Page) Part() (gofastcore.Part, error)
+
+func Extract(ctx context.Context, r io.ReaderAt, size int64, opts *gofastcore.Options) (*gofastcore.Document, error)
+
+func ExtractFile(ctx context.Context, path string, opts *gofastcore.Options) (*gofastcore.Document, error)
+
+func Open(path string, opts *gofastcore.Options) (*File, error)
+
+func OpenBytes(data []byte, opts *gofastcore.Options) (*File, error)
+
+func OpenReaderAt(r io.ReaderAt, size int64, opts *gofastcore.Options) (*File, error)
+
+type Extractor struct {
+	MaxStreamBytes int64
+
+	ObjectStreamCacheBytes int64
+
+	ObjectCacheBytes int64
+
+	MaxShapes int
+	// contains filtered or unexported fields
+}
+
+type File struct {
+	// contains filtered or unexported fields
+}
+
+type Line struct {
+	Text string
+
+	BBox gofastcore.Rect
+
+	Block int
+
+	Hidden gofastcore.Hidden
+
+	Font string
+	Size float64
+
+	Words []Word
+}
+
+type Page struct {
+	// contains filtered or unexported fields
+}
+
+type Word struct {
+	Text string
+
+	BBox gofastcore.Rect
+}
+
+var ErrClosed = errors.New("gofastpdf: the file is closed")

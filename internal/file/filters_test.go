@@ -256,7 +256,7 @@ func TestFiltersOnStreams(t *testing.T) {
 		b := doc(nil, "")
 		b.Set(4, pdftest.Stream(dict, "data"))
 		f := open(t, b.Bytes())
-		if _, err := f.Decode(f.Resolve(f.Pages()[0].Dict.Get("Contents")), nil, 0); !errors.Is(err, gofastcore.ErrUnsupported) {
+		if _, err := f.Decode(f.Resolve(f.Pages()[0].Dict().Get("Contents")), nil, 0); !errors.Is(err, gofastcore.ErrUnsupported) {
 			t.Errorf("%s: error %v, want ErrUnsupported", name, err)
 		}
 	}
@@ -308,7 +308,7 @@ func TestTIFFPredictor(t *testing.T) {
 	b := doc(nil, "")
 	b.Set(4, pdftest.Stream("/Filter /FlateDecode /DecodeParms << /Predictor 2 /BitsPerComponent 4 >>", string(pdftest.Deflate([]byte("xx")))))
 	f := open(t, b.Bytes())
-	if _, err := f.Decode(f.Resolve(f.Pages()[0].Dict.Get("Contents")), nil, 0); !errors.Is(err, gofastcore.ErrUnsupported) {
+	if _, err := f.Decode(f.Resolve(f.Pages()[0].Dict().Get("Contents")), nil, 0); !errors.Is(err, gofastcore.ErrUnsupported) {
 		t.Errorf("4-bit TIFF predictor: error %v, want ErrUnsupported", err)
 	}
 }

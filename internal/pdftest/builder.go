@@ -1,6 +1,6 @@
 // Package pdftest holds the test harness for go-fast-pdf: a builder that
 // assembles PDF files in memory, the pdftotext oracle, the accuracy scorer,
-// the golden-file helper and the known-failing register.
+// the golden-file helper and the runner of the defect cases.
 //
 // It is imported by tests only.
 package pdftest

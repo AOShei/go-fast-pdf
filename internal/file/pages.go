@@ -11,14 +11,22 @@ import (
 
 // Page is one leaf of the page tree, with the attributes it inherits
 // from its ancestors already applied.
+//
+// A page holds numbers only, not its dictionary: a file of a hundred
+// thousand pages has that many of these for as long as it is open. The
+// dictionary and the resources are read when they are asked for.
 type Page struct {
 	// Number is the 1-based position of the page in the document.
 	Number int
 	// Obj is the object number of the page dictionary, 0 if it is direct.
-	Obj  int64
-	Dict syntax.Value
-	// Resources is the resolved resource dictionary, or null.
-	Resources syntax.Value
+	Obj int64
+	f   *File
+	// dict is the dictionary of a page that is not an object of its own.
+	dict *syntax.Value
+	// Where the page's resources are: in the object resNode, or, when
+	// they are given by a reference or in a node that is no object, res.
+	resNode int64
+	res     *syntax.Value
 	// MediaBox and CropBox are [llx lly urx ury], normalised. HasMediaBox
 	// is false when no box is given anywhere up the tree.
 	MediaBox, CropBox [4]float64
@@ -37,12 +45,44 @@ type Page struct {
 // and must not be modified.
 func (f *File) Pages() []Page { return f.pages }
 
+// Dict returns the page dictionary, or null for an entry of the page
+// tree that is not a page.
+func (p *Page) Dict() syntax.Value {
+	switch {
+	case p.dict != nil:
+		return *p.dict
+	case p.Obj != 0 && p.f != nil && p.Err == nil:
+		return p.f.Object(p.Obj)
+	}
+	return syntax.Value{}
+}
+
+// Resources returns the resource dictionary of the page, its own or the
+// one it inherits, or null.
+func (p *Page) Resources() syntax.Value {
+	var res syntax.Value
+	switch {
+	case p.f == nil:
+	case p.res != nil:
+		res = p.f.Resolve(*p.res)
+	case p.resNode != 0:
+		res = p.f.Resolve(p.f.Object(p.resNode).Get("Resources"))
+	}
+	if !res.IsDict() {
+		return syntax.Value{}
+	}
+	return res
+}
+
 // inherited holds the attributes a page tree node passes down.
 type inherited struct {
-	resources syntax.Value
-	mediaBox  syntax.Value
-	cropBox   syntax.Value
-	rotate    syntax.Value
+	// The resources: the node that has them when it is an object, and
+	// otherwise the value, which is kept once for all pages under it.
+	resNode  int64
+	res      *syntax.Value
+	mediaBox syntax.Value
+	cropBox  syntax.Value
+	rotate   syntax.Value
 }
 
 // flattenPages walks the page tree once. /Count is not trusted.
@@ -66,15 +106,23 @@ func (f *File) flattenPages(root syntax.Value) []Page {
 		}
 		node := f.Resolve(it.ref)
 		if node.Kind != syntax.Dict {
-			pages = append(pages, Page{Number: len(pages) + 1, Obj: num,
+			pages = append(pages, Page{Number: len(pages) + 1, Obj: num, f: f,
 				Err: fmt.Errorf("%w: page tree entry is a %s", gofastcore.ErrMalformed, node.Kind)})
 			continue
 		}
 		inh := it.inh
+		if v := node.Get("Resources"); !v.IsNull() {
+			// A reference says where the resources are and holds nothing.
+			// A dictionary written into the node is found again through
+			// the node, if the node is an object.
+			if inh.resNode, inh.res = num, nil; v.Kind == syntax.Ref || num == 0 {
+				inh.resNode, inh.res = 0, &v
+			}
+		}
 		for _, a := range []struct {
 			key string
 			dst *syntax.Value
-		}{{"Resources", &inh.resources}, {"MediaBox", &inh.mediaBox}, {"CropBox", &inh.cropBox}, {"Rotate", &inh.rotate}} {
+		}{{"MediaBox", &inh.mediaBox}, {"CropBox", &inh.cropBox}, {"Rotate", &inh.rotate}} {
 			if v := node.Get(a.key); !v.IsNull() {
 				*a.dst = v
 			}
@@ -105,9 +153,9 @@ func (f *File) flattenPages(root syntax.Value) []Page {
 			continue
 		}
 
-		p := Page{Number: len(pages) + 1, Obj: num, Dict: node}
-		if res := f.Resolve(inh.resources); res.IsDict() {
-			p.Resources = res
+		p := Page{Number: len(pages) + 1, Obj: num, f: f, resNode: inh.resNode, res: inh.res}
+		if num == 0 {
+			p.dict = &node
 		}
 		if box, ok := f.rect(inh.mediaBox); ok {
 			p.MediaBox, p.HasMediaBox = box, true

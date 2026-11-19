@@ -138,9 +138,11 @@ func imageData(f *file.File, xobj syntax.Value, kind imageKind, limit int64) (da
 
 // image completes one image block: its ID, its media type and, when
 // data is asked for, its bytes on the first block that shows the image.
-func (m *merger) image(part *gofastcore.Part, ref imageRef) {
+// inline counts the images of the page that have no object of their own.
+func (st *state) image(part *gofastcore.Part, ref imageRef, inline *int) {
+	f := st.f.f
 	img := part.Blocks[ref.block].Image
-	wantData := m.opts.Images == gofastcore.ImagesData
+	wantData := st.f.opts.Images == gofastcore.ImagesData
 	undelivered := func(why string) {
 		if wantData && !part.Has(gofastcore.WarnImageUnsupportedEncoding) {
 			part.Warn(gofastcore.SeverityWarning, gofastcore.WarnImageUnsupportedEncoding,
@@ -149,33 +151,35 @@ func (m *merger) image(part *gofastcore.Part, ref imageRef) {
 	}
 	if ref.obj == 0 {
 		// An image in the content stream, or one that is not an object
-		// of its own: it has no number, and gets one by its place.
-		m.inline++
-		img.ID = "inline-" + strconv.Itoa(m.inline)
+		// of its own: it has no number, and gets one by its page and its
+		// place on it, so that a page's part does not depend on the
+		// pages before it.
+		*inline++
+		img.ID = "inline-" + strconv.Itoa(part.Number) + "-" + strconv.Itoa(*inline)
 		undelivered("the image is in the page's content stream")
 		return
 	}
 	img.ID = "obj-" + strconv.FormatInt(ref.obj, 10)
-	xobj := m.f.Object(ref.obj)
-	kind := kindOfImage(m.f, xobj)
+	xobj := f.Object(ref.obj)
+	kind := kindOfImage(f, xobj)
 	img.MIME = kind.mime
-	if !wantData || m.images[img.ID] {
+	if !wantData || st.images[img.ID] {
 		return
 	}
-	m.images[img.ID] = true
+	st.images[img.ID] = true
 	if kind.mime == "" {
 		undelivered(kind.why)
 		return
 	}
-	if m.budget <= 0 {
-		m.imagesCut = true
+	if st.budget <= 0 {
+		st.imagesCut = true
 		return
 	}
-	data, decoded, err := imageData(m.f, xobj, kind, min(m.budget, m.f.Limits().MaxStreamBytes))
-	m.budget -= decoded
+	data, decoded, err := imageData(f, xobj, kind, min(st.budget, f.Limits().MaxStreamBytes))
+	st.budget -= decoded
 	switch {
 	case err == file.ErrTruncated:
-		m.imagesCut = true
+		st.imagesCut = true
 	case err != nil:
 		undelivered(err.Error())
 	default:

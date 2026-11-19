@@ -31,6 +31,7 @@ package font
 import (
 	"math"
 	"sort"
+	"sync/atomic"
 	"unicode/utf16"
 	"unicode/utf8"
 
@@ -243,11 +244,33 @@ func Load(f *file.File, ref syntax.Value) *Font {
 	}
 	font := parse(f, dict)
 	if num != 0 {
-		actual, _ := f.Cache.LoadOrStore(cacheKey{num}, font)
+		actual, loaded := f.Cache.LoadOrStore(cacheKey{num}, font)
+		if !loaded {
+			// A file can have a font of its own on every page. What is
+			// kept is bounded: beyond it everything is let go, and a font
+			// that is still wanted is parsed again. A page keeps the
+			// fonts it is using by itself.
+			counter, _ := f.Cache.LoadOrStore(countKey{}, new(atomic.Int64))
+			if n := counter.(*atomic.Int64); n.Add(1) > maxCachedFonts {
+				f.Cache.Range(func(key, _ any) bool {
+					if _, ok := key.(cacheKey); ok {
+						f.Cache.Delete(key)
+					}
+					return true
+				})
+				n.Store(0)
+			}
+		}
 		return actual.(*Font)
 	}
 	return font
 }
+
+// maxCachedFonts is the number of fonts of a file that are kept at a
+// time.
+const maxCachedFonts = 1024
+
+type countKey struct{}
 
 // maxAdvance bounds a glyph advance, as a fraction of the font size. A
 // file can state any number; no glyph is a hundred times wider than it

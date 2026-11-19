@@ -27,71 +27,87 @@ const (
 	maxActionChain  = 32
 )
 
-// describe fills in what the document says about itself: its
-// information, the labels of its pages, its outline, the files attached
-// to it, and whether it holds things that are meant to run or that
-// point outside it.
-func (e *Extractor) describe(ctx context.Context, m *merger, pages []file.Page) {
-	f, doc := m.f, m.doc
-	catalog := f.Catalog()
+// described is what a file says about itself, read once and without
+// reading a page.
+type described struct {
+	meta    gofastcore.Metadata
+	outline []gofastcore.OutlineItem
+	// label gives the label of the page with an index from 0, nil when
+	// the file has no page labels.
+	label func(index int) string
+	// active and external say that the catalog or the form fields hold
+	// things that are meant to run or that point outside the file.
+	active, external bool
+	// attachments are the files attached to the document.
+	attachments []attachment
+	// invisible is set when the document information or the outline has
+	// invisible characters.
+	invisible bool
+}
 
-	// --- document information ---
-	md := &doc.Metadata
-	md.Encrypted = f.IsEncrypted()
-	if info := f.Info(); info.IsDict() {
-		md.Title = text(f, info.Get("Title"))
-		if a := text(f, info.Get("Author")); a != "" {
-			md.Authors = []string{a} // one field, one entry: it is not split
-		}
-		md.Subject = text(f, info.Get("Subject"))
-		if k := text(f, info.Get("Keywords")); k != "" {
-			md.Keywords = []string{k}
-		}
-		md.Application = text(f, info.Get("Creator"))
-		if p := text(f, info.Get("Producer")); p != "" {
-			md.Extra = map[string]string{"producer": p}
-		}
-		md.Created = parseDate(f.Resolve(info.Get("CreationDate")))
-		md.Modified = parseDate(f.Resolve(info.Get("ModDate")))
-	}
-	md.Language = text(f, catalog.Get("Lang"))
+// describe reads what the document says about itself: its information,
+// the labels of its pages, its outline, the files attached to it, and
+// whether it holds things that are meant to run or that point outside
+// it.
+func (f *File) describe() *described {
+	f.once.Do(func() {
+		d, in := &f.desc, f.f
+		catalog := in.Catalog()
 
-	// --- page labels ---
-	if label := pageLabels(f, catalog.Get("PageLabels")); label != nil {
-		for i := range doc.Parts {
-			p := &doc.Parts[i]
-			if name := label(p.Number - 1); name != "" && name != strconv.Itoa(p.Number) {
-				p.Name = name
+		// --- document information ---
+		md := &d.meta
+		md.Encrypted = in.IsEncrypted()
+		if info := in.Info(); info.IsDict() {
+			md.Title = text(in, info.Get("Title"))
+			if a := text(in, info.Get("Author")); a != "" {
+				md.Authors = []string{a} // one field, one entry: it is not split
 			}
+			md.Subject = text(in, info.Get("Subject"))
+			if k := text(in, info.Get("Keywords")); k != "" {
+				md.Keywords = []string{k}
+			}
+			md.Application = text(in, info.Get("Creator"))
+			if p := text(in, info.Get("Producer")); p != "" {
+				md.Extra = map[string]string{"producer": p}
+			}
+			md.Created = parseDate(in.Resolve(info.Get("CreationDate")))
+			md.Modified = parseDate(in.Resolve(info.Get("ModDate")))
 		}
-	}
+		md.Language = text(in, catalog.Get("Lang"))
 
-	// --- outline ---
-	if outlines := f.Resolve(catalog.Get("Outlines")); outlines.IsDict() {
-		doc.Outline = outline(f, catalog, outlines, pages)
-	}
+		// --- page labels and outline ---
+		d.label = pageLabels(in, catalog.Get("PageLabels"))
+		if outlines := in.Resolve(catalog.Get("Outlines")); outlines.IsDict() {
+			d.outline = outline(in, catalog, outlines, f.pages)
+		}
 
-	// --- things that run, and things outside the file ---
-	var facts pageOut
-	if open := f.Resolve(catalog.Get("OpenAction")); open.IsDict() {
-		scanAction(f, open, &facts, 0)
-	}
-	scanActions(f, catalog.Get("AA"), &facts)
-	names := f.Resolve(catalog.Get("Names"))
-	if js := f.Resolve(names.Get("JavaScript")); js.IsDict() && (len(f.Resolve(js.Get("Names")).Elems()) > 0 || len(f.Resolve(js.Get("Kids")).Elems()) > 0) {
-		facts.active = true
-	}
-	scanFields(f, f.Resolve(catalog.Get("AcroForm")).Get("Fields"), &facts)
-	m.active = m.active || facts.active
-	m.external = m.external || facts.external
+		// --- things that run, and things outside the file ---
+		var facts pageOut
+		if open := in.Resolve(catalog.Get("OpenAction")); open.IsDict() {
+			scanAction(in, open, &facts, 0)
+		}
+		scanActions(in, catalog.Get("AA"), &facts)
+		names := in.Resolve(catalog.Get("Names"))
+		if js := in.Resolve(names.Get("JavaScript")); js.IsDict() && (len(in.Resolve(js.Get("Names")).Elems()) > 0 || len(in.Resolve(js.Get("Kids")).Elems()) > 0) {
+			facts.active = true
+		}
+		scanFields(in, in.Resolve(catalog.Get("AcroForm")).Get("Fields"), &facts)
+		d.active, d.external = facts.active, facts.external
 
-	// --- attached files ---
-	var list []attachment
-	walkTree(f, names.Get("EmbeddedFiles"), "Names", func(key, val syntax.Value) bool {
-		list = append(list, attachment{name: text(f, key), spec: val})
-		return len(list) < maxAttachments
+		// --- attached files ---
+		walkTree(in, names.Get("EmbeddedFiles"), "Names", func(key, val syntax.Value) bool {
+			d.attachments = append(d.attachments, attachment{name: text(in, key), spec: val})
+			return len(d.attachments) < maxAttachments
+		})
+
+		d.invisible = invisibleInMetadata(&gofastcore.Document{Metadata: d.meta, Outline: d.outline})
 	})
-	list = append(list, m.attachments...)
+	return &f.desc
+}
+
+// attach makes a child document of every attached file of list, those
+// of the catalog first and then those of the pages, each once.
+func (st *state) attach(ctx context.Context, doc *gofastcore.Document, list []attachment) {
 	seen := map[int64]bool{}
 	for i := range list {
 		if ctx.Err() != nil || len(doc.Children) >= maxAttachments {
@@ -104,7 +120,7 @@ func (e *Extractor) describe(ctx context.Context, m *merger, pages []file.Page) 
 			}
 			seen[n] = true
 		}
-		if child := m.attach(ctx, a); child != nil {
+		if child := st.child(ctx, a); child != nil {
 			doc.Children = append(doc.Children, child)
 		}
 	}
@@ -555,8 +571,8 @@ type attachment struct {
 
 // attach makes the child document of one attached file. The file's data
 // is decoded only when there is a child extractor to give it to.
-func (m *merger) attach(ctx context.Context, a *attachment) *gofastcore.Document {
-	f := m.f
+func (st *state) child(ctx context.Context, a *attachment) *gofastcore.Document {
+	f := st.f.f
 	spec := f.Resolve(a.spec)
 	if !spec.IsDict() {
 		return nil
@@ -587,7 +603,7 @@ func (m *merger) attach(ctx context.Context, a *attachment) *gofastcore.Document
 		size = 0
 	}
 
-	opts := m.opts
+	opts := &st.f.opts
 	if opts.Child == nil || int64(opts.Depth) >= gofastcore.ResolveLimit(int64(opts.Limits.MaxDepth), gofastcore.DefaultMaxDepth) {
 		// Listed, not extracted: nothing is decoded.
 		return opts.ExtractChild(ctx, name, mime, bytes.NewReader(nil), size)
@@ -598,15 +614,15 @@ func (m *merger) attach(ctx context.Context, a *attachment) *gofastcore.Document
 		d.Warn(gofastcore.SeverityError, gofastcore.WarnChildFailed, why)
 		return d
 	}
-	if m.budget <= 0 {
-		m.attachmentsCut = true
+	if st.budget <= 0 {
+		st.attachmentsCut = true
 		return failed("the limit on decoded bytes was reached before this file")
 	}
-	data, err := f.Decode(stream, []byte{}, min(m.budget, f.Limits().MaxStreamBytes))
-	m.budget -= int64(len(data))
+	data, err := f.Decode(stream, []byte{}, min(st.budget, f.Limits().MaxStreamBytes))
+	st.budget -= int64(len(data))
 	if err != nil {
 		if err == file.ErrTruncated {
-			m.attachmentsCut = true
+			st.attachmentsCut = true
 		}
 		return failed(cleanString("the attached file could not be decoded: " + err.Error()))
 	}
@@ -617,8 +633,9 @@ func (m *merger) attach(ctx context.Context, a *attachment) *gofastcore.Document
 // attached to the page, and actions. The annotations themselves are not
 // extracted.
 func (e *Extractor) annotations(f *file.File, p *file.Page, out *pageOut) {
-	scanActions(f, p.Dict.Get("AA"), out)
-	annots := f.Resolve(p.Dict.Get("Annots")).Elems()
+	dict := p.Dict()
+	scanActions(f, dict.Get("AA"), out)
+	annots := f.Resolve(dict.Get("Annots")).Elems()
 	if len(annots) > maxAnnotations {
 		annots = annots[:maxAnnotations]
 	}

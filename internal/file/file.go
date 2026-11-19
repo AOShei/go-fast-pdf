@@ -13,6 +13,7 @@ import (
 	"sort"
 	"sync"
 	"sync/atomic"
+	"unsafe"
 
 	gofastcore "github.com/AOShei/go-fast-core"
 	"github.com/AOShei/go-fast-pdf/internal/syntax"
@@ -34,6 +35,9 @@ type Limits struct {
 	MaxXRefSections int
 	// ObjStmCacheBytes is the budget for decoded object streams.
 	ObjStmCacheBytes int64
+	// ObjCacheBytes is the budget for parsed objects. When more than
+	// that is kept, all of it is let go and the keeping starts afresh.
+	ObjCacheBytes int64
 }
 
 // DefaultLimits returns the limits used when none are given.
@@ -45,6 +49,7 @@ func DefaultLimits() Limits {
 		MaxNesting:       syntax.DefaultMaxDepth,
 		MaxXRefSections:  1024,
 		ObjStmCacheBytes: 64 << 20,
+		ObjCacheBytes:    4 << 20,
 	}
 }
 
@@ -67,6 +72,9 @@ func (l Limits) withDefaults() Limits {
 	}
 	if l.ObjStmCacheBytes <= 0 {
 		l.ObjStmCacheBytes = d.ObjStmCacheBytes
+	}
+	if l.ObjCacheBytes <= 0 {
+		l.ObjCacheBytes = d.ObjCacheBytes
 	}
 	return l
 }
@@ -99,7 +107,11 @@ type File struct {
 	xref    []entry
 	trailer syntax.Value
 	objs    []atomic.Pointer[syntax.Value]
-	enc     *decrypter
+	// kept is the estimated size of what objs holds, and letGo is set
+	// while it is being emptied.
+	kept  atomic.Int64
+	letGo atomic.Bool
+	enc   *decrypter
 	// password is what the caller gave to open an encrypted file.
 	password string
 	encObj   int64 // object number of the encryption dictionary, -1 if none
@@ -620,8 +632,39 @@ func (f *File) object(num int64, depth int) syntax.Value {
 	}
 	// Two goroutines may parse the same object; both get the same result
 	// and one of the copies is dropped.
-	f.objs[num].CompareAndSwap(nil, &v)
-	return *f.objs[num].Load()
+	if f.objs[num].CompareAndSwap(nil, &v) {
+		// What is kept is bounded: a file of many pages has an object or
+		// several for each, and they are not needed once the page is read.
+		// When the budget is used up everything is let go; what is still
+		// wanted is parsed again.
+		if f.kept.Add(weigh(&v, 0)) > f.limits.ObjCacheBytes && f.letGo.CompareAndSwap(false, true) {
+			for i := range f.objs {
+				f.objs[i].Store(nil)
+			}
+			f.kept.Store(0)
+			f.letGo.Store(false)
+		}
+	}
+	return v
+}
+
+// weigh estimates the memory a parsed object takes.
+func weigh(v *syntax.Value, depth int) int64 {
+	return values(v, depth) * int64(unsafe.Sizeof(*v))
+}
+
+// values counts the values an object is made of.
+func values(v *syntax.Value, depth int) int64 {
+	n := int64(1 + len(v.List))
+	if depth > 64 {
+		return n
+	}
+	for i := range v.List {
+		if len(v.List[i].List) > 0 {
+			n += values(&v.List[i], depth+1) - 1
+		}
+	}
+	return n
 }
 
 // decryptObject decrypts the strings of an object read from the file

@@ -15,14 +15,13 @@ import (
 	"time"
 )
 
-// The known-failing register.
+// The defect cases.
 //
-// Every defect in IMPLEMENTATION_PLAN.md section 2 has at least one test
-// case, identified by a key such as "B1" or "C1/Tf". A case whose key is
-// in KnownFailing (known_failing.go) is expected to fail: its failure is
-// reported as a skip and the build stays green. A case that passes while
-// it is still listed fails the build, so a fix must remove the entry in
-// the same change and the list can only shrink.
+// Every defect that the review of v0.1.1 found has at least one test
+// case, identified by a key such as "B1" or "C1/Tf". While the defects
+// were being closed, a register of keys said which cases were still
+// expected to fail. All are closed and the register is gone: a case that
+// fails is a failing test.
 
 // Defect runs fn as the test for the defect case key. fn returns nil when
 // the library behaves correctly and an error describing the wrong
@@ -91,13 +90,7 @@ const (
 
 func settle(t *testing.T, key string, err error) {
 	t.Helper()
-	_, listed := KnownFailing[key]
-	switch {
-	case listed && err != nil:
-		t.Skipf("known failing %s: %v", key, err)
-	case listed:
-		t.Errorf("%s passes but is still listed in internal/pdftest/known_failing.go: remove the entry", key)
-	case err != nil:
+	if err != nil {
 		t.Errorf("%s: %v", key, err)
 	}
 }

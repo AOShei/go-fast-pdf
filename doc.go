@@ -90,6 +90,35 @@
 // written, flagged as invisible, and one whose rectangle is off the
 // page as off_page.
 //
+// # What a file stores and shows nowhere
+//
+// A PDF can carry text that nobody who opens it sees: scripts, a packet
+// of metadata in XML, entries of the file's own making in the document
+// information, fields of a form that no page shows. A program that reads
+// the extracted document reads it all the same, so it is extracted,
+// flagged as invisible, and marked with what it is in Attrs["stored"]
+// (gofastcore.AttrStored). Nothing of it is run or followed.
+//
+//   - A script that an action of a page or of an annotation on it would
+//     run is a code block on that page, after its other blocks: stored
+//     "macro", with Attrs["language"] "javascript".
+//   - What belongs to the file and to no page is in one part of kind
+//     stored, after the pages and numbered after them: the scripts that
+//     the document names or that its own actions and its form would run
+//     ("macro", with the name the document gives a script); entries of
+//     the document information other than the standard ones
+//     ("document_variable", as "name: value"); what the metadata packet
+//     says that the document information does not ("custom_xml", as
+//     "property: values"); and the values of fields of the form that
+//     are on no page ("form_field", with the field's name).
+//
+// A value is given once, and values that say nothing in words (a yes or
+// no, a number, a date, an identifier) are left out; anything with
+// words in it is kept, whatever property it is under. The stored part is
+// there only when the whole document is read: Options.Parts and
+// Limits.MaxParts leave it out, and File.Parts gives it last. Its text
+// is bounded (16 MiB) and counted against the limit on text.
+//
 // The document information becomes Metadata: the title; the author as
 // one entry, not split; subject and keywords; the creating program as
 // Application and the producing one as Extra["producer"]; the dates;
@@ -287,7 +316,8 @@
 // document information, the outline and the names of attached files
 // are never displayed on a page and are extracted by design; a consumer
 // that feeds them to a model should treat them as it treats any text
-// from the file.
+// from the file. What else the file stores and shows nowhere is flagged:
+// see the section above.
 //
 // # Warnings
 //

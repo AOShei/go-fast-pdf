@@ -400,6 +400,9 @@ func handleAgainstDocument(path string, doc *gofastcore.Document) string {
 	}
 	for i := range doc.Parts {
 		part := &doc.Parts[i]
+		if part.Kind == gofastcore.PartStored {
+			continue // not a page
+		}
 		page, err := f.Page(part.Number)
 		if err != nil {
 			return err.Error()

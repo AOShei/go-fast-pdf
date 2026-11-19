@@ -61,26 +61,13 @@ type extra struct {
 // already and is not said twice: the value of a field becomes a block
 // only when the field's appearance shows nothing, and so does what is
 // written in a note that is itself written on the page.
-func pageNotes(f *file.File, p *file.Page, shown []bool, m [6]float64, width, height float64) (extras []extra, cut bool) {
+func pageNotes(r *reader, p *file.Page, shown []bool, m [6]float64, width, height float64) (extras []extra, cut bool) {
+	f := r.f
 	annots := f.Resolve(p.Dict().Get("Annots")).Elems()
 	if len(annots) > maxAnnotations {
 		annots = annots[:maxAnnotations]
 	}
-	room := maxPageNoteBytes
-	// text reads a text string of the file, if there is room for it. A
-	// string is not longer decoded than three times its bytes.
-	text := func(v syntax.Value) (string, bool) {
-		v = f.Resolve(v)
-		if v.Kind != syntax.String || len(v.Data) == 0 {
-			return "", true
-		}
-		if 3*len(v.Data) > room {
-			return "", false
-		}
-		s := strings.TrimSpace(cleanString(charset.TextString(v.Data)))
-		room -= len(s)
-		return s, true
-	}
+	text := r.text
 	for i, ref := range annots {
 		a := f.Resolve(ref)
 		if !a.IsDict() {
@@ -231,7 +218,7 @@ func fieldValue(f *file.File, widget syntax.Value, text func(syntax.Value) (stri
 		if state := f.Resolve(widget.Get("AS")); state.Kind == syntax.Name && state.NameString() != value.NameString() {
 			return extra{}, true
 		}
-		out = strings.TrimSpace(cleanString(strings.ToValidUTF8(value.NameString(), "�")))
+		out = strings.TrimSpace(cleanString(strings.ToValidUTF8(value.NameString(), "\uFFFD")))
 		out = clipName(charset.Letters(out))
 	}
 	if !ok || out == "" {
@@ -341,5 +328,5 @@ func (out *pageOut) addNotes(extras []extra) {
 // annotations and fields than is kept.
 func noteWarning(part *gofastcore.Part) {
 	part.Warn(gofastcore.SeverityError, gofastcore.WarnLimitExceeded,
-		fmt.Sprintf("the annotations and form fields of the page have more than %d bytes of text; the rest is not read", maxPageNoteBytes))
+		fmt.Sprintf("the annotations, form fields and scripts of the page have more than %d bytes of text; the rest is not read", maxPageNoteBytes))
 }

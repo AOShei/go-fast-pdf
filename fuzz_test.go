@@ -25,6 +25,9 @@ func FuzzOpen(f *testing.F) {
 		pdftest.PageSpec{Content: pdftest.TextPage("object streams")}).Bytes())
 	// Annotations with appearances, notes and form fields.
 	f.Add(formDoc().bytes())
+	// Scripts, a metadata packet, entries of the file's own making, fields
+	// on no page.
+	f.Add(storedDoc().bytes())
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// An error is fine. A document that breaks the contract of the
 		// shared model is not, and neither is one that depends on the

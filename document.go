@@ -53,6 +53,11 @@ type described struct {
 	// the limit on text, and the outline ends where the limit was
 	// reached.
 	outlineCut bool
+	// stored is what the file holds for itself and shows on no page,
+	// as the blocks of the stored part; storedCut says that there was
+	// more of it than is kept.
+	stored    []gofastcore.Block
+	storedCut bool
 }
 
 // describe reads what the document says about itself: its information,
@@ -109,6 +114,9 @@ func (f *File) describe() *described {
 			d.attachments = append(d.attachments, attachment{name: clipName(text(in, key)), spec: val})
 			return len(d.attachments) < maxAttachments
 		})
+
+		// --- what the file holds and shows nowhere ---
+		d.stored, d.storedCut = stored(in, catalog, md, facts.scripts)
 
 		d.invisible = invisibleInMetadata(&gofastcore.Document{Metadata: d.meta, Outline: d.outline})
 	})
@@ -726,7 +734,7 @@ func scanActions(f *file.File, v syntax.Value, out *pageOut) {
 }
 
 // scanAction notes what an action, and the actions chained to it, would
-// do. Nothing is done and no script is read.
+// do. Nothing is done. A script is kept to be read as text.
 //
 // JavaScript and Launch make something run. Launch, GoToR, SubmitForm
 // and ImportData reach outside the document. A URI action is an
@@ -738,6 +746,9 @@ func scanAction(f *file.File, act syntax.Value, out *pageOut, depth int) {
 	switch f.Resolve(act.Get("S")).NameString() {
 	case "JavaScript":
 		out.active = true
+		if len(out.scripts) < maxScripts {
+			out.scripts = append(out.scripts, script{js: act.Get("JS")})
+		}
 	case "Launch":
 		out.active = true
 		if act.Has("F") || act.Has("Win") || act.Has("Mac") || act.Has("Unix") {

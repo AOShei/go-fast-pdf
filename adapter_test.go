@@ -83,6 +83,9 @@ func extractBytes(data []byte, o extractOpts) (*extraction, error) {
 	}
 	for i := range doc.Parts {
 		p := &doc.Parts[i]
+		if p.Kind == gofastcore.PartStored {
+			continue // not a page
+		}
 		po := pageOut{Number: p.Number, Width: p.Width, Height: p.Height, Failed: p.Has(gofastcore.WarnPartFailed)}
 		for j := range p.Blocks {
 			if p.Blocks[j].Kind == gofastcore.KindImage {
@@ -109,11 +112,13 @@ func extractBytes(data []byte, o extractOpts) (*extraction, error) {
 // Two things are in the part and not here, because the reference reader
 // does not read them and a score against it would count them as wrong:
 // what is written in a note, which is shown beside the page if at all,
-// and the value of a form field whose appearance shows nothing.
+// the value of a form field whose appearance shows nothing, and the
+// scripts of the page.
 func pageText(p *gofastcore.Part) string {
 	extra := func(b *gofastcore.Block) bool {
 		_, field := b.Attrs[gofastcore.AttrField]
-		return field || b.Kind == gofastcore.KindNote
+		_, stored := b.Attrs[gofastcore.AttrStored]
+		return field || stored || b.Kind == gofastcore.KindNote
 	}
 	any := false
 	for i := range p.Blocks {
@@ -205,6 +210,19 @@ func checkContract(doc *gofastcore.Document, opts *gofastcore.Options) error {
 	}
 	for i := range doc.Parts {
 		p := &doc.Parts[i]
+		if p.Kind == gofastcore.PartStored {
+			// What the file holds and shows nowhere: the last part, all
+			// of it flagged, every block saying what it is.
+			if i != len(doc.Parts)-1 || p.Hidden&gofastcore.HiddenInvisible == 0 || len(p.Blocks) == 0 && !p.Has(gofastcore.WarnLimitExceeded) {
+				return fmt.Errorf("the stored part is part %d of %d, hidden %q, with %d blocks", i+1, len(doc.Parts), p.Hidden, len(p.Blocks))
+			}
+			for j := range p.Blocks {
+				if b := &p.Blocks[j]; b.Attrs[gofastcore.AttrStored] == "" || b.Hidden&gofastcore.HiddenInvisible == 0 || b.Origin != gofastcore.OriginNative {
+					return fmt.Errorf("the stored part, block %d: %s with attributes %v, hidden %q, origin %s", j, b.Kind, b.Attrs, b.Hidden, b.Origin)
+				}
+			}
+			continue
+		}
 		if p.Kind != gofastcore.PartPage {
 			return fmt.Errorf("part %d is a %s", p.Number, p.Kind)
 		}
@@ -226,6 +244,12 @@ func checkContract(doc *gofastcore.Document, opts *gofastcore.Options) error {
 				continue
 			case gofastcore.KindParagraph:
 				text = true
+			case gofastcore.KindCode:
+				// A script of the page's actions: stored, never shown.
+				if b.Attrs[gofastcore.AttrStored] != gofastcore.StoredMacro || b.Hidden&gofastcore.HiddenInvisible == 0 || b.Origin != gofastcore.OriginNative {
+					return fmt.Errorf("%s: code with attributes %v, hidden %q, origin %s", where, b.Attrs, b.Hidden, b.Origin)
+				}
+				continue
 			case gofastcore.KindNote:
 				// What an annotation says: the file says that it is one.
 				text = true

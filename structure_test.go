@@ -43,7 +43,7 @@ func TestOutline(t *testing.T) {
 		{Title: "Chapter 1", Level: 1, Part: 1, Y: 92},
 		{Title: "Section 1.1", Level: 2, Part: 1, Y: 392},
 		{Title: "Section 1.2", Level: 2, Part: 2},
-		{Title: "Chapter 2", Level: 1, Part: 3, Y: 292},
+		{Title: "Chapter\u00a02", Level: 1, Part: 3, Y: 292},
 		{Title: "Appendix", Level: 1, Part: 3, Y: 192},
 	}
 	for _, loop := range []bool{false, true} {

@@ -481,6 +481,29 @@ func FuzzExtract(f *testing.F) {
 					t.Fatalf("page %d: shape %d of %d: %v", i+1, k, len(shapes), s)
 				}
 			}
+
+			// With the places of the spaces recorded the runs and their
+			// text are what they are without, and every break is a space
+			// of the text, in the order of the text, at a place that is a
+			// number.
+			words := Page(file, &pages[i], Options{Words: true, MaxDecodedBytes: 4 << 20, Use: func(c *Content) {
+				if res.Err == nil && (len(c.Runs) != len(res.Runs) || !bytes.Equal(c.Text, res.RunText)) {
+					t.Fatalf("page %d: with words %d runs and %q, without %d and %q", i+1, len(c.Runs), c.Text, len(res.Runs), res.RunText)
+				}
+				for k, b := range c.Breaks {
+					if b.Off < 0 || int(b.Off) >= len(c.Text) || c.Text[b.Off] != ' ' || k > 0 && b.Off <= c.Breaks[k-1].Off {
+						t.Fatalf("page %d: break %d of %d at %d in %q", i+1, k, len(c.Breaks), b.Off, c.Text)
+					}
+					for _, v := range [...]float64{b.X0, b.Y0, b.X1, b.Y1} {
+						if math.IsNaN(v) {
+							t.Fatalf("page %d: break %d is at a place that is not a number: %+v", i+1, k, b)
+						}
+					}
+				}
+			}})
+			if words.Err == nil != (res.Err == nil) {
+				t.Fatalf("page %d: with words %v, without %v", i+1, words.Err, res.Err)
+			}
 		}
 	})
 }

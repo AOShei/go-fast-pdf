@@ -470,6 +470,7 @@ func TestCancellation(t *testing.T) {
 		if took > 3*time.Second {
 			t.Errorf("%s: returned %v after its deadline of 30ms", name, took)
 		}
+		t.Logf("%s: back %v after it was started, with a deadline of 30ms", name, took.Round(time.Millisecond))
 	}
 	settled(t, before)
 }

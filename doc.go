@@ -4,8 +4,51 @@
 // the go-fast modules only, starts no program, fetches nothing, runs
 // nothing that a file contains, and does no OCR.
 //
-//	doc, err := gofastpdf.Extract(ctx, file, size, nil)
+//	doc, err := gofastpdf.ExtractFile(ctx, "report.pdf", nil)
 //	fmt.Print(doc.Markdown())
+//
+// # Two ways to read a file
+//
+// Extract and ExtractFile return the whole document at once: its parts,
+// and with them the document information, the outline, the attached
+// files and the warnings. That is the entry point every go-fast library
+// has, and Extractor is its form as a gofastcore.Extractor.
+//
+// Open, OpenBytes and OpenReaderAt return a File, which reads nothing
+// of the pages until it is asked:
+//
+//	f, err := gofastpdf.Open("report.pdf", nil)
+//	defer f.Close()
+//	for part, err := range f.Parts(ctx) {
+//		...
+//	}
+//
+// File.Parts hands out the parts in page order, reading several pages
+// at a time, and keeps none of them: a file of any number of pages is
+// gone through in the memory that the file, a few pages and a bounded
+// amount of what was parsed take, plus about two hundred bytes for each
+// page of the file. File.Page gives one page by its number, from any
+// goroutine. Page.Lines gives more than the part has: the lines of the
+// page with the font and size of each and the box of every word.
+// File.Document is Extract on an open file.
+//
+// The parts are the same whichever way they are read, with one
+// difference for image data, which Page.Part describes. What Extract
+// puts in the document as a whole, a File gives by its methods
+// Metadata, Outline, Warnings and HiddenChecked; the last two are final
+// only when every part has been produced, since a page can add to them.
+//
+// Reading stops when the context ends, between pages and inside a page
+// whose content is long. Nothing is printed: what goes wrong is an
+// error or a warning in the result.
+//
+// Settings that only PDF has are the fields of Extractor, whose methods
+// are the functions of this package: the size one stream may decode
+// to, how much of what was parsed is kept, and how many shapes the
+// checks of DeepHidden follow on a page.
+//
+// The command gofastpdf, in cmd/gofastpdf, writes files as JSON,
+// Markdown or text.
 //
 // # The document
 //
@@ -34,8 +77,8 @@
 //
 // The options are those of gofastcore.Options. Here they mean:
 //
-//   - Workers: pages extracted at a time. The document is the same for
-//     any number.
+//   - Workers: pages read at a time, by Extract and by File.Parts. The
+//     result is the same for any number.
 //   - Images: with ImagesMeta an image block stands where each image
 //     is, with its size in pixels; its ID is "obj-" and the number of
 //     the image's object, or, for an image inside a content stream,
@@ -47,15 +90,16 @@
 //     image.unsupported_encoding.
 //   - Password: tried as the user password and as the owner password.
 //     The empty user password is always tried.
-//   - Parts: a range of pages. A range that holds no page of the file
-//     is gofastcore.ErrNoPartsSelected.
+//   - Parts: a range of pages, for Extract, File.Parts and
+//     File.Document. A range that holds no page of the file is
+//     gofastcore.ErrNoPartsSelected. File.Page gives any page.
 //   - Limits: MaxInputBytes (default 1 GiB) is checked before the input
 //     is read. MaxDecodedBytes (default 1 GiB) bounds what the streams
 //     of a document decode to, taken together and counted in page
 //     order: the document ends before the page that would exceed it.
 //     MaxParts keeps the first pages of the range. MaxDepth bounds how
 //     deep attached files are followed. A limit that cuts the document
-//     adds limit.exceeded.
+//     adds limit.exceeded; File.Parts ends with ErrLimitExceeded there.
 //   - Child: the extractor for attached files. Without one they are
 //     listed with their names and sizes, and nothing of them is decoded.
 //   - DeepHidden: also follows the shapes that a page paints and its
@@ -165,10 +209,13 @@
 // three reasons of the first table are checked in part and are not
 // listed: they are flagged where the check finds them, and their
 // absence says nothing. With DeepHidden all nine are listed. A page
-// that paints more shapes than are followed (65,536, or fewer where
-// they take much work to compare) gets pdf.deep_hidden_incomplete: its
-// text is complete, what was found stands, and low_contrast and
-// occluded are then left off the list for the whole document.
+// that paints more shapes than are followed (65,536, which is the field
+// Extractor.MaxShapes, or fewer where they take much work to compare)
+// gets pdf.deep_hidden_incomplete: its text is complete, what was found
+// stands, and low_contrast and occluded are then left off the list for
+// the whole document. The number is a first choice: a drawing of many
+// small paths reaches it, and following more costs up to 25 MiB on such
+// a page at four times the number. It may be raised in a later version.
 //
 // A flag is evidence that text is hidden. No flag is not evidence that
 // a document is safe. Not detected at all: a font whose glyphs draw

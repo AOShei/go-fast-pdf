@@ -28,6 +28,9 @@ A high-performance, dependency-free Go library for extracting text and image met
 - **Images** - position and size of every image; JPEG and JPEG 2000 data as it is in the file, 8-bit gray and RGB samples as PNG
 - **Outline, page labels, document information, attached files** - attached files are handed to a child extractor that you supply
 - **Limits** - input size, decoded size, page count and nesting are bounded; the result is the same for any number of workers
+- **Page by page** - `Open` gives a file handle whose parts are read on demand and not kept; reading stops when the context ends, also inside a long page
+- **Lines and words** - `Page.Lines` gives every line with its font and size and the box of each word
+- **A command** - `gofastpdf` writes JSON, Markdown or text for files and directories
 - **No OCR, no network, no code from the file is run**
 
 ### ⚠️ Limitations
@@ -36,7 +39,7 @@ A high-performance, dependency-free Go library for extracting text and image met
 - **Scripts written from right to left** - the text is given in the order the page draws it, with a warning
 - **Fonts without any mapping** - glyphs of embedded CFF and TrueType programs that the PDF does not describe are read by their codes or reported as unmapped; the legacy CJK encodings are not built in
 - **Images** - CMYK, indexed, 1-bit, CCITT and JBIG2 images are listed without their data
-- **Hidden text** - a flag is evidence that text is hidden; no flag is not evidence that a document is safe. Shapes are followed as upright rectangles: text on a photograph, a shading or a shape with round corners is not judged for contrast, and only a rectangle or an image is taken to cover text. The package documentation lists what is not detected
+- **Hidden text** - a flag is evidence that text is hidden; no flag is not evidence that a document is safe. Shapes are followed as upright rectangles: text on a photograph, a shading or a shape with round corners is not judged for contrast, and only a rectangle or an image is taken to cover text. The package documentation lists what is not detected. With `DeepHidden`, 65,536 shapes are followed on a page (`Extractor.MaxShapes`); a page that paints more says so, and the number may be raised later
 
 ## Installation
 
@@ -49,18 +52,34 @@ go get github.com/AOShei/go-fast-pdf
 ### Command Line
 
 ```bash
-# The document as JSON
-go run ./cmd document.pdf
+go install github.com/AOShei/go-fast-pdf/cmd/gofastpdf@latest
 
-# Eight pages at a time, with the images listed
-go run ./cmd -workers 8 -images document.pdf
+# The document as JSON (the shared document model)
+gofastpdf document.pdf
+
+# As Markdown or plain text, into a file
+gofastpdf --format markdown -o document.md document.pdf
+
+# Several files, or every PDF under a directory: one JSON document per line
+gofastpdf reports/ appendix.pdf > all.jsonl
+
+# Some pages, eight at a time, with the images listed
+gofastpdf --pages 10-20 --workers 8 --images meta document.pdf
 
 # An encrypted file
-go run ./cmd -password secret document.pdf
+gofastpdf --password secret document.pdf
 
-# With the hidden-text checks that follow the shapes of each page
-go run ./cmd -deep document.pdf
+# With the hidden-text checks that follow the shapes of each page,
+# and the hidden text left out of what is written
+gofastpdf --deep-hidden --exclude-hidden --format text document.pdf
+
+# Only text hidden for the reasons named is left out
+gofastpdf --exclude-hidden=invisible,low_contrast --format text document.pdf
 ```
+
+JSON always has everything, hidden text included and flagged. Warnings of a file that
+was read are named on standard error (`--quiet` leaves that out); a file that cannot be
+read is reported there and makes the exit status 1.
 
 ### Library API
 
@@ -126,8 +145,47 @@ func main() {
 }
 ```
 
+`gofastpdf.ExtractFile(ctx, "document.pdf", opts)` does the same for a path.
+
+#### Page by page
+
+A file can also be opened and read a page at a time, without holding the document. A file
+of any number of pages is read in bounded memory this way.
+
+```go
+f, err := gofastpdf.Open("document.pdf", &gofastcore.Options{Workers: 8})
+if err != nil {
+    log.Fatal(err)
+}
+defer f.Close()
+
+fmt.Println(f.NumPages(), "pages;", f.Metadata().Title)
+
+// The parts in page order, several pages read at a time, none kept.
+for part, err := range f.Parts(ctx) {
+    if err != nil {
+        log.Fatal(err) // the context ended, or a limit was reached
+    }
+    index(part.Number, part.Text())
+}
+
+// One page by its number, from any goroutine.
+page, _ := f.Page(12)
+part, _ := page.Part()
+
+// More than a part has: lines, their font and size, and the box of every word.
+lines, _ := page.Lines()
+for _, line := range lines {
+    fmt.Println(line.Font, line.Size, line.Text)
+    for _, word := range line.Words {
+        fmt.Println("  ", word.Text, word.BBox)
+    }
+}
+```
+
 Options are `gofastcore.Options`: `Workers`, `Images` (none, description, data), `Password`,
-`Parts` (a range of pages), `Limits`, `DeepHidden` and `Child` (an extractor for attached files). The
+`Parts` (a range of pages), `Limits`, `DeepHidden` and `Child` (an extractor for attached files).
+Settings that only PDF has are fields of `gofastpdf.Extractor`. The
 package documentation says what each does for PDF.
 
 ## Output Format

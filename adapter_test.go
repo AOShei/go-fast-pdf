@@ -223,12 +223,10 @@ func checkContract(doc *gofastcore.Document, opts *gofastcore.Options) error {
 		// A page without text says which kind it is, and only then.
 		none, image := p.Has(gofastcore.WarnPartNoText), p.Has(gofastcore.WarnPartImageOnly)
 		failed := p.Has(gofastcore.WarnPartFailed)
-		// A page that the limit on text cut before its first block of
-		// text has no text here and is not a page without text.
+		// A page that the limit on text cut may have lost its text to
+		// the cut: it has none here and is not a page without text. Or it
+		// had none to begin with and says so. Both are right.
 		if p.Has(gofastcore.WarnLimitExceeded) && !text {
-			if none || image {
-				return fmt.Errorf("page %d was cut by a limit and is also described as having no text", p.Number)
-			}
 			continue
 		}
 		switch {

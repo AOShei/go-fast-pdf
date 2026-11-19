@@ -109,8 +109,12 @@
 //     order: the document ends before the page that would exceed it.
 //     MaxTextBytes (default 256 MiB) bounds the text of a document: the
 //     titles of its outline, the names that page labels give its parts,
-//     and the text of its blocks. The page that reaches it is cut before
-//     the block that does not fit, and nothing after it is read.
+//     and the text of its blocks. Every block counts as its text and
+//     128 bytes more, about what a block takes written down, so that a
+//     document of very many blocks without text, such as a page that
+//     draws one image a hundred thousand times, is bounded as well. The
+//     page that reaches the limit is cut before the block that does not
+//     fit, and nothing after it is read.
 //     MaxParts keeps the first pages of the range. MaxDepth bounds how
 //     deep attached files are followed. A limit that cuts the document
 //     adds limit.exceeded; File.Parts ends with ErrLimitExceeded there.

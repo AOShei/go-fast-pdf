@@ -18,6 +18,12 @@ import (
 // The limit on the text of a document (Limits.MaxTextBytes) and the
 // budgets that a document shares with the documents embedded in it.
 
+// cost is what every block takes from the budget beyond its text.
+const cost = gofastpdf.BlockCost
+
+// A page of threeParagraphs takes pageCost from the budget.
+const pageCost = 85 + 3*cost
+
 // Three paragraphs far apart: three blocks of 28, 29 and 28 bytes.
 const threeParagraphs = "BT /F1 12 Tf 72 700 Td (First paragraph of the page.) Tj ET\n" +
 	"BT /F1 12 Tf 72 500 Td (Second paragraph of the page.) Tj ET\n" +
@@ -32,7 +38,8 @@ func pagesOf(n int, content string) []synthPage {
 }
 
 // textBytes is what a document counts against the limit: the titles of
-// its outline, the names of its parts and the text of its blocks.
+// its outline, the names of its parts, and for each block its text and
+// what a block costs.
 func textBytes(doc *gofastcore.Document) int {
 	n := 0
 	for _, o := range doc.Outline {
@@ -41,7 +48,7 @@ func textBytes(doc *gofastcore.Document) int {
 	for i := range doc.Parts {
 		n += len(doc.Parts[i].Name)
 		for j := range doc.Parts[i].Blocks {
-			n += len(doc.Parts[i].Blocks[j].Text)
+			n += cost + len(doc.Parts[i].Blocks[j].Text)
 		}
 	}
 	return n
@@ -54,8 +61,8 @@ func limitWarning(ws []gofastcore.Warning) bool {
 
 func TestTextLimitCutsThePartThatReachesIt(t *testing.T) {
 	data := synthDoc{Font: fontCourier, Pages: pagesOf(5, threeParagraphs)}.bytes()
-	// The first page whole (85 bytes), the first block of the second.
-	const limit = 85 + 28 + 10
+	// The first page whole, and the first block of the second.
+	const limit = pageCost + 28 + cost + 10
 	var first *gofastcore.Document
 	for _, workers := range []int{1, 2, 8} {
 		opts := &gofastcore.Options{Workers: workers, Limits: gofastcore.Limits{MaxTextBytes: limit}}
@@ -96,16 +103,16 @@ func TestTextLimitCutsThePartThatReachesIt(t *testing.T) {
 	}
 
 	t.Run("a limit that nothing reaches", func(t *testing.T) {
-		for _, limit := range []int64{5 * 85, 0, -1} {
+		for _, limit := range []int64{5 * pageCost, 0, -1} {
 			doc := mustExtract(t, data, &gofastcore.Options{Limits: gofastcore.Limits{MaxTextBytes: limit}})
-			if len(doc.Parts) != 5 || limitWarning(doc.Warnings) || textBytes(doc) != 5*85 {
+			if len(doc.Parts) != 5 || limitWarning(doc.Warnings) || textBytes(doc) != 5*pageCost {
 				t.Errorf("limit %d: %d parts, %d bytes, %v", limit, len(doc.Parts), textBytes(doc), doc.Warnings)
 			}
 		}
 	})
 
 	t.Run("a page read by itself", func(t *testing.T) {
-		f, err := gofastpdf.OpenBytes(data, &gofastcore.Options{Limits: gofastcore.Limits{MaxTextBytes: 30}})
+		f, err := gofastpdf.OpenBytes(data, &gofastcore.Options{Limits: gofastcore.Limits{MaxTextBytes: 30 + cost}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -173,7 +180,7 @@ func TestTextLimitAndTheOutline(t *testing.T) {
 	})
 
 	t.Run("the outline leaves room for one page", func(t *testing.T) {
-		doc := mustExtract(t, data, &gofastcore.Options{Workers: 4, Limits: gofastcore.Limits{MaxTextBytes: n*titleBytes + 85 + 30}})
+		doc := mustExtract(t, data, &gofastcore.Options{Workers: 4, Limits: gofastcore.Limits{MaxTextBytes: n*titleBytes + pageCost + 30 + cost}})
 		if len(doc.Outline) != n || len(doc.Parts) != 2 || len(doc.Parts[1].Blocks) != 1 || !limitWarning(doc.Parts[1].Warnings) {
 			t.Errorf("%d entries, %d parts: %s", len(doc.Outline), len(doc.Parts), doc.Text())
 		}
@@ -185,7 +192,7 @@ func TestTextLimitAndTheOutline(t *testing.T) {
 func TestTextLimitAndPageLabels(t *testing.T) {
 	prefix := strings.Repeat("p", 1000)
 	data := synthDoc{Font: fontCourier, Catalog: "/PageLabels << /Nums [0 << /P (" + prefix + ") /S /D >>] >>", Pages: pagesOf(20, threeParagraphs)}.bytes()
-	const limit = 5000 // four pages of 1,001 and 85 bytes; the fifth has no room for its name
+	const limit = 4*(1001+pageCost) + 500 // four pages with their names; the fifth has no room for its name
 	var first *gofastcore.Document
 	for _, workers := range []int{1, 8} {
 		doc := mustExtract(t, data, &gofastcore.Options{Workers: workers, Limits: gofastcore.Limits{MaxTextBytes: limit}})
@@ -228,7 +235,7 @@ func budgetedChild(calls *[]string, decode int64) func(context.Context, string, 
 		d := gofastcore.New("txt")
 		d.HiddenChecked = gofastcore.HiddenChars
 		part := gofastcore.Part{Kind: gofastcore.PartBody, Number: 1}
-		if text.Take(len(buf)) {
+		if text.Take(cost + len(buf)) {
 			part.Blocks = []gofastcore.Block{{Kind: gofastcore.KindParagraph, Text: strings.TrimSpace(string(buf))}}
 		} else {
 			part.Warn(gofastcore.SeverityError, gofastcore.WarnLimitExceeded, "cut")
@@ -256,15 +263,16 @@ func TestTextLimitIsSharedWithAttachedFiles(t *testing.T) {
 
 	t.Run("room for all", func(t *testing.T) {
 		var calls []string
-		doc := mustExtract(t, data, &gofastcore.Options{Child: budgetedChild(&calls, 0), Limits: gofastcore.Limits{MaxTextBytes: int64(own) + 100}})
-		// inner.pdf has 30 bytes of text, notes.txt 11 and table.csv 8.
-		want := []string{fmt.Sprintf("inner.pdf text %d", 100), fmt.Sprintf("notes.txt text %d", 100-30), fmt.Sprintf("table.csv text %d", 100-30-11)}
+		doc := mustExtract(t, data, &gofastcore.Options{Child: budgetedChild(&calls, 0), Limits: gofastcore.Limits{MaxTextBytes: int64(own) + 1000}})
+		// Each is one block: inner.pdf has 30 bytes of text, notes.txt 11
+		// and table.csv 8.
+		want := []string{fmt.Sprintf("inner.pdf text %d", 1000), fmt.Sprintf("notes.txt text %d", 1000-30-cost), fmt.Sprintf("table.csv text %d", 1000-30-11-2*cost)}
 		for i := range want {
 			if i >= len(calls) || !strings.HasPrefix(calls[i], want[i]+" ") {
 				t.Fatalf("the child extractor was called with %q, want %q", calls, want)
 			}
 		}
-		if total(doc) != own+30+11+7 || limitWarning(doc.Warnings) {
+		if total(doc) != own+30+11+7+3*cost || limitWarning(doc.Warnings) {
 			t.Errorf("%d bytes of text, %v", total(doc), doc.Warnings)
 		}
 	})
@@ -310,18 +318,19 @@ func TestTextLimitIsSharedWithAttachedFiles(t *testing.T) {
 	})
 
 	t.Run("as an attached file of another document", func(t *testing.T) {
-		// The document that this one is embedded in has 100 bytes left.
+		// The document that this one is embedded in has room for one
+		// page and 100 bytes left.
 		pages := synthDoc{Font: fontCourier, Pages: pagesOf(3, threeParagraphs)}.bytes()
-		ctx, parent := gofastcore.WithTextBudget(context.Background(), gofastcore.Limits{MaxTextBytes: 100})
+		ctx, parent := gofastcore.WithTextBudget(context.Background(), gofastcore.Limits{MaxTextBytes: pageCost + 100})
 		doc, err := gofastpdf.Extract(ctx, bytes.NewReader(pages), int64(len(pages)), nil)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(doc.Parts) != 2 || len(doc.Parts[1].Blocks) != 0 || !limitWarning(doc.Warnings) || textBytes(doc) != 85 {
+		if len(doc.Parts) != 2 || len(doc.Parts[1].Blocks) != 0 || !limitWarning(doc.Warnings) || textBytes(doc) != pageCost {
 			t.Errorf("%d parts, %d bytes, %v", len(doc.Parts), textBytes(doc), doc.Warnings)
 		}
-		if left := parent.Left(); left > 15 {
-			t.Errorf("the document it is embedded in has %d bytes left of 100, after 85 were used", left)
+		if left := parent.Left(); left > 100 {
+			t.Errorf("the document it is embedded in has %d bytes left, after a page was used and 100 were over", left)
 		}
 	})
 }
@@ -403,5 +412,44 @@ func TestAttachedFileNamesAreHeldToALength(t *testing.T) {
 	doc := mustExtract(t, data, nil)
 	if len(doc.Children) != 1 || len(doc.Children[0].Source.Name) != 1024 || len(doc.Children[0].Source.MIME) > 1024 {
 		t.Errorf("%d children; name of %d bytes, type of %d", len(doc.Children), len(doc.Children[0].Source.Name), len(doc.Children[0].Source.MIME))
+	}
+}
+
+// A block of no text is not free. A page can draw one image a hundred
+// thousand times with a few bytes of content for each; what bounds the
+// document that lists them is that each block is counted.
+func TestTextLimitCountsBlocksWithoutText(t *testing.T) {
+	const perPage = 10000
+	pages := make([]synthPage, 6)
+	for i := range pages {
+		pages[i] = synthPage{Content: strings.Repeat("/I Do ", perPage), Resources: "/XObject << /I 1 0 R >>"}
+	}
+	data := synthDoc{Font: fontCourier, Objects: []string{grayImage}, Pages: pages}.bytes()
+	blocks := func(doc *gofastcore.Document) (n int) {
+		for i := range doc.Parts {
+			n += len(doc.Parts[i].Blocks)
+		}
+		return n
+	}
+	if doc := mustExtract(t, data, nil); blocks(doc) != 6*perPage || limitWarning(doc.Warnings) {
+		t.Fatalf("with the default limit: %d blocks, %v", blocks(doc), doc.Warnings)
+	}
+	// Room for two pages and a half.
+	const limit = 25000 * cost
+	var first *gofastcore.Document
+	for _, workers := range []int{1, 8} {
+		doc := mustExtract(t, data, &gofastcore.Options{Workers: workers, Limits: gofastcore.Limits{MaxTextBytes: limit}})
+		if first == nil {
+			first = doc
+		} else if diff := sameDocument(first, doc); diff != "" {
+			t.Fatalf("%d workers: %s", workers, diff)
+		}
+		if len(doc.Parts) != 3 || blocks(doc) != 25000 || !limitWarning(doc.Parts[2].Warnings) || !limitWarning(doc.Warnings) {
+			t.Errorf("%d workers: %d parts, %d blocks, %v", workers, len(doc.Parts), blocks(doc), doc.Warnings)
+		}
+	}
+	// With no image blocks asked for there is nothing to count.
+	if doc := mustExtract(t, data, &gofastcore.Options{Images: gofastcore.ImagesNone, Limits: gofastcore.Limits{MaxTextBytes: limit}}); len(doc.Parts) != 6 || limitWarning(doc.Warnings) {
+		t.Errorf("without image blocks: %d parts, %v", len(doc.Parts), doc.Warnings)
 	}
 }

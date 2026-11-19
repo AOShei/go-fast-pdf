@@ -364,10 +364,22 @@ func (st *state) settle() {
 	st.dec.Take(st.dec.Left() - st.budget)
 }
 
-// charge takes the text of a part from the budget: its name, where the
-// file gives it one, and the text of its blocks. It reports whether all
-// of it was there to take. If not, the part is cut before the block
-// that did not fit, and says so; nothing after it is read.
+// blockCost is what a block takes from the budget for text beyond its
+// own text: about what it takes to write a block down that has none,
+// its kind, its place and, for an image, what the image is. Over the
+// 3,150 files of the corpus and the soak set the JSON of a document is
+// 157 bytes a block beyond the text.
+//
+// Without it the budget would bound the text and not the document. A
+// file can draw one image a hundred thousand times on every page with a
+// few bytes of content for each, and a block of no text would be free.
+const blockCost = 128
+
+// charge takes a part from the budget for text: its name, where the
+// file gives it one, and for each of its blocks the text and blockCost.
+// It reports whether all of it was there to take. If not, the part is
+// cut before the block that did not fit, and says so; nothing after it
+// is read.
 func (st *state) charge(part *gofastcore.Part) bool {
 	ok := st.text.Take(len(part.Name))
 	if !ok {
@@ -375,7 +387,7 @@ func (st *state) charge(part *gofastcore.Part) bool {
 	}
 	kept := 0
 	for ok && kept < len(part.Blocks) {
-		if ok = st.text.Take(len(part.Blocks[kept].Text)); ok {
+		if ok = st.text.Take(blockCost + len(part.Blocks[kept].Text)); ok {
 			kept++
 		}
 	}
@@ -385,7 +397,7 @@ func (st *state) charge(part *gofastcore.Part) bool {
 	clear(part.Blocks[kept:])
 	part.Blocks = part.Blocks[:kept]
 	part.Warn(gofastcore.SeverityError, gofastcore.WarnLimitExceeded,
-		fmt.Sprintf("the text of the document is more than the limit of %d bytes; this page is cut where the limit was reached", st.textLimit))
+		fmt.Sprintf("the text and the blocks of the document are more than the limit on text of %d bytes; this page is cut where the limit was reached", st.textLimit))
 	return false
 }
 
@@ -549,7 +561,7 @@ func (f *File) Parts(ctx context.Context) iter.Seq2[gofastcore.Part, error] {
 				return false
 			}
 			if !whole {
-				limit = fmt.Errorf("%w: the text of the document is more than the limit of %d bytes; page %d is cut and what follows it is not read",
+				limit = fmt.Errorf("%w: the text and the blocks of the document are more than the limit on text of %d bytes; page %d is cut and what follows it is not read",
 					gofastcore.ErrLimitExceeded, st.textLimit, last)
 			}
 			return whole
@@ -691,11 +703,11 @@ func (f *File) Document(ctx context.Context) (*gofastcore.Document, error) {
 	}
 	if cut > 0 {
 		doc.Warn(gofastcore.SeverityError, gofastcore.WarnLimitExceeded,
-			fmt.Sprintf("the text of the document is more than the limit of %d bytes; page %d is cut and what follows it is not read", st.textLimit, cut))
+			fmt.Sprintf("the text and the blocks of the document are more than the limit on text of %d bytes; page %d is cut and what follows it is not read", st.textLimit, cut))
 	}
 	if st.unread {
 		doc.Warn(gofastcore.SeverityError, gofastcore.WarnLimitExceeded,
-			fmt.Sprintf("the text of the document is more than the limit of %d bytes; some attached files were not read", st.textLimit))
+			fmt.Sprintf("the limit on text of %d bytes was reached; some attached files were not read", st.textLimit))
 	}
 
 	// The reasons that were checked completely. Without DeepHidden, low

@@ -48,7 +48,7 @@ Limits of `gofastcore.Limits`, set through `Options.Limits`:
 |---|---|---|
 | `MaxInputBytes` | 1 GiB | `ErrLimitExceeded`, before the input is read |
 | `MaxDecodedBytes` | 1 GiB | The document ends before the page that would pass it, with `limit.exceeded` |
-| `MaxTextBytes` | 256 MiB | The titles of the outline, the names of the parts and the text of the blocks are counted. The page that reaches the limit is cut before the block that does not fit, with `limit.exceeded`; nothing after it is read and attached files are listed only |
+| `MaxTextBytes` | 256 MiB | The titles of the outline, the names of the parts, and for every block its text and 128 bytes are counted. The page that reaches the limit is cut before the block that does not fit, with `limit.exceeded`; nothing after it is read and attached files are listed only |
 | `MaxParts` | none | The first pages of the range are returned, with `limit.exceeded` |
 | `MaxDepth` | 4 | Attached files further down are listed and not extracted |
 
@@ -95,15 +95,13 @@ page is handed on in page order, so that the place where a document is cut does 
 number of workers. What is held and not yet counted is the pages being read and those waiting to be
 handed on: at most three for each worker, each of at most 16 MiB of text.
 
-**Not bounded by a limit of its own: the number of blocks.** The limits bound what is decoded and the
-text. A block also takes memory that is neither: its place, its kind, and for an image its size and
-identifier. A file can draw one small image a hundred thousand times on a page with a few bytes of
-content for each, and a document that lists them takes about 110 bytes for every byte of content
-decoded for it (measured: 300,000 image blocks from 1.8 MB of content hold 189 MB). The bound on that
-is `MaxDecodedBytes`, at 110 times its value, which at the default of 1 GiB is more than a machine has.
-For files from anywhere, do one of these: set `MaxDecodedBytes` to what one hundredth of your memory
-allows, pass `ImagesNone` if you do not need image blocks, or read page by page (`Open`, `File.Parts`),
-where a page is at most 100,000 images and nothing is kept.
+**Blocks count as text.** A block takes memory beyond its text: its place, its kind, and for an image
+its size and identifier. A file can draw one small image a hundred thousand times on every page with a
+few bytes of content for each. So every block takes 128 bytes from `MaxTextBytes` beyond its text, about
+what a block takes written down (the documents of 3,150 real files write 157 bytes a block). At the
+default of 256 MiB a document has at most two million blocks, and holds at most about five times the
+limit in memory (an image block was measured at 662 bytes). The largest real document met so far, 21
+pages that draw 271,808 images, takes an eighth of the default.
 
 ## Password-protected files
 

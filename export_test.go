@@ -8,3 +8,7 @@ package gofastpdf
 func BoundedExtractor(shapes, steps int) *Extractor {
 	return &Extractor{MaxShapes: shapes, maxDeepSteps: steps}
 }
+
+// BlockCost is what a block takes from the budget for text beyond its
+// own text.
+const BlockCost = blockCost

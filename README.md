@@ -281,8 +281,8 @@ a page and are extracted by design: treat them as you treat any text from the fi
 ## Untrusted files
 
 The library is made to be given files from anywhere. Every size that a file decides is bounded: the
-input (1 GiB by default), what its streams decode to (1 GiB together, 64 MiB each), the text of the
-document (256 MiB), pages, objects, nesting, the text and the shapes of one page. Decoded bytes and text
+input (1 GiB by default), what its streams decode to (1 GiB together, 64 MiB each), the text and the
+blocks of the document (256 MiB), pages, objects, nesting, the text and the shapes of one page. Decoded bytes and text
 are counted for a document and the files attached to it together. A limit that cuts a document is reported as a warning or
 an error, never passed over. Reading stops when the context ends, also inside a long page. One opened
 file can be read from many goroutines, and the result is the same for any number of workers.

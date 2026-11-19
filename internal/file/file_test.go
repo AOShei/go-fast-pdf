@@ -30,7 +30,7 @@ func content(t *testing.T, f *File, i int) string {
 		t.Fatalf("page %d of %d", i+1, len(f.Pages()))
 	}
 	// /Contents is one stream or an array of them.
-	c := f.Resolve(f.Pages()[i].Dict.Get("Contents"))
+	c := f.Resolve(f.Pages()[i].Dict().Get("Contents"))
 	streams := []syntax.Value{c}
 	if c.Kind == syntax.Array {
 		streams = c.List
@@ -76,7 +76,7 @@ func TestOpenLayouts(t *testing.T) {
 				if got := content(t, f, 0) + "|" + content(t, f, 1); got != "page one|page two" {
 					t.Errorf("content %q", got)
 				}
-				if p := f.Pages()[1]; p.Number != 2 || !p.HasMediaBox || p.MediaBox != [4]float64{0, 0, 612, 792} || !p.Resources.IsDict() {
+				if p := f.Pages()[1]; p.Number != 2 || !p.HasMediaBox || p.MediaBox != [4]float64{0, 0, 612, 792} || !p.Resources().IsDict() {
 					t.Errorf("page 2 is %+v", p)
 				}
 				if w := f.Warnings(); len(w) != 0 {
@@ -101,7 +101,7 @@ func TestIndirectLength(t *testing.T) {
 			}
 			b.Set(length, fmt.Sprint(size))
 			pdftest.Doc(pdftest.DocOptions{Base: b}, pdftest.PageSpec{})
-			contentObj := RefNumber(open(t, b.Bytes()).Pages()[0].Dict.Get("Contents"))
+			contentObj := RefNumber(open(t, b.Bytes()).Pages()[0].Dict().Get("Contents"))
 			b.Set(int(contentObj), fmt.Sprintf("<< /Length %d 0 R >>\nstream\n%s\nendstream", length, body))
 			f := open(t, b.Bytes())
 			if got := content(t, f, 0); got != body {
@@ -115,7 +115,7 @@ func TestRevisions(t *testing.T) {
 	for _, stream := range []bool{false, true} {
 		b := doc(func(b *pdftest.Builder) { b.XRefStream = stream }, "old", "second")
 		f0 := open(t, b.Bytes())
-		contentObj := RefNumber(f0.Pages()[0].Dict.Get("Contents"))
+		contentObj := RefNumber(f0.Pages()[0].Dict().Get("Contents"))
 		b.Update()
 		b.Set(int(contentObj), pdftest.Stream("", "new"))
 		b.Update()
@@ -177,7 +177,7 @@ func TestPageTree(t *testing.T) {
 		if len(p) != 1 {
 			t.Fatalf("%d pages", len(p))
 		}
-		if p[0].MediaBox != [4]float64{0, 0, 100, 200} || p[0].CropBox != [4]float64{10, 10, 90, 190} || p[0].Rotate != 270 || !p[0].Resources.Get("Font").IsDict() {
+		if p[0].MediaBox != [4]float64{0, 0, 100, 200} || p[0].CropBox != [4]float64{10, 10, 90, 190} || p[0].Rotate != 270 || !p[0].Resources().Get("Font").IsDict() {
 			t.Errorf("page is %+v", p[0])
 		}
 	})
@@ -309,7 +309,7 @@ func TestStreamLimits(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		stm := f.Resolve(f.Pages()[0].Dict.Get("Contents"))
+		stm := f.Resolve(f.Pages()[0].Dict().Get("Contents"))
 		data, err := f.Decode(stm, nil, 0)
 		if !errors.Is(err, gofastcore.ErrLimitExceeded) || len(data) != 100000 || !bytes.Equal(data, big[:100000]) {
 			t.Errorf("got %d bytes, error %v; want the first 100000 and ErrLimitExceeded", len(data), err)
@@ -331,7 +331,7 @@ func TestStreamLimits(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		stm := f.Resolve(f.Pages()[0].Dict.Get("Contents"))
+		stm := f.Resolve(f.Pages()[0].Dict().Get("Contents"))
 		n := pdftest.AllocBytes(func() { f.Decode(stm, nil, 0) })
 		if n > 4<<20 {
 			t.Errorf("allocated %d KB to refuse a stream with a 1 MB limit", n>>10)
@@ -351,7 +351,7 @@ func TestStreamLimits(t *testing.T) {
 		b := doc(nil, "")
 		b.Set(4, pdftest.Stream("/Filter /FlateDecode", string(z[:len(z)/2])))
 		f := open(t, b.Bytes())
-		data, err := f.Decode(f.Resolve(f.Pages()[0].Dict.Get("Contents")), nil, 0)
+		data, err := f.Decode(f.Resolve(f.Pages()[0].Dict().Get("Contents")), nil, 0)
 		if err == nil || len(data) == 0 || !strings.HasPrefix(text, string(data)) {
 			t.Errorf("got %d bytes and error %v; want a prefix of the text and an error", len(data), err)
 		}
@@ -360,7 +360,7 @@ func TestStreamLimits(t *testing.T) {
 		b := doc(nil, "")
 		b.Set(4, pdftest.Stream("/Filter /JBIG2Decode", "xx"))
 		f := open(t, b.Bytes())
-		_, err := f.Decode(f.Resolve(f.Pages()[0].Dict.Get("Contents")), nil, 0)
+		_, err := f.Decode(f.Resolve(f.Pages()[0].Dict().Get("Contents")), nil, 0)
 		if !errors.Is(err, gofastcore.ErrUnsupported) {
 			t.Errorf("error %v, want ErrUnsupported", err)
 		}
@@ -429,7 +429,7 @@ func TestConcurrentUse(t *testing.T) {
 				defer wg.Done()
 				for k := range len(contents) {
 					i := (k*7 + g*13) % len(contents) // a different order per goroutine
-					stm := f.Resolve(f.Pages()[i].Dict.Get("Contents"))
+					stm := f.Resolve(f.Pages()[i].Dict().Get("Contents"))
 					got, err := f.Decode(stm, nil, 0)
 					if err != nil || string(got) != contents[i] {
 						select {
@@ -459,8 +459,8 @@ func FuzzOpen(f *testing.F) {
 			return
 		}
 		for _, p := range file.Pages() {
-			file.Decode(file.Resolve(p.Dict.Get("Contents")), nil, 0)
-			file.Resolve(p.Resources.Get("Font"))
+			file.Decode(file.Resolve(p.Dict().Get("Contents")), nil, 0)
+			file.Resolve(p.Resources().Get("Font"))
 		}
 		file.Info()
 		for n := range int64(min(len(file.xref), 64)) {

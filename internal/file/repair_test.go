@@ -121,7 +121,7 @@ func TestRebuild(t *testing.T) {
 		// The second revision lost its cross-reference section. The first
 		// revision's is intact and is what a reader sees.
 		b := doc(nil, "old")
-		contentObj := RefNumber(open(t, b.Bytes()).Pages()[0].Dict.Get("Contents"))
+		contentObj := RefNumber(open(t, b.Bytes()).Pages()[0].Dict().Get("Contents"))
 		b.Update()
 		b.Set(int(contentObj), pdftest.Stream("", "new"))
 		f := open(t, cut(b.Bytes(), "startxref"))
@@ -132,7 +132,7 @@ func TestRebuild(t *testing.T) {
 	t.Run("the newest revision wins", func(t *testing.T) {
 		for _, objstm := range []bool{false, true} {
 			b := doc(func(b *pdftest.Builder) { b.ObjStm = objstm }, "old")
-			contentObj := RefNumber(open(t, b.Bytes()).Pages()[0].Dict.Get("Contents"))
+			contentObj := RefNumber(open(t, b.Bytes()).Pages()[0].Dict().Get("Contents"))
 			b.Update()
 			b.Set(int(contentObj), pdftest.Stream("", "new"))
 			info := b.Add("<< /Title (second revision) >>")
@@ -174,7 +174,7 @@ func TestRebuild(t *testing.T) {
 }
 
 // Resources returns the resource dictionary of page i.
-func (f *File) Resources(i int) syntax.Value { return f.Pages()[i].Resources }
+func (f *File) Resources(i int) syntax.Value { return f.Pages()[i].Resources() }
 
 // The table is usable but wrong about some objects: those are found by
 // scanning, the rest come from the table.
@@ -420,7 +420,7 @@ func FuzzRebuild(f *testing.F) {
 			return
 		}
 		for _, p := range file.Pages() {
-			file.Decode(file.Resolve(p.Dict.Get("Contents")), nil, 0)
+			file.Decode(file.Resolve(p.Dict().Get("Contents")), nil, 0)
 		}
 		for n := range int64(40) {
 			file.Object(n)

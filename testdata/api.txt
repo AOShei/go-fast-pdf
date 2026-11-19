@@ -69,6 +69,8 @@ type Extractor struct {
 
 	ObjectStreamCacheBytes int64
 
+	ObjectCacheBytes int64
+
 	MaxShapes int
 	// contains filtered or unexported fields
 }

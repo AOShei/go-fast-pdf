@@ -139,7 +139,7 @@ func (e *Extractor) OpenBytes(data []byte, opts *gofastcore.Options) (*File, err
 	if stream <= 0 {
 		stream = maxStreamBytes
 	}
-	limits := file.Limits{MaxStreamBytes: min(budget, stream), ObjStmCacheBytes: e.ObjectStreamCacheBytes}
+	limits := file.Limits{MaxStreamBytes: min(budget, stream), ObjStmCacheBytes: e.ObjectStreamCacheBytes, ObjCacheBytes: e.ObjectCacheBytes}
 	if opts.Limits.MaxDecodedBytes < 0 && e.MaxStreamBytes <= 0 {
 		limits.MaxStreamBytes = 1 << 40
 	}

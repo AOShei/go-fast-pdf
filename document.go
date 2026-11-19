@@ -633,8 +633,9 @@ func (st *state) child(ctx context.Context, a *attachment) *gofastcore.Document 
 // attached to the page, and actions. The annotations themselves are not
 // extracted.
 func (e *Extractor) annotations(f *file.File, p *file.Page, out *pageOut) {
-	scanActions(f, p.Dict.Get("AA"), out)
-	annots := f.Resolve(p.Dict.Get("Annots")).Elems()
+	dict := p.Dict()
+	scanActions(f, dict.Get("AA"), out)
+	annots := f.Resolve(dict.Get("Annots")).Elems()
 	if len(annots) > maxAnnotations {
 		annots = annots[:maxAnnotations]
 	}

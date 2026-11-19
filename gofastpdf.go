@@ -44,6 +44,12 @@ type Extractor struct {
 	// kept, so that an object stream is not decoded again for every
 	// object in it. The default is 64 MiB.
 	ObjectStreamCacheBytes int64
+	// ObjectCacheBytes is how much of the parsed objects of a file is
+	// kept, so that an object used by many pages is parsed once. The
+	// default is 4 MiB. When more is kept, all of it is let go: this is
+	// what keeps a file of many pages from taking more memory with every
+	// page that is read.
+	ObjectCacheBytes int64
 	// MaxShapes is the number of shapes followed on one page by the
 	// checks of Options.DeepHidden. The default is 65,536. A page that
 	// paints more gets pdf.deep_hidden_incomplete.

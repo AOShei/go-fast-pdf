@@ -414,7 +414,7 @@ func (in *interp) trim() {
 func (in *interp) reset(f *file.File, p *file.Page, opts Options, res *Result) {
 	in.f, in.opts, in.res = f, opts, res
 	in.level = 0
-	in.resourcesAt(0).reset(p.Resources)
+	in.resourcesAt(0).reset(p.Resources())
 	in.stackFloor, in.mcFloor = append(in.stackFloor[:0], 0), append(in.mcFloor[:0], 0)
 	in.gs = initialState()
 	in.geomValid = false
@@ -498,7 +498,7 @@ func (in *interp) decodeContent(bufs *[][]byte, i int, stm syntax.Value) []byte 
 
 func (in *interp) run(p *file.Page) {
 	// /Contents is one stream or an array of them.
-	contents := in.f.Resolve(p.Dict.Get("Contents"))
+	contents := in.f.Resolve(p.Dict().Get("Contents"))
 	streams := []syntax.Value{contents}
 	if contents.Kind == syntax.Array {
 		streams = contents.List

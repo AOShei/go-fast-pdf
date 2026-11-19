@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"runtime"
 	"testing"
 
 	gofastpdf "github.com/AOShei/go-fast-pdf"
@@ -32,7 +33,17 @@ func benchExtract(b *testing.B, path string, o extractOpts) {
 	b.SetBytes(info.Size())
 	b.ReportAllocs()
 	pages := 0
-	cpu := cpuTime()
+	// A run with one worker stays on this thread, where the instructions
+	// it takes can be counted: a number that, unlike any time, is the
+	// same on a busy machine.
+	read, stop, counting := func() uint64 { return 0 }, func() {}, false
+	if o.Workers <= 1 {
+		runtime.LockOSThread()
+		defer runtime.UnlockOSThread()
+		read, stop, counting = pdftest.CountInstructions()
+		defer stop()
+	}
+	cpu, instr := cpuTime(), read()
 	for b.Loop() {
 		// As a caller does it: read the file, extract it. The checks of
 		// the test adapter are not part of the measurement.
@@ -51,6 +62,9 @@ func benchExtract(b *testing.B, path string, o extractOpts) {
 	// the time on the clock.
 	if used := cpuTime() - cpu; used > 0 {
 		b.ReportMetric(float64(used.Nanoseconds())/float64(b.N), "cpu-ns/op")
+	}
+	if counting {
+		b.ReportMetric(float64(read()-instr)/float64(b.N), "instr/op")
 	}
 }
 

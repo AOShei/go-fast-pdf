@@ -62,8 +62,20 @@
 // Text blocks are paragraphs, in reading order. A PDF without tags
 // does not say where a paragraph ends or in which order a page is read,
 // so both are worked out from where the text is, and every text block
-// has OriginInferred. Lists and tables are not recognised yet: their
-// text is in paragraph blocks.
+// has OriginInferred. Tables are not recognised yet: their text is in
+// paragraph blocks.
+//
+// A paragraph that starts with the marker of a list item is a block of
+// kind list_item: a bullet, a dash, or a number or letter that counts
+// ("3.", "(a)", "iv)", "4.2.1"). The marker is in Block.Marker, out of
+// the text, and Ordered says whether it counts; the renderers put it
+// back in front. Every line that starts with a marker starts an item.
+// Level is how deep the item is nested, by how far right its marker
+// stands against the items before it on the page. Not markers: a
+// decimal number, a year, an initial ("J. Smith"), an em dash (prose
+// starts lines with it), an asterisk (more often a note), and a line
+// with a tab after the marker, which is a row of a table. A numbered
+// line set as a heading is a heading and keeps its number as Marker.
 //
 // Headings are blocks of kind heading. A block that an entry of the
 // outline names, on the page the entry points at, is a heading at the

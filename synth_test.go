@@ -122,6 +122,9 @@ func texts(p *gofastcore.Part) []string {
 			out = append(out, "<image>")
 		case b.Hidden != 0:
 			out = append(out, b.Hidden.String()+": "+b.Text)
+		case b.Marker != "":
+			// As the renderers write it.
+			out = append(out, b.Marker+" "+b.Text)
 		default:
 			out = append(out, b.Text)
 		}

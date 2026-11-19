@@ -45,6 +45,10 @@ type line struct {
 
 	tlo, thi int32 // its text is b.text[tlo:thi]
 	tab      bool  // the text has a tab
+	// item is set when the line starts with the marker of a list item,
+	// and gap when its one tab is the space after that marker: a tab
+	// that does not make the line a row.
+	item, gap bool
 	// The fonts of the first and last piece, and of the piece with the
 	// most text.
 	first, last, main *font.Font

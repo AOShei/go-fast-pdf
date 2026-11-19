@@ -681,6 +681,7 @@ func (p *Page) read(w want) (pageOut, error) {
 	// Its headings, by the type of this page alone.
 	var s sizes
 	s.add(&out.part, out.styles)
+	lists(&out.part, out.styles)
 	headings(&out.part, out.styles, &s, titlesByPage(f.describe().outline)[out.part.Number])
 	st.charge(&out.part)
 	f.note(&out)

@@ -178,6 +178,8 @@ func checkContract(doc *gofastcore.Document, opts *gofastcore.Options) error {
 	var words []string
 	for _, b := range doc.AllBlocks() {
 		if !b.Kind.Furniture() { // the renderers leave running headers and footers out
+			// The renderers put a marker back in front of its block.
+			words = append(words, strings.Fields(b.Marker)...)
 			words = append(words, strings.Fields(b.Text)...)
 		}
 	}
@@ -251,6 +253,12 @@ func checkContract(doc *gofastcore.Document, opts *gofastcore.Options) error {
 					return fmt.Errorf("%s: a heading of level %d", where, b.Level)
 				}
 				continue
+			case gofastcore.KindListItem:
+				// A paragraph that starts with the marker of an item.
+				text = true
+				if b.Level < 1 || b.Level > 6 || b.Marker == "" || b.Text == "" {
+					return fmt.Errorf("%s: a list item of level %d, marker %q and text %q", where, b.Level, b.Marker, b.Text)
+				}
 			case gofastcore.KindHeader, gofastcore.KindFooter:
 				// Running headers and footers: text of the page that the
 				// layout found in its margins and on the pages around it.

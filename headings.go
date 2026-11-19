@@ -158,7 +158,9 @@ func headings(part *gofastcore.Part, styles []layout.Style, s *sizes, titles []t
 	text := 0
 	for i := range part.Blocks {
 		b := &part.Blocks[i]
-		if !bodyText(b) || b.Continued || len(b.Text) > headingMaxBytes {
+		// A numbered item can be a numbered heading; a bullet cannot.
+		item := b.Kind == gofastcore.KindListItem && b.Ordered && b.Origin == gofastcore.OriginInferred && b.Hidden == 0
+		if !bodyText(b) && !item || b.Continued || len(b.Text) > headingMaxBytes {
 			continue
 		}
 		var st layout.Style
@@ -199,7 +201,7 @@ func headings(part *gofastcore.Part, styles []layout.Style, s *sizes, titles []t
 			level = 2
 		case ratio >= headingRatio3:
 			level = 3
-		case st.Bold && !bodyBold && ratio >= headingBoldFloor && st.Lines == 1 && len(b.Text) <= headingMaxBytes/2 && startsHeading(b.Text):
+		case !item && st.Bold && !bodyBold && ratio >= headingBoldFloor && st.Lines == 1 && len(b.Text) <= headingMaxBytes/2 && startsHeading(b.Text):
 			level = 4
 		}
 		if level > 0 {
@@ -222,7 +224,7 @@ const headingMaxPerPage = 8
 // setHeading makes a block a heading at a level of the outline, which
 // can be deeper than the six levels of the shared model.
 func setHeading(b *gofastcore.Block, level int) {
-	b.Kind = gofastcore.KindHeading
+	b.Kind, b.Ordered = gofastcore.KindHeading, false // a marker it has stays
 	if level > 6 {
 		if b.Attrs == nil {
 			b.Attrs = map[string]string{}

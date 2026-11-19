@@ -115,6 +115,12 @@ func bodyText(b *gofastcore.Block) bool {
 	return b.Kind == gofastcore.KindParagraph && b.Origin == gofastcore.OriginInferred && b.Hidden == 0 && b.Text != ""
 }
 
+// flowText reports whether a block is text that runs from page to page:
+// a paragraph or a list item laid out from the page's content, in view.
+func flowText(b *gofastcore.Block) bool {
+	return bodyText(b) || b.Kind == gofastcore.KindListItem && b.Origin == gofastcore.OriginInferred && b.Hidden == 0
+}
+
 // comparable is text as it is compared with the text of other pages: in
 // small letters, with every number, Arabic or Roman, as one sign, and
 // with its spaces made one.
@@ -264,17 +270,21 @@ func (w *furnitureWindow) next(emit func(*pageOut) bool) bool {
 		}
 	}
 
-	// A paragraph split by the page break before this page.
+	// List items, from the page alone, after its headers and footers.
+	lists(part, out.styles)
+
+	// A paragraph split by the page break before this page. A list item
+	// is text that flows too, but starts an item of its own.
 	first, last := -1, -1
 	for i := range part.Blocks {
-		if bodyText(&part.Blocks[i]) {
+		if flowText(&part.Blocks[i]) {
 			if first < 0 {
 				first = i
 			}
 			last = i
 		}
 	}
-	if first >= 0 && w.last.open {
+	if first >= 0 && w.last.open && part.Blocks[first].Kind == gofastcore.KindParagraph {
 		if r, _ := utf8.DecodeRuneInString(part.Blocks[first].Text); unicode.IsLower(r) {
 			part.Blocks[first].Continued = true
 		}

@@ -101,6 +101,8 @@ func TestAnnotationsAndFormFields(t *testing.T) {
 		`paragraph native "Paris" field=address.city`,
 		`paragraph inferred "Colours:"`,
 		`paragraph native "red\nblue" field=colours`,
+		// The options the list offers, as displayed, after its value.
+		`note native "red\nblue\ngreen" field=colours type=choices`,
 		`paragraph native "Yes" field=agree`,
 		`paragraph native "large" field=size`,
 		`paragraph native "Not for the reader" hidden:invisible field=internal`,
@@ -212,7 +214,7 @@ func TestAnnotationsAndFormFields(t *testing.T) {
 		}
 		ours := map[string]string{}
 		for _, b := range mustExtract(t, data, nil).Parts[0].Blocks {
-			if name, ok := b.Attrs[gofastcore.AttrField]; ok {
+			if name, ok := b.Attrs[gofastcore.AttrField]; ok && b.Kind == gofastcore.KindParagraph {
 				ours[name] = b.Text
 			}
 		}
@@ -295,5 +297,79 @@ func TestAnnotationTextIsBounded(t *testing.T) {
 	small := mustExtract(t, data, &gofastcore.Options{Limits: gofastcore.Limits{MaxTextBytes: 100000}})
 	if textBytes(small) > 100000 || !limitWarning(small.Warnings) {
 		t.Errorf("with a limit of 100,000: %d bytes, %v", textBytes(small), small.Warnings)
+	}
+}
+
+// The options of a choice field: one note for the field, after what
+// shows its value, the options as they are displayed.
+func TestChoiceFieldOptions(t *testing.T) {
+	const font = 4
+	options := func(doc *gofastcore.Document) (out []string) {
+		for _, part := range doc.Parts {
+			for i, b := range part.Blocks {
+				if b.Kind == gofastcore.KindNote && b.Attrs[gofastcore.AttrNoteType] == gofastcore.NoteChoices {
+					before := ""
+					if i > 0 {
+						before = part.Blocks[i-1].Text
+					}
+					line := fmt.Sprintf("%s %s %q after %q", part.Kind, b.Attrs[gofastcore.AttrField], b.Text, before)
+					if b.Hidden != 0 {
+						line += " hidden:" + b.Hidden.String()
+					}
+					out = append(out, line)
+				}
+			}
+		}
+		return out
+	}
+	d := synthDoc{
+		Font: fontCourier,
+		Objects: []string{
+			// A combo box whose appearance shows its value; two widgets
+			// of one list box; a hidden one; a text field; options of
+			// no text.
+			"<< /FT /Ch /Ff 131072 /T (country) /V (fr) /Opt [[(de) (Germany)] [(fr) (France)] [(it) (Italy)]] /Kids [2 0 R] >>",
+			"<< /Type /Annot /Subtype /Widget /Parent 1 0 R /Rect [150 700 350 720] /AP << /N 3 0 R >> >>",
+			appearance(font+4, "France"),
+			"<< /FT /Ch /T (size) /Opt [(Small) (Medium) (Large)] /Kids [5 0 R 6 0 R] >>",
+			"<< /Type /Annot /Subtype /Widget /Parent 4 0 R /Rect [150 600 350 640] >>",
+			"<< /Type /Annot /Subtype /Widget /Parent 4 0 R /Rect [150 500 350 540] >>",
+			"<< /Type /Annot /Subtype /Widget /FT /Ch /T (internal) /F 2 /Opt [(a) (b)] /Rect [150 400 350 420] >>",
+			"<< /Type /Annot /Subtype /Widget /FT /Tx /T (name) /V (Jane) /Opt [(not) (a) (list)] /Rect [150 300 350 320] >>",
+			"<< /Type /Annot /Subtype /Widget /FT /Ch /T (none) /Opt [() ( )] /Rect [150 200 350 220] >>",
+			// A choice field on no page.
+			"<< /FT /Ch /T (unseen) /V (y) /Opt [(x) (y) (z)] >>",
+		},
+		Catalog: "/AcroForm << /Fields [1 0 R 4 0 R 7 0 R 8 0 R 9 0 R 10 0 R] >>",
+		Pages: []synthPage{{
+			Content: "BT /F1 12 Tf 72 705 Td (Country:) Tj ET\nBT /F1 12 Tf 72 615 Td (Size:) Tj ET\n",
+			Extra:   "/Annots [2 0 R 5 0 R 6 0 R 7 0 R 8 0 R 9 0 R]",
+		}},
+	}
+	doc := mustExtract(t, d.bytes(), nil)
+	// After the block of the field's value where there is one (the
+	// appearance of the combo box, the value of the field on no page);
+	// otherwise placed by the widget, as a value would be. The labels and
+	// the fields of this page are read as two columns, since the fields
+	// are drawn after the page's content.
+	want := []string{
+		`page country "Germany\nFrance\nItaly" after "France"`,
+		`page size "Small\nMedium\nLarge" after "Germany\nFrance\nItaly"`,
+		`page internal "a\nb" after "Small\nMedium\nLarge" hidden:invisible`,
+		`stored unseen "x\ny\nz" after "y" hidden:invisible`,
+	}
+	if got := options(doc); strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("options:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+	// The box of a note is its widget's.
+	for _, b := range doc.Parts[0].Blocks {
+		if b.Attrs[gofastcore.AttrField] == "size" && (b.Loc.BBox.Y0 != 152 || b.Loc.BBox.Y1 != 192) {
+			t.Errorf("the options of size: box %+v", b.Loc.BBox)
+		}
+	}
+	// Not in the text of the page that a reader sees, which the
+	// reference reader gives; in the document all the same.
+	if strings.Contains(pageText(&doc.Parts[0]), "Germany") || !strings.Contains(doc.Text(), "Germany") {
+		t.Errorf("page text %q", pageText(&doc.Parts[0]))
 	}
 }

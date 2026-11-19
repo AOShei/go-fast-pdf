@@ -84,6 +84,12 @@
 //     button that is on the name of its state. A push button has no
 //     value, a signature is not text, and the value of a password field
 //     is not read.
+//   - The options of a choice field, a list box or a combo box: a note of
+//     type choices (gofastcore.NoteChoices), one option per line as it
+//     is displayed, in the order of the file, with the field's name,
+//     after the block of the field's value where there is one. It is
+//     there once for a field however many widgets show it, and is not
+//     flagged for being a list: a reader who opens it sees the options.
 //
 // Both have OriginNative: the file says what they are. An annotation
 // whose flags keep it from being shown has its text, displayed or

@@ -194,7 +194,8 @@ Settings that only PDF has are fields of `gofastpdf.Extractor`. The
   request JPEG and JPEG 2000 data as it is in the file, and 8-bit gray and RGB samples as PNG
 - **Forms and annotations** - what a filled form field, a stamp or a note on the page displays is read as
   text of the page; what is written in a comment is a `note` block with its author and date; the value
-  of a field that displays nothing is a block with the field's name
+  of a field that displays nothing is a block with the field's name; the options of a list or combo box
+  are a `choices` note
 - **Outline, page labels, document information, attached files** - attached files are handed to a child
   extractor that you supply
 - **What a file stores and shows nowhere** - scripts, the metadata packet, entries of the file's own making

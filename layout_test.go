@@ -299,6 +299,11 @@ func TestLetterSpacing(t *testing.T) {
 
 // TestTextPrintedTwice: the same text in the same place is one text,
 // wherever its copies are in the page's content.
+const (
+	twoStrings   = "BT /F1 10 Tf 72 500 Td [(The quick ) -30 (brown fox)] TJ ET\n"
+	threeStrings = "BT /F1 10 Tf 72 500 Td [(The quick ) -30 (brown fox ) 20 (jumps)] TJ ET\n"
+)
+
 func TestTextPrintedTwice(t *testing.T) {
 	once := draw(10, stack(72, 700, 12, paraA...)...)
 	shifted := draw(10, stack(72.4, 699.7, 12, paraA...)...)
@@ -311,6 +316,13 @@ func TestTextPrintedTwice(t *testing.T) {
 		{"a paragraph and its shadow", once + shifted, []string{joined(paraA)}},
 		{"three times, with other text between",
 			once + draw(10, stack(72, 600, 12, paraB...)...) + once + shifted, []string{joined(paraA), joined(paraB)}},
+		// One line, set as several strings as kerned text is, and printed
+		// again at once: the copy begins before the end of the line.
+		{"a line of two strings printed twice", twoStrings + twoStrings, []string{"The quick brown fox"}},
+		{"a line of three strings printed twice", threeStrings + threeStrings, []string{"The quick brown fox jumps"}},
+		{"a line of three strings and its shadow",
+			threeStrings + strings.Replace(threeStrings, "72 500 Td", "72.4 499.7 Td", 1), []string{"The quick brown fox jumps"}},
+		{"a line of two strings printed three times", twoStrings + twoStrings + twoStrings, []string{"The quick brown fox"}},
 		{"other text in the same place is kept",
 			once + draw(10, stack(72, 700, 12, paraB...)...), []string{joined(paraA), joined(paraB)}},
 		{"the same text in another place is kept",

@@ -21,6 +21,8 @@ import (
 //
 //	GOFASTPDF_EVIDENCE=<directory> go test -run TestEvidence .
 //
+// With GOFASTPDF_EVIDENCE_DEEP=1 the pages are read with DeepHidden.
+//
 // The report gives the counts for the tuning set and the held-out set.
 // Samples of flagged text are written for the tuning set only: the
 // held-out files are not to be looked at one by one.
@@ -51,7 +53,9 @@ func TestEvidence(t *testing.T) {
 		// By hidden reason: pages and blocks, and files.
 		reasonPages, reasonBlocks, reasonFiles map[string]int
 		hiddenInfo, hiddenWarning              int // pages by the severity of text.hidden
-		unjudgedPages                          int // visible text drawn after something was painted
+		unjudgedPages                          int // text whose contrast is not judged
+		unjudgedRuns, judgedRuns               int
+		incompletePages                        int // pdf.deep_hidden_incomplete
 		mixedLayerPages                        int // a text layer and visible text on one page
 		imageOnly, noText, failed              int
 		actualDiffers, actualLonger            int // sequences
@@ -73,7 +77,11 @@ func TestEvidence(t *testing.T) {
 	samples := map[string][]string{}
 
 	e := new(Extractor)
-	opts := &gofastcore.Options{}
+	opts := &gofastcore.Options{DeepHidden: os.Getenv("GOFASTPDF_EVIDENCE_DEEP") != ""}
+	perReason := 40
+	if opts.DeepHidden {
+		perReason = 400
+	}
 	for _, m := range manifest {
 		c := sets[m.Set]
 		if c == nil {
@@ -112,7 +120,7 @@ func TestEvidence(t *testing.T) {
 				for _, name := range strings.Split(b.Hidden.String(), "+") {
 					c.reasonBlocks[name]++
 					pageReasons[name] = true
-					if m.Set == "tune" && len(samples[name]) < 40 {
+					if m.Set == "tune" && len(samples[name]) < perReason {
 						r := b.Loc.BBox
 						samples[name] = append(samples[name], fmt.Sprintf("%s page %d [%s] (%.0f %.0f %.0f %.0f of %.0f x %.0f) %.90q",
 							m.Name, part.Number, b.Hidden, r.X0, r.Y0, r.X1, r.Y1, part.Width, part.Height, b.Text))
@@ -142,11 +150,15 @@ func TestEvidence(t *testing.T) {
 					c.failed++
 				case WarnRTLVisualOrder:
 					c.rtlPages++
+				case WarnDeepHiddenIncomplete:
+					c.incompletePages++
 				}
 			}
 			if out.stats.Unjudged > 0 {
 				c.unjudgedPages++
 			}
+			c.unjudgedRuns += out.stats.Unjudged
+			c.judgedRuns += out.stats.Judged
 			if layer && visible {
 				c.mixedLayerPages++
 			}
@@ -190,7 +202,11 @@ func TestEvidence(t *testing.T) {
 	}
 
 	var sb strings.Builder
-	sb.WriteString("Counts over the public corpus, pages extracted with default options.\n")
+	if opts.DeepHidden {
+		sb.WriteString("Counts over the public corpus, pages extracted with DeepHidden.\n")
+	} else {
+		sb.WriteString("Counts over the public corpus, pages extracted with default options.\n")
+	}
 	sb.WriteString("Scripts and actions outside the pages (catalog, form fields) are not in the active/external counts.\n\n")
 	row := func(label string, get func(c *counts) int) {
 		fmt.Fprintf(&sb, "%-58s %8d %8d\n", label, get(sets["tune"]), get(sets["held"]))
@@ -212,7 +228,10 @@ func TestEvidence(t *testing.T) {
 		row("  "+name+": pages", func(c *counts) int { return c.reasonPages[name] })
 		row("  "+name+": blocks", func(c *counts) int { return c.reasonBlocks[name] })
 	}
-	row("pages with visible text drawn after something was painted", func(c *counts) int { return c.unjudgedPages })
+	row("pages with text whose contrast is not judged", func(c *counts) int { return c.unjudgedPages })
+	row("  runs whose contrast is not judged", func(c *counts) int { return c.unjudgedRuns })
+	row("  runs whose contrast is judged", func(c *counts) int { return c.judgedRuns })
+	row("pages with pdf.deep_hidden_incomplete", func(c *counts) int { return c.incompletePages })
 	row("pages with a text layer and visible text", func(c *counts) int { return c.mixedLayerPages })
 	sb.WriteString("\nProposal E\n")
 	row("/ActualText that says other letters than its glyphs: uses", func(c *counts) int { return c.actualDiffers })

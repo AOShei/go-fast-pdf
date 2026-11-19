@@ -1,6 +1,7 @@
 package layout
 
 import (
+	"bytes"
 	"math"
 	"sort"
 
@@ -21,7 +22,8 @@ func (a box) area() float64 { return max(a.x1-a.x0, 0) * max(a.y1-a.y0, 0) }
 
 func (a box) contains(x, y float64) bool { return x >= a.x0 && x <= a.x1 && y >= a.y0 && y <= a.y1 }
 
-// occluder is an opaque image, as a convex quadrilateral.
+// occluder is an opaque image, as a convex quadrilateral, and the box
+// that the clipping paths leave of it.
 type occluder struct {
 	q   [8]float64
 	box box
@@ -93,6 +95,10 @@ func (b *builder) prepare() {
 		}
 		img := &c.Images[i]
 		q, bb := b.quadBox(img.Quad)
+		// An image is painted only where the clipping paths let it be.
+		if clip, ok := b.region(&img.Region); ok {
+			bb = box{max(bb.x0, clip.x0), max(bb.y0, clip.y0), min(bb.x1, clip.x1), min(bb.y1, clip.y1)}
+		}
 		large := false
 		if pageArea > 0 {
 			seen := box{max(bb.x0, 0), max(bb.y0, 0), min(bb.x1, pageBox.x1), min(bb.y1, pageBox.y1)}
@@ -100,7 +106,11 @@ func (b *builder) prepare() {
 				b.big = append(b.big, bb)
 			}
 		}
-		if img.Opaque && bb.area() > 0 {
+		// It covers what is under it when it is opaque and the clip is a
+		// rectangle. Through any other clipping path, how much of it is
+		// painted is not known: pages whose transparency was flattened
+		// draw pieces of images that way, around text that stays in view.
+		if img.Opaque && bb.area() > 0 && !img.Region.Inexact {
 			b.occ = append(b.occ, occluder{q: q, box: bb, seq: img.Seq, page: large})
 		}
 	}
@@ -149,10 +159,20 @@ func (b *builder) prepare() {
 		if !b.opts.NoHiddenChecks {
 			p.hidden = b.reasons(r, &p, pageBox)
 		}
-		if p.hidden == 0 && r.Seq > 0 {
-			b.stats.Unjudged++
+		// What the contrast check could say of the run: by default only
+		// of one drawn before anything else was painted.
+		if fill, stroke := painted(r.Mode); (fill || stroke) && !b.opts.NoHiddenChecks && p.hidden&gofastcore.HiddenTextLayer == 0 {
+			switch {
+			case r.Seq == 0 && !r.Blend:
+				b.stats.Judged++
+			case !b.opts.Deep || r.Blend:
+				b.stats.Unjudged++
+			}
 		}
 		b.pieces = append(b.pieces, p)
+	}
+	if b.opts.Deep && !b.opts.NoHiddenChecks {
+		b.incomplete = !b.deep()
 	}
 	b.markDuplicates()
 }
@@ -166,17 +186,21 @@ func (b *builder) reasons(r *extract.Run, p *piece, page box) gofastcore.Hidden 
 	cx, cy := (p.x0+p.x1)/2, (p.y0+p.y1)/2
 	me := box{p.x0, p.y0, p.x1, p.y1}
 
-	// An image drawn after the run that covers all of it.
+	// An image drawn after the run that covers it.
 	covered, coveredByPage := false, false
+	var band box
+	if n := len(b.occ); n > 0 && b.occ[n-1].seq >= r.Seq {
+		band = b.cover(p)
+	}
 	for i := len(b.occ) - 1; i >= 0; i-- {
 		o := &b.occ[i]
 		if o.seq < r.Seq {
 			break // drawn before the run, as are all before it
 		}
-		if me.x0 < o.box.x0 || me.x1 > o.box.x1 || me.y0 < o.box.y0 || me.y1 > o.box.y1 {
+		if !o.box.holds(band) {
 			continue
 		}
-		if inside(&o.q, me.x0, me.y0) && inside(&o.q, me.x1, me.y0) && inside(&o.q, me.x1, me.y1) && inside(&o.q, me.x0, me.y1) {
+		if inside(&o.q, band.x0, band.y0) && inside(&o.q, band.x1, band.y0) && inside(&o.q, band.x1, band.y1) && inside(&o.q, band.x0, band.y1) {
 			covered = true
 			coveredByPage = coveredByPage || o.page
 		}
@@ -231,31 +255,56 @@ func (b *builder) reasons(r *extract.Run, p *piece, page box) gofastcore.Hidden 
 	// What is painted depends on the render mode: the fill, the stroke
 	// or both. A run is transparent, or without contrast, only when
 	// that holds for every part of it that is painted.
-	fill := r.Mode == 0 || r.Mode == 2 || r.Mode == 4 || r.Mode == 6
-	stroke := r.Mode == 1 || r.Mode == 2 || r.Mode == 5 || r.Mode == 6
+	fill, stroke := painted(r.Mode)
 	if (fill || stroke) && (!fill || r.FillAlpha <= 0) && (!stroke || r.StrokeAlpha <= 0) {
 		h |= gofastcore.HiddenTransparent
 	}
-	// The background is known without looking at shapes in one case:
-	// nothing has been painted before the run, so it is the white page.
-	if (fill || stroke) && r.Seq == 0 && (!fill || faint(r.Fill)) && (!stroke || faint(r.Stroke)) {
+	// The background is taken to be known without looking at shapes in
+	// one case: nothing has been painted before the run, so it is the
+	// white page. (What is painted afterwards can still change what a
+	// reader sees; the checks with shapes look at that.) Text painted
+	// with a blend mode or through a soft mask does not show as its
+	// colour, and is not judged.
+	if r.Seq == 0 && !r.Blend && faintOn(r, fill, stroke, white) {
 		h |= gofastcore.HiddenLowContrast
 	}
 	return h
 }
 
-// faint reports whether a colour cannot be told from white. A colour
-// that could not be converted is not judged.
-func faint(c extract.Color) bool {
-	// Nearly all text is dark, and the exact test is not needed to say
-	// so. Green carries most of what the eye takes for brightness: no
-	// colour with green below 226 or red below 117 comes within the
-	// threshold of white, whatever its other parts are. The bounds here
-	// are a little lower than that; a test tries every colour.
-	if !c.Known || c.G < 220 || c.R < 110 {
+// faint reports whether a colour, painted with an opacity on a
+// background, cannot be told from it. A colour that could not be
+// converted is not judged.
+func faint(c extract.Color, alpha float32, back extract.Color) bool {
+	if !c.Known || !back.Known {
 		return false
 	}
-	return gofastcore.LowContrast(c.R, c.G, c.B, 255, 255, 255)
+	if alpha < 1 {
+		// What shows is the colour mixed with the background.
+		mix := func(a, b uint8) uint8 {
+			return uint8(float32(a)*alpha + float32(b)*(1-alpha) + 0.5)
+		}
+		c.R, c.G, c.B = mix(c.R, back.R), mix(c.G, back.G), mix(c.B, back.B)
+	}
+	// The shared measure of contrast compares how bright two colours
+	// are, and two colours can be equally bright and plain to tell apart:
+	// green on red, yellow on white. Text is faint when its colour is
+	// also close to the background in each of its parts. Two grays that
+	// the shared measure cannot tell apart are never further apart than
+	// colourSlack, so this takes no flag away from gray on gray. It is
+	// also the quick way to say that dark text on white is not faint.
+	if farApart(c.R, back.R) || farApart(c.G, back.G) || farApart(c.B, back.B) {
+		return false
+	}
+	return gofastcore.LowContrast(c.R, c.G, c.B, back.R, back.G, back.B)
+}
+
+// colourSlack is how far the red, green or blue of faint text may be
+// from that of its background, of 255.
+const colourSlack = 32
+
+func farApart(a, b uint8) bool {
+	d := int(a) - int(b)
+	return d > colourSlack || d < -colourSlack
 }
 
 // overprintSlack is how far from a run the same text may be printed
@@ -276,44 +325,124 @@ func (b *builder) markDuplicates() {
 	for i := range b.pieces {
 		b.sorted = append(b.sorted, int32(i))
 	}
+	// Copies start at the same point.
 	sortStable(b.sorted, func(i, j int32) bool { return b.pieces[i].sx < b.pieces[j].sx })
+	b.twins(false)
+	if !b.split {
+		return
+	}
+	// A copy that a clipping path cuts in two is two pieces, and the
+	// second of them ends where the line it repeats ends.
+	sortStable(b.sorted, func(i, j int32) bool { return b.pieces[i].ex < b.pieces[j].ex })
+	b.twins(true)
+}
+
+// twins goes through the pieces in the order of b.sorted, which is by
+// the point where they start or, with atEnd, where they end, and marks
+// those that repeat another.
+func (b *builder) twins(atEnd bool) {
+	n := len(b.sorted)
+	at := func(p *piece) (float64, float64) {
+		if atEnd {
+			return p.ex, p.ey
+		}
+		return p.sx, p.sy
+	}
 	for i, ai := range b.sorted {
 		a := &b.pieces[ai]
 		slack := overprintSlack * a.em
-		ra := &b.c.Runs[a.run]
+		ax, ay := at(a)
 		// A bound on the neighbours looked at keeps a page that draws
 		// everything at one point from costing the square of its size.
 		for k := i + 1; k < n && k <= i+32; k++ {
 			o := &b.pieces[b.sorted[k]]
-			if o.sx-a.sx > slack {
+			ox, oy := at(o)
+			if ox-ax > slack {
 				break
 			}
-			ro := &b.c.Runs[o.run]
-			if o.dup || a.dup || ro.Font != ra.Font || ro.Len != ra.Len ||
-				math.Abs(o.sy-a.sy) > slack || math.Abs(o.size-a.size) > 0.001*a.size ||
-				o.dx*a.dx+o.dy*a.dy < 0.999 || string(b.runText(o.run)) != string(b.runText(a.run)) {
+			if o.dup || a.dup || math.Abs(oy-ay) > slack {
 				continue
 			}
-			// Of two copies, the later one goes. Of a copy a reader can
-			// see and one he cannot, the hidden one goes: it hides
-			// nothing that is not in plain sight in the same place. Two
-			// copies hidden for different reasons both stay.
-			var drop *piece
-			switch {
-			case o.hidden == a.hidden:
-				drop = o
-				if a.run > o.run {
-					drop = a
-				}
-			case a.hidden == 0:
-				drop = o
-			case o.hidden == 0:
-				drop = a
-			default:
-				continue
+			if drop := b.twin(ai, b.sorted[k], atEnd); drop != nil {
+				drop.dup = true
+				b.stats.Duplicates++
 			}
-			drop.dup = true
-			b.stats.Duplicates++
 		}
 	}
+}
+
+// twin says which of two pieces that start at the same point, or end at
+// the same point, is to be left out as a repetition of the other: nil
+// if neither.
+func (b *builder) twin(ai, oi int32, atEnd bool) *piece {
+	a, o := &b.pieces[ai], &b.pieces[oi]
+	ra, ro := &b.c.Runs[a.run], &b.c.Runs[o.run]
+	if ro.Font != ra.Font || math.Abs(o.size-a.size) > 0.001*a.size || o.dx*a.dx+o.dy*a.dy < 0.999 {
+		return nil
+	}
+	ta, to := b.runText(a.run), b.runText(o.run)
+	if len(ta) == len(to) {
+		if string(ta) != string(to) {
+			return nil
+		}
+		// Of two copies, the later one goes. Of a copy a reader can see
+		// and one he cannot, the hidden one goes: it hides nothing that
+		// is not in plain sight in the same place. Two copies hidden for
+		// different reasons both stay.
+		switch {
+		case o.hidden == a.hidden:
+			if a.run > o.run {
+				return a
+			}
+			return o
+		case a.hidden == 0:
+			return o
+		case o.hidden == 0:
+			return a
+		}
+		return nil
+	}
+	if !b.split {
+		return nil
+	}
+	// One is a part of the other: the start of it, or its end. A page
+	// that draws a line and then draws it again through a clipping path
+	// gives such parts, one cut off by the path and one not. The part
+	// goes when the whole line is seen as well as it is, or better, and
+	// only when it is such a part: cut off, or drawn next to text of its
+	// line that is.
+	part, whole, pi, tp, tw := a, o, ai, ta, to
+	if len(ta) > len(to) {
+		part, whole, pi, tp, tw = o, a, oi, to, ta
+	}
+	if atEnd && !bytes.HasSuffix(tw, tp) || !atEnd && !bytes.HasPrefix(tw, tp) {
+		return nil
+	}
+	if (part.hidden == whole.hidden || whole.hidden == 0) && b.cutInTwo(pi) {
+		return part
+	}
+	return nil
+}
+
+// cutInTwo reports whether a piece is one of the parts that a clipping
+// path makes of a line: it is cut off itself, or the piece drawn just
+// before it or just after it is, on the same line.
+func (b *builder) cutInTwo(i int32) bool {
+	p := &b.pieces[i]
+	if b.c.Runs[p.run].CutOff {
+		return true
+	}
+	slack := overprintSlack * p.em
+	for _, k := range [2]int32{i - 1, i + 1} {
+		if k < 0 || int(k) >= len(b.pieces) {
+			continue
+		}
+		o := &b.pieces[k]
+		// How far the other piece starts from the line of this one.
+		across := (o.sx-p.sx)*-p.dy + (o.sy-p.sy)*p.dx
+		if b.c.Runs[o.run].CutOff && math.Abs(across) <= slack {
+			return true
+		}
+	}
+	return false
 }

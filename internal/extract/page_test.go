@@ -212,6 +212,24 @@ func TestImages(t *testing.T) {
 			t.Errorf("allocated %d KB to list two images", n>>10)
 		}
 	})
+	t.Run("sizes that no image has", func(t *testing.T) {
+		// Found by FuzzPage: a height beyond what an integer holds became
+		// a negative one.
+		f := imageDoc(t, "BI /W -5 /H 9227000000000000000 ID x\nEI BI /W 2.7 /H 3 ID x\nEI /Odd Do", func(b *pdftest.Builder) string {
+			odd := b.AddStream("/Type /XObject /Subtype /Image /Width -3 /Height 99999999999999999999", nil)
+			return fmt.Sprintf("/XObject << /Odd %d 0 R >>", odd)
+		})
+		got := extractAll(t, f, Options{Images: true})[0].Images
+		want := [][2]float64{{0, 1 << 30}, {2, 3}, {0, 1 << 30}}
+		if len(got) != len(want) {
+			t.Fatalf("%d images", len(got))
+		}
+		for i, img := range got {
+			if img.Width != want[i][0] || img.Height != want[i][1] {
+				t.Errorf("image %d: %v by %v, want %v", i, img.Width, img.Height, want[i])
+			}
+		}
+	})
 	t.Run("images inside forms", func(t *testing.T) {
 		f := imageDoc(t, "/Outer Do", func(b *pdftest.Builder) string {
 			img := b.AddStream("/Type /XObject /Subtype /Image /Width 3 /Height 4", nil)
@@ -404,7 +422,8 @@ func FuzzExtract(f *testing.F) {
 	pdftest.Doc(pdftest.DocOptions{Base: rich}, pdftest.PageSpec{
 		Content: "/G gs /Cs cs 1 0 0 scn 0.5 g 1 0 0 RG 0 0 0 1 k 3 Tr 5 Ts 80 Tz 2 Tc 3 Tw 12 TL " +
 			"BT /F1 12 Tf 0 1 -1 0 300 400 Tm (up) Tj T* (next) ' 1 2 (q) \" ET " +
-			"/Span << /ActualText (fi) >> BDC BT /F1 1 Tf (x) Tj ET EMC /OC /L BDC BT (y) Tj ET EMC /Fm Do 0 0 1 1 re f /Sh sh",
+			"/Span << /ActualText (fi) >> BDC BT /F1 1 Tf (x) Tj ET EMC /OC /L BDC BT (y) Tj ET EMC /Fm Do 0 0 1 1 re f /Sh sh " +
+			"q 10 10 m 20 10 l 20 20 l 10 20 l h W* n 3 w 1 2 m 3 4 5 6 7 8 c 9 9 9 9 v 1 1 1 1 y B Q 5 5 9 9 re W S BT 7 Tr (z) Tj ET 0 0 m f",
 		Resources: "/Font << /F1 5 0 R >> /XObject << /Fm 1 0 R >> /ExtGState << /G << /ca 0.5 /CA 0 /Font [5 0 R 7] >> >> " +
 			"/ColorSpace << /Cs [/ICCBased 1 0 R] >> /Properties << /L 2 0 R >>",
 	})
@@ -439,8 +458,50 @@ func FuzzExtract(f *testing.F) {
 					t.Fatalf("page %d: %+v", i+1, r)
 				}
 			}
+
+			// With shapes recorded the text is the same, set out in more
+			// runs where a clipping path cuts some of it off: nothing is
+			// lost, the spaces inside a run aside, and a string that is
+			// printed again under such a path is kept. Every shape has a
+			// box with an area, in the order painted.
+			var shapes []Shape
+			var text []byte
+			runs := 0
+			deep := Page(file, &pages[i], Options{Shapes: true, MaxShapes: 1000, MaxDecodedBytes: 4 << 20, Use: func(c *Content) {
+				shapes, text, runs = append(shapes, c.Shapes...), append(text, c.Text...), len(c.Runs)
+				if c.ShapesUpTo >= 0 != (len(c.Shapes) == 1000 && c.ShapesUpTo >= c.Shapes[999].Seq) {
+					t.Fatalf("page %d: %d shapes, up to %d", i+1, len(c.Shapes), c.ShapesUpTo)
+				}
+			}})
+			if deep.Err == nil != (res.Err == nil) || runs < len(res.Runs) || res.Err == nil && !within(res.RunText, text) {
+				t.Fatalf("page %d: with shapes recorded %d runs and %q (%v), without %d and %q (%v)", i+1, runs, text, deep.Err, len(res.Runs), res.RunText, res.Err)
+			}
+			for k, s := range shapes {
+				if !(s.Box[2] > s.Box[0] && s.Box[3] > s.Box[1]) || s.Opaque && !s.Exact || k > 0 && s.Seq < shapes[k-1].Seq || s.Seq < 0 {
+					t.Fatalf("page %d: shape %d of %d: %v", i+1, k, len(shapes), s)
+				}
+			}
 		}
 	})
+}
+
+// within reports whether the bytes of part, its spaces aside, are among
+// those of whole in their order.
+func within(part, whole []byte) bool {
+	k := 0
+	for _, c := range part {
+		if c == ' ' {
+			continue
+		}
+		for k < len(whole) && whole[k] != c {
+			k++
+		}
+		if k == len(whole) {
+			return false
+		}
+		k++
+	}
+	return true
 }
 
 // A page whose content cannot be decoded reports nothing that belongs to

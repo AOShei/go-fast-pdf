@@ -79,7 +79,13 @@ const (
 	csGray colorSpace = iota
 	csRGB
 	csCMYK
+	// csUnknown is a space whose colours are not converted: a
+	// separation, an indexed space, Lab. What is painted in it is a
+	// colour all the same.
 	csUnknown
+	// csPattern is the pattern space: what is painted in it is a tiling
+	// or a shading, which may leave gaps.
+	csPattern
 )
 
 // paint is a colour with the space the next components are read in.
@@ -109,10 +115,65 @@ type gstate struct {
 	// clip is the number of the text object whose text, shown in a
 	// clipping render mode, is part of the clipping path; 0 if none.
 	clip int32
+	// region is what the clipping paths in force leave to paint on.
+	region Region
+
+	// What painting does besides laying one colour over what is there.
+	// blendMode is set for a blend mode other than the normal one and
+	// softMask while a soft mask is in force. Inside a transparency
+	// group both start afresh and the opacities are 1 again, while the
+	// group as a whole is painted with what was in force outside it:
+	// alphaScale is the opacity of the groups being drawn, and
+	// outerBlend is set when one of them is painted with a blend mode or
+	// through a soft mask. fillAlpha and strokeAlpha above include
+	// alphaScale, and blend is set when any of the three flags is: text
+	// is shown far more often than any of this changes.
+	blendMode, softMask, outerBlend, blend bool
+	alphaScale                             float32
+	// overprint is set when what is filled is printed over what is under
+	// it and does not take its place, where the reader shows that.
+	overprint bool
+
+	// lineWidth is the width of stroked lines. It is followed only when
+	// shapes are recorded.
+	lineWidth float64
 }
 
 func initialState() gstate {
-	return gstate{ctm: identity, th: 1, fill: paint{color: black}, stroke: paint{color: black}, fillAlpha: 1, strokeAlpha: 1}
+	return gstate{ctm: identity, th: 1, fill: paint{color: black}, stroke: paint{color: black},
+		fillAlpha: 1, strokeAlpha: 1, alphaScale: 1, lineWidth: 1}
+}
+
+// Region is the part of the page that the clipping paths in force leave
+// to paint on, as far as it is followed: a box in the page's coordinates.
+// The zero value is the whole plane.
+type Region struct {
+	// X0, Y0, X1, Y1 is the box. It means something when Bounded is set.
+	X0, Y0, X1, Y1 float64
+	// Bounded is false while no clipping path has narrowed the region.
+	Bounded bool
+	// Inexact is set when the region is smaller than the box by an
+	// amount that is not followed: a clipping path that is not an
+	// upright rectangle has been applied, or text has. The region then
+	// lies somewhere within the box.
+	Inexact bool
+}
+
+// Empty reports whether nothing at all can be painted.
+func (r *Region) Empty() bool { return r.Bounded && (r.X1 <= r.X0 || r.Y1 <= r.Y0) }
+
+// cut narrows the region to the box. exact says that the clipping path
+// is the box itself and not something within it.
+func (r *Region) cut(x0, y0, x1, y1 float64, exact bool) {
+	if r.Bounded {
+		x0, y0, x1, y1 = max(x0, r.X0), max(y0, r.Y0), min(x1, r.X1), min(y1, r.Y1)
+	}
+	r.X0, r.Y0, r.X1, r.Y1, r.Bounded = x0, y0, x1, y1, true
+	r.Inexact = r.Inexact || !exact
+	if r.Empty() {
+		// Nothing is left, and that is exact.
+		r.X1, r.Y1, r.Inexact = r.X0, r.Y0, false
+	}
 }
 
 func unit8(v float64) uint8 {
@@ -160,7 +221,7 @@ func (in *interp) setColor(p *paint, space colorSpace, args []content.Operand) {
 // the current colour space. Operands that do not fit the space, such as
 // the name of a pattern, leave the colour unknown.
 func (in *interp) setComponents(p *paint, args []content.Operand) {
-	if p.space == csUnknown {
+	if p.space >= csUnknown {
 		p.color = Color{}
 		return
 	}
@@ -184,7 +245,7 @@ func (in *interp) setComponents(p *paint, args []content.Operand) {
 func (in *interp) setSpace(p *paint, raw []byte) {
 	p.space = in.space(string(in.decodeName(raw)))
 	p.color = black
-	if p.space == csUnknown {
+	if p.space >= csUnknown {
 		p.color = Color{}
 	}
 }
@@ -200,7 +261,7 @@ func (in *interp) space(name string) colorSpace {
 	case "DeviceCMYK", "CMYK":
 		return csCMYK
 	case "Pattern":
-		return csUnknown
+		return csPattern
 	}
 	def := in.f.Resolve(in.spaceDict().Get(name))
 	switch def.Kind {
@@ -212,6 +273,8 @@ func (in *interp) space(name string) colorSpace {
 			return csRGB
 		case "DeviceCMYK":
 			return csCMYK
+		case "Pattern":
+			return csPattern
 		}
 	case syntax.Array:
 		if len(def.List) == 0 {
@@ -222,6 +285,8 @@ func (in *interp) space(name string) colorSpace {
 			return csGray
 		case family.IsName("CalRGB"):
 			return csRGB
+		case family.IsName("Pattern"):
+			return csPattern
 		case family.IsName("ICCBased") && len(def.List) > 1:
 			// A profile is not applied; its number of components says
 			// which device space it stands in for.
@@ -239,24 +304,64 @@ func (in *interp) space(name string) colorSpace {
 }
 
 // extGState handles gs: the entries of a graphics state parameter
-// dictionary that text depends on.
+// dictionary that text, and what is seen of it, depend on.
 func (in *interp) extGState(raw []byte) {
 	dict := in.f.Resolve(in.gstateDict().Get(string(in.decodeName(raw))))
 	if !dict.IsDict() {
 		return
 	}
 	g := &in.gs
-	if v, ok := in.f.Resolve(dict.Get("ca")).Float(); ok {
-		g.fillAlpha = float32(math.Min(math.Max(v, 0), 1))
-	}
-	if v, ok := in.f.Resolve(dict.Get("CA")).Float(); ok {
-		g.strokeAlpha = float32(math.Min(math.Max(v, 0), 1))
-	}
-	if f := in.f.Resolve(dict.Get("Font")).Elems(); len(f) == 2 {
-		if loaded := font.Load(in.f, f[0]); loaded != nil {
-			g.font, g.fontSet = loaded, true
+	// One pass over the entries, from the last to the first, so that of
+	// a key that is there twice the first counts. A page can use this
+	// operator before every piece of text.
+	var fillOver, strokeOver syntax.Value
+	for i := len(dict.List)&^1 - 2; i >= 0; i -= 2 {
+		k := &dict.List[i]
+		if k.Kind != syntax.Name || len(k.Data) < 2 || len(k.Data) > 5 {
+			continue
 		}
-		g.size = finite(in.f.Resolve(f[1]).Number())
+		switch string(k.Data) {
+		case "ca":
+			if v, ok := in.f.Resolve(dict.List[i+1]).Float(); ok {
+				g.fillAlpha = float32(math.Min(math.Max(v, 0), 1)) * g.alphaScale
+			}
+		case "CA":
+			if v, ok := in.f.Resolve(dict.List[i+1]).Float(); ok {
+				g.strokeAlpha = float32(math.Min(math.Max(v, 0), 1)) * g.alphaScale
+			}
+		case "BM":
+			// A blend mode is a name, or a list of names of which the
+			// first that the reader knows is used.
+			if bm := in.f.Resolve(dict.List[i+1]); !bm.IsNull() {
+				if bm.Kind == syntax.Array && len(bm.List) > 0 {
+					bm = in.f.Resolve(bm.List[0])
+				}
+				g.blendMode = !bm.IsName("Normal") && !bm.IsName("Compatible")
+			}
+		case "SMask":
+			if sm := in.f.Resolve(dict.List[i+1]); !sm.IsNull() {
+				g.softMask = !sm.IsName("None")
+			}
+		case "op":
+			fillOver = in.f.Resolve(dict.List[i+1])
+		case "OP":
+			strokeOver = in.f.Resolve(dict.List[i+1])
+		case "Font":
+			if f := in.f.Resolve(dict.List[i+1]).Elems(); len(f) == 2 {
+				if loaded := font.Load(in.f, f[0]); loaded != nil {
+					g.font, g.fontSet = loaded, true
+				}
+				g.size = finite(in.f.Resolve(f[1]).Number())
+			}
+		}
+	}
+	g.blend = g.blendMode || g.softMask || g.outerBlend
+	// OP sets overprinting for strokes, and for fills too unless op is
+	// there to say otherwise.
+	if fillOver.Kind == syntax.Bool {
+		g.overprint = fillOver.N != 0
+	} else if strokeOver.Kind == syntax.Bool {
+		g.overprint = strokeOver.N != 0
 	}
 }
 

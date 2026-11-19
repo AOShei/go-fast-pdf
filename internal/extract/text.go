@@ -4,6 +4,7 @@ import (
 	gofastcore "github.com/AOShei/go-fast-core"
 	"github.com/AOShei/go-fast-pdf/internal/content"
 	"github.com/AOShei/go-fast-pdf/internal/font"
+	"unicode/utf8"
 )
 
 // Run is a stretch of text set in one go: one font, size, colour and
@@ -46,9 +47,20 @@ type Run struct {
 	Clip        int32
 	ClipPainted bool
 	// Fill and Stroke are the colours, and FillAlpha and StrokeAlpha
-	// the opacities from the graphics state (1 is opaque).
+	// the opacities (1 is opaque): those of the graphics state, times
+	// those of the transparency groups the run is drawn in.
 	Fill, Stroke           Color
 	FillAlpha, StrokeAlpha float32
+	// Blend is set when the run is painted with a blend mode other than
+	// the normal one or through a soft mask, or is in a transparency
+	// group that is: what a reader sees of it is then not its colour
+	// laid over what is under it.
+	Blend bool
+	// CutOff is set when the run lies wholly outside what the clipping
+	// paths in force leave of the page, as far as they are followed: no
+	// part of it is painted. It is worked out only when shapes are
+	// recorded (Options.Shapes).
+	CutOff bool
 	// OptionalOff is set when the run belongs to optional content that
 	// is switched off in the document's default configuration.
 	OptionalOff bool
@@ -176,6 +188,9 @@ type lineEnd struct {
 	space          float64
 	vertical       bool
 	serial         uint32 // the geometry the fields above were copied from
+	// leftward is set by separator when it took the string for the next
+	// one of text written from right to left.
+	leftward bool
 	// The string itself: its font and its text in interp.text.
 	font           *font.Font
 	textLo, textHi int32
@@ -195,6 +210,7 @@ func extent(size float64, vertical bool) (below, above float64) {
 // that starts at (x0, y0), ends at (x1, y1) and is written in direction
 // (dx, dy) at the given size.
 func (p *lineEnd) separator(x0, y0, x1, y1, dx, dy, size float64) byte {
+	p.leftward = false
 	if !p.valid {
 		return 0
 	}
@@ -239,6 +255,7 @@ func (p *lineEnd) separator(x0, y0, x1, y1, dx, dy, size float64) byte {
 	// of the two.
 	before := (p.sx-x1)*p.dx + (p.sy-y1)*p.dy
 	if fromStart < -slack && before <= gap && before >= -rightToLeftSlack*min(p.em(), size) {
+		p.leftward = true
 		return 0
 	}
 	// Another piece of text. On the same baseline it is the same place
@@ -388,6 +405,9 @@ func (in *interp) showCodes(f *font.Font, raw []byte) {
 		}
 	}
 	x1, y1 := x0+tx*ge.a+ty*ge.c, y0+tx*ge.b+ty*ge.d
+	// Whether a clipping path cuts the string off altogether. Strings
+	// that it treats differently are not one run.
+	cut := in.opts.Shapes && g.region.Bounded && in.cutOff(x0, y0, x1, y1, f.Vertical)
 
 	p := &in.prev
 	// The same string printed again where it was printed last: the way
@@ -395,7 +415,7 @@ func (in *interp) showCodes(f *font.Font, raw []byte) {
 	// Only a copy that is drawn the same way is left out here: one that a
 	// reader would see differently is for the layout to judge.
 	if n := len(in.runs); !replaced && n > 0 && p.valid && p.serial == ge.serial && p.font == f &&
-		in.runs[n-1].Clip == clip && in.sameVisibility(&in.runs[n-1]) && in.printedAgain(x0, y0, start) {
+		in.runs[n-1].Clip == clip && in.sameVisibility(&in.runs[n-1], cut) && in.printedAgain(x0, y0, start) {
 		in.text = in.text[:start]
 		in.unmapped -= sh.Unmapped
 		in.assumed -= sh.Assumed
@@ -406,6 +426,7 @@ func (in *interp) showCodes(f *font.Font, raw []byte) {
 		return
 	}
 	sep := p.separator(x0, y0, x1, y1, ge.dx, ge.dy, ge.size)
+	leftward := p.leftward
 	along := (x0-p.ex)*p.dx + (y0-p.ey)*p.dy
 	p.font, p.textLo, p.textHi = f, int32(start), int32(len(in.text))
 	p.sx, p.sy, p.ex, p.ey = x0, y0, x1, y1
@@ -431,7 +452,16 @@ func (in *interp) showCodes(f *font.Font, raw []byte) {
 	// A gap wider than the font size ends the run: what follows may be
 	// another entry of a row, or text that leaves room for a word drawn
 	// later, and a reader of the runs has to see the gap.
-	if n := len(in.runs); n > 0 && sep != '\n' && !replaced && !(sep == ' ' && along > ge.size) && in.runs[n-1].Clip == clip && in.continues(&in.runs[n-1], f) {
+	//
+	// So does a step back along the line to the start of the string shown
+	// last or before it: it is a piece of the line drawn out of its
+	// order, or the line printed again, and the layout can tell which
+	// only if it is a run of its own. A string that ends where the last
+	// one began is the next one of text written from right to left, if
+	// its script is; in any other script it is such a step back, and a
+	// line of two strings that is printed again starts that way.
+	back := sep == ' ' && along < 0 || leftward && !writtenLeftward(in.text[start:])
+	if n := len(in.runs); n > 0 && sep != '\n' && !replaced && !back && !(sep == ' ' && along > ge.size) && in.runs[n-1].Clip == clip && in.continues(&in.runs[n-1], f, cut) {
 		last := &in.runs[n-1]
 		if sep == ' ' && start > 0 && in.text[start-1] != ' ' && len(in.text) > start && in.text[start] != ' ' {
 			in.text = append(in.text, 0)
@@ -457,11 +487,26 @@ func (in *interp) showCodes(f *font.Font, raw []byte) {
 		Off: int32(start), Len: int32(len(in.text) - start),
 		X0: x0, Y0: y0, X1: x1, Y1: y1, LX: x0, LY: y0, Dx: ge.dx, Dy: ge.dy, Nx: ge.nx, Ny: ge.ny,
 		Size: ge.size, SizeX: ge.sizeX, Rise: g.rise * ge.lenY, SpaceWidth: ge.space, Font: f,
-		Mode: g.mode, Clip: clip, Fill: g.fill.color, Stroke: g.stroke.color, FillAlpha: g.fillAlpha, StrokeAlpha: g.strokeAlpha,
+		Mode: g.mode, Clip: clip, Fill: g.fill.color, Stroke: g.stroke.color,
+		FillAlpha: g.fillAlpha, StrokeAlpha: g.strokeAlpha, Blend: g.blend, CutOff: cut,
 		OptionalOff: in.offDepth > 0, Seq: in.seq, Form: in.form,
 		Sep: sep, ActualText: replaced, Glyphs: int32(sh.Glyphs), Unmapped: int32(sh.Unmapped), Assumed: int32(sh.Assumed),
 	})
 	in.checkTextLimit()
+}
+
+// writtenLeftward reports whether text has a letter of a script that is
+// written from right to left.
+func writtenLeftward(text []byte) bool {
+	for i := 0; i < len(text); {
+		r, n := utf8.DecodeRune(text[i:])
+		i += n
+		if r >= 0x0590 && r <= 0x08FF || r >= 0xFB1D && r <= 0xFDFF || r >= 0xFE70 && r <= 0xFEFC ||
+			r >= 0x10800 && r <= 0x10FFF || r >= 0x1E800 && r <= 0x1EFFF {
+			return true
+		}
+	}
+	return false
 }
 
 // printedAgain reports whether the string whose text is in.text[start:]
@@ -544,19 +589,38 @@ func (in *interp) measure(f *font.Font) {
 // continues reports whether a string shown now, in the font f, can join
 // the run last: everything about it that a reader of the runs can see
 // is the same.
-func (in *interp) continues(last *Run, f *font.Font) bool {
+func (in *interp) continues(last *Run, f *font.Font, cut bool) bool {
 	g, ge := &in.gs, &in.geom
-	return last.Font == f && in.sameVisibility(last) && !last.ActualText &&
+	return last.Font == f && in.sameVisibility(last, cut) && !last.ActualText &&
 		closeTo(last.Size, ge.size) && closeTo(last.SizeX, ge.sizeX) && last.Rise == g.rise*ge.lenY &&
 		last.Dx*ge.dx+last.Dy*ge.dy > 0.9999
 }
 
+// cutOff reports whether a string whose baseline runs from (x0, y0) to
+// (x1, y1) lies wholly outside the clipping region: its box, the
+// baseline with the height of the glyphs above it and their depth below,
+// does not touch the box of the region.
+func (in *interp) cutOff(x0, y0, x1, y1 float64, vertical bool) bool {
+	g, ge := &in.gs, &in.geom
+	r := &g.region
+	if r.Empty() {
+		return true
+	}
+	below, above := extent(ge.size, vertical)
+	rise := g.rise * ge.lenY
+	ax, ay := ge.nx*(rise+above), ge.ny*(rise+above)
+	bx, by := ge.nx*(rise-below), ge.ny*(rise-below)
+	return min(x0+ax, x0+bx, x1+ax, x1+bx) >= r.X1 || max(x0+ax, x0+bx, x1+ax, x1+bx) <= r.X0 ||
+		min(y0+ay, y0+by, y1+ay, y1+by) >= r.Y1 || max(y0+ay, y0+by, y1+ay, y1+by) <= r.Y0
+}
+
 // sameVisibility reports whether a string shown now is drawn as the run
 // last is, in everything that decides whether a reader sees it.
-func (in *interp) sameVisibility(last *Run) bool {
+func (in *interp) sameVisibility(last *Run, cut bool) bool {
 	g := &in.gs
 	return last.Mode == g.mode && last.Fill == g.fill.color && last.Stroke == g.stroke.color &&
 		last.FillAlpha == g.fillAlpha && last.StrokeAlpha == g.strokeAlpha &&
+		last.Blend == g.blend && last.CutOff == cut &&
 		last.OptionalOff == (in.offDepth > 0) && last.Seq == in.seq && last.Form == in.form
 }
 

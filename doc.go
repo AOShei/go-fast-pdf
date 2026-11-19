@@ -57,8 +57,9 @@
 //     adds limit.exceeded.
 //   - Child: the extractor for attached files. Without one they are
 //     listed with their names and sizes, and nothing of them is decoded.
-//   - DeepHidden: not implemented yet. A document extracted with it has
-//     pdf.deep_hidden_unavailable and the default checks only.
+//   - DeepHidden: also follows the shapes that a page paints and its
+//     clipping paths, and checks text against them: see "Hidden text".
+//     It costs time on pages with many shapes and changes no text.
 //   - Spans: not implemented yet and ignored.
 //
 // # Text
@@ -107,31 +108,77 @@
 //	              such text gets, and its warning is at info
 //	tiny          text displayed smaller than 2 points
 //	off_page      text that lies wholly outside the visible page
-//	transparent   text whose every painted part has opacity 0
+//	transparent   text whose every painted part has opacity 0, by itself
+//	              or as part of a transparency group
 //	occluded      text under an opaque image that is drawn after it
 //	clipped       text outside the box of the form it is drawn in
 //	low_contrast  text that cannot be told from white, when nothing was
 //	              painted on the page before it
 //
+// With Options.DeepHidden the shapes that the page paints are followed
+// as well, and three of the reasons are checked against them:
+//
+//	low_contrast  text that cannot be told from the rectangle it stands
+//	              on, or from the white page where nothing is under it
+//	occluded      text under an opaque rectangle that is painted after
+//	              it, such as a box drawn over text to blank it out
+//	clipped       text outside what the clipping paths in force leave
+//	              of the page
+//
+// What these checks know of a shape is its box, and of one kind of
+// shape all: an upright rectangle filled with a colour, under a clip
+// that is a rectangle too. Any other path, a stroke, a shading, a
+// pattern, an image and anything painted through a soft mask is a
+// region in which something is painted that is not followed. So:
+//
+//   - The background of text is the last thing painted before it that
+//     touches it. Its contrast is judged when that is one opaque
+//     rectangle of a known colour that holds it, or nothing at all. On
+//     any other background, a photograph or a shading or a banner with
+//     round corners, it is not judged.
+//   - Nor is it judged when a region painted after the text touches it:
+//     a page can draw white text first and the dark ground afterwards,
+//     around the letters. This takes back a low_contrast that the check
+//     without shapes gives such text.
+//   - Text is covered by a rectangle that lets nothing show through:
+//     not by one painted with an opacity below 1, with a blend mode or
+//     with overprinting.
+//   - A clipping path that is no rectangle is taken as its box, which
+//     is larger: text inside the box and outside the path is not found.
+//     An image painted through such a path is not taken to cover what
+//     is under it, with DeepHidden or without.
+//
+// Text is covered, and stands on a background, with the band of its
+// small letters: from the baseline to somewhat over half the font size
+// above it. Text cannot be told from its background when the shared
+// measure of contrast, which compares brightness, is below its threshold
+// and the two colours are also within an eighth of the range of each
+// other in red, green and blue: green text on a red box of the same
+// brightness is in plain view. Text painted with an opacity is judged as
+// the colour that shows, and text painted with a blend mode or through
+// a soft mask is not judged.
+//
 // Document.HiddenChecked lists the reasons that were checked as fully
-// as this package can: invisible, text_layer, tiny, off_page,
-// transparent and invisible_chars. The last three in the table are
-// checked in part only and are not listed: they are flagged where the
-// check finds them, and their absence says nothing. In particular,
-// white text on a page that paints anything before it is not judged,
-// and neither is text under a filled shape or outside a clipping path.
+// as this package can. Without DeepHidden those are invisible,
+// text_layer, tiny, off_page, transparent and invisible_chars; the last
+// three reasons of the first table are checked in part and are not
+// listed: they are flagged where the check finds them, and their
+// absence says nothing. With DeepHidden all nine are listed. A page
+// that paints more shapes than are followed (65,536, or fewer where
+// they take much work to compare) gets pdf.deep_hidden_incomplete: its
+// text is complete, what was found stands, and low_contrast and
+// occluded are then left off the list for the whole document.
 //
 // A flag is evidence that text is hidden. No flag is not evidence that
 // a document is safe. Not detected at all: a font whose glyphs draw
 // nothing or something other than what its mapping says; text inside
 // images; text hidden by a soft mask, a blend mode or a pattern; text
-// that is partly visible; text covered by other text. An image that
-// covers text may also be drawn through a clipping path that keeps it
-// off the text, which this package does not follow: such text is
-// flagged as occluded though it can be seen. The document information,
-// the outline and the names of attached files are never displayed on a
-// page and are extracted by design; a consumer that feeds them to a
-// model should treat them as it treats any text from the file.
+// that is partly visible; text covered by other text, by a shape that
+// is no upright rectangle, or by the appearance of an annotation. The
+// document information, the outline and the names of attached files
+// are never displayed on a page and are extracted by design; a consumer
+// that feeds them to a model should treat them as it treats any text
+// from the file.
 //
 // # Warnings
 //
@@ -179,8 +226,9 @@
 //	pdf.xref_entry_unreadable       data, or an entry of it, is unusable
 //	pdf.string_undecryptable        a string of an encrypted file could
 //	                                not be decrypted
-//	pdf.deep_hidden_unavailable     Options.DeepHidden was set and only
-//	                                the default checks were made
+//	pdf.deep_hidden_incomplete      Options.DeepHidden was set and the
+//	                                page paints more shapes than are
+//	                                followed
 //
 // # Errors
 //

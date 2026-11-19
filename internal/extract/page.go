@@ -13,6 +13,7 @@ package extract
 import (
 	"bytes"
 	"fmt"
+	"math"
 	"sync"
 	"unicode/utf8"
 
@@ -932,6 +933,19 @@ func (in *interp) imageRect() [4]float64 {
 	return [4]float64{c[4], c[5], hypot(c[0], c[1]), hypot(c[2], c[3])}
 }
 
+// pixels bounds the stated width or height of an image to what a count
+// of pixels can be.
+func pixels(v float64) float64 {
+	const most = 1 << 30
+	switch {
+	case !(v > 0): // also not a number
+		return 0
+	case v > most:
+		return most
+	}
+	return math.Floor(v)
+}
+
 // maxImagesPerPage bounds the images listed for one page. A page that
 // draws one image a million times is not asking for a million entries.
 const maxImagesPerPage = 100000
@@ -944,6 +958,8 @@ func (in *interp) addImage(img Image) {
 		in.warn(gofastcore.SeverityError, gofastcore.WarnLimitExceeded, "more than 100000 images on the page; the rest are not listed")
 		return
 	}
+	// A size in pixels is a count. A file can state any number.
+	img.Width, img.Height = pixels(img.Width), pixels(img.Height)
 	img.Rect = in.imageRect()
 	// An image fills the unit square of the coordinate system it is
 	// drawn in.

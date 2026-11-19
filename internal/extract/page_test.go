@@ -212,6 +212,24 @@ func TestImages(t *testing.T) {
 			t.Errorf("allocated %d KB to list two images", n>>10)
 		}
 	})
+	t.Run("sizes that no image has", func(t *testing.T) {
+		// Found by FuzzPage: a height beyond what an integer holds became
+		// a negative one.
+		f := imageDoc(t, "BI /W -5 /H 9227000000000000000 ID x\nEI BI /W 2.7 /H 3 ID x\nEI /Odd Do", func(b *pdftest.Builder) string {
+			odd := b.AddStream("/Type /XObject /Subtype /Image /Width -3 /Height 99999999999999999999", nil)
+			return fmt.Sprintf("/XObject << /Odd %d 0 R >>", odd)
+		})
+		got := extractAll(t, f, Options{Images: true})[0].Images
+		want := [][2]float64{{0, 1 << 30}, {2, 3}, {0, 1 << 30}}
+		if len(got) != len(want) {
+			t.Fatalf("%d images", len(got))
+		}
+		for i, img := range got {
+			if img.Width != want[i][0] || img.Height != want[i][1] {
+				t.Errorf("image %d: %v by %v, want %v", i, img.Width, img.Height, want[i])
+			}
+		}
+	})
 	t.Run("images inside forms", func(t *testing.T) {
 		f := imageDoc(t, "/Outer Do", func(b *pdftest.Builder) string {
 			img := b.AddStream("/Type /XObject /Subtype /Image /Width 3 /Height 4", nil)

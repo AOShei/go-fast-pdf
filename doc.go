@@ -65,6 +65,31 @@
 // has OriginInferred. Headings, lists, tables and running headers are
 // not recognised yet: their text is in paragraph blocks.
 //
+// What the annotations of a page display is part of the page: the
+// value shown in a form field, a note written on the page, a stamp.
+// Their appearances are read after the content of the page, as a
+// viewer paints them, and their text is in the paragraphs like any
+// other. Two more things an annotation holds are text, and are blocks
+// of their own:
+//
+//   - What is written in an annotation, which a viewer shows in a
+//     window beside the page or in a list: a block of kind note, of type
+//     comment, with its author and date where the file has them, after
+//     the other blocks of its page.
+//   - The value of a form field whose appearance shows nothing, which a
+//     viewer would draw by itself: a paragraph at the place of the
+//     field, after the text that starts above it, with the full name of
+//     the field under the key "field" (AttrField). A choice gives the
+//     text of the option as it is displayed, a check box or radio
+//     button that is on the name of its state. A push button has no
+//     value, a signature is not text, and the value of a password field
+//     is not read.
+//
+// Both have OriginNative: the file says what they are. An annotation
+// whose flags keep it from being shown has its text, displayed or
+// written, flagged as invisible, and one whose rectangle is off the
+// page as off_page.
+//
 // The document information becomes Metadata: the title; the author as
 // one entry, not split; subject and keywords; the creating program as
 // Application and the producing one as Extra["producer"]; the dates;
@@ -257,8 +282,8 @@
 // a document is safe. Not detected at all: a font whose glyphs draw
 // nothing or something other than what its mapping says; text inside
 // images; text hidden by a soft mask, a blend mode or a pattern; text
-// that is partly visible; text covered by other text, by a shape that
-// is no upright rectangle, or by the appearance of an annotation. The
+// that is partly visible; text covered by other text or by a shape that
+// is no upright rectangle. The
 // document information, the outline and the names of attached files
 // are never displayed on a page and are extracted by design; a consumer
 // that feeds them to a model should treat them as it treats any text

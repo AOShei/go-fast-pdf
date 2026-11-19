@@ -10,6 +10,7 @@ import (
 
 	gofastcore "github.com/AOShei/go-fast-core"
 	"github.com/AOShei/go-fast-pdf/internal/charset"
+	"github.com/AOShei/go-fast-pdf/internal/extract"
 	"github.com/AOShei/go-fast-pdf/internal/file"
 	"github.com/AOShei/go-fast-pdf/internal/syntax"
 )
@@ -26,8 +27,8 @@ const (
 	maxNameBytes    = 1024
 	maxOutlineItems = 1 << 17
 	maxOutlineDepth = 64
-	maxAnnotations  = 1 << 14 // looked at on one page
-	maxFields       = 1 << 16 // form fields looked at
+	maxAnnotations  = extract.MaxAnnotations // looked at on one page
+	maxFields       = 1 << 16                // form fields looked at
 	maxAttachments  = 1 << 12
 	maxActionChain  = 32
 )
@@ -682,8 +683,8 @@ func (st *state) child(ctx context.Context, a *attachment) *gofastcore.Document 
 }
 
 // annotations looks at the annotations of a page for two things: files
-// attached to the page, and actions. The annotations themselves are not
-// extracted.
+// attached to the page, and actions. What the annotations say is read
+// by pageNotes.
 func (e *Extractor) annotations(f *file.File, p *file.Page, out *pageOut) {
 	dict := p.Dict()
 	scanActions(f, dict.Get("AA"), out)

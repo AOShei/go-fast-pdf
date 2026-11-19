@@ -23,6 +23,8 @@ func FuzzOpen(f *testing.F) {
 	f.Add(pdftest.OnePage(pdftest.TextPage("Hello, world")))
 	f.Add(pdftest.Doc(pdftest.DocOptions{Compress: true, Configure: func(b *pdftest.Builder) { b.ObjStm = true }},
 		pdftest.PageSpec{Content: pdftest.TextPage("object streams")}).Bytes())
+	// Annotations with appearances, notes and form fields.
+	f.Add(formDoc().bytes())
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// An error is fine. A document that breaks the contract of the
 		// shared model is not, and neither is one that depends on the

@@ -191,6 +191,9 @@ Settings that only PDF has are fields of `gofastpdf.Extractor`. The
   its place and the rest is returned
 - **Images** - a block for every image, where it stands among the text, with its position and size; on
   request JPEG and JPEG 2000 data as it is in the file, and 8-bit gray and RGB samples as PNG
+- **Forms and annotations** - what a filled form field, a stamp or a note on the page displays is read as
+  text of the page; what is written in a comment is a `note` block with its author and date; the value
+  of a field that displays nothing is a block with the field's name
 - **Outline, page labels, document information, attached files** - attached files are handed to a child
   extractor that you supply
 - **Lines and words** - `Page.Lines` gives every line with its font and size and the box of each word
@@ -273,8 +276,8 @@ Without `DeepHidden` no shape is recorded and no path is followed further than i
 **What is not detected.** A flag is evidence that text is hidden. No flag is not evidence that a
 document is safe. Not detected at all: a font whose glyphs draw nothing, or something other than what
 its mapping says; text inside images; text hidden by a soft mask, a blend mode or a pattern; text that
-is partly visible; text covered by other text, by a shape that is not an upright rectangle, or by the
-appearance of an annotation. Text on a photograph, a shading or a shape with round corners is not judged
+is partly visible; text covered by other text or by a shape that is not an upright rectangle. Text on a
+photograph, a shading or a shape with round corners is not judged
 for contrast. The document information, the outline and the names of attached files are never shown on
 a page and are extracted by design: treat them as you treat any text from the file.
 

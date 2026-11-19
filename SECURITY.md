@@ -77,6 +77,7 @@ Bounds that are fixed:
 | Outline items | 131,072, 64 levels deep |
 | Attached files | 4,096; the name and the stated type of each are held to 1,024 bytes |
 | Annotations looked at on one page, form fields in a file | 16,384 and 65,536 |
+| Text written in the annotations and held as values by the fields of one page | 16 MiB |
 | Work of the `DeepHidden` checks on one page | 33,554,432 comparisons |
 | Warnings kept for one file | 100 |
 

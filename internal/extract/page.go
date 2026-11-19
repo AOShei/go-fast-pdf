@@ -128,6 +128,10 @@ type Result struct {
 	Images []Image
 	// Warnings are the problems met on this page.
 	Warnings []gofastcore.Warning
+	// Shown says of each annotation of the page, in the order of the
+	// page's list and up to MaxAnnotations, whether its appearance
+	// showed text. It is nil for a page without annotations.
+	Shown []bool
 	// Decoded is the number of bytes of content decoded for the page.
 	Decoded int64
 	// External is set when the page draws from outside the file: a
@@ -311,6 +315,7 @@ func Page(f *file.File, p *file.Page, opts Options) (res Result) {
 	}()
 	in.reset(f, p, opts, &res)
 	in.run(p)
+	in.appearances(p)
 	in.finish()
 	return res
 }

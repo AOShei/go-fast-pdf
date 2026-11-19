@@ -23,14 +23,14 @@ share.
 <!-- comparison:begin (written by go run ./bench/compare -readme README.md) -->
 | | Pages per second | Time against go-fast-pdf | Most memory |
 |---|---:|---:|---:|
-| go-fast-pdf | 12,342 | 1 | 28 MB |
-| go-fast-pdf, all processors | 20,903 | 0.59 times | 36 MB |
-| gofastpdf (the command) | 9,383 | 1.32 times | 17 MB |
-| pdftotext (poppler) | 1,969 | 6.27 times | 18 MB |
-| PyMuPDF | 2,230 | 5.53 times | 61 MB |
-| pypdfium2 (PDFium) | 2,212 | 5.58 times | 30 MB |
-| pypdf | 347 | 35.6 times | 71 MB |
-| pdfplumber | 56 | 218 times | 52 MB |
+| go-fast-pdf | 12,571 | 1 | 27 MB |
+| go-fast-pdf, all processors | 19,627 | 0.64 times | 47 MB |
+| gofastpdf (the command) | 9,588 | 1.31 times | 17 MB |
+| pdftotext (poppler) | 2,046 | 6.14 times | 20 MB |
+| PyMuPDF | 2,237 | 5.62 times | 61 MB |
+| pypdfium2 (PDFium) | 2,226 | 5.65 times | 30 MB |
+| pypdf | 348 | 36.1 times | 71 MB |
+| pdfplumber | 57 | 222 times | 52 MB |
 
 8 documents, 530 pages, 9.7 MB: the long documents of the public corpus's tuning set and one small one.
 Each program reads each document 5 times and its best time counts. Measured on AMD Ryzen 9 9900X 12-Core Processor (24 threads, linux/amd64) with go1.27.3-X:nodwarf5, 2026-11-19.

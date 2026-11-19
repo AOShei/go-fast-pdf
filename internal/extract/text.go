@@ -497,6 +497,18 @@ func (in *interp) showCodes(f *font.Font, raw []byte) {
 				in.breaks = append(in.breaks, Break{Off: int32(start), X0: endX, Y0: endY, X1: x0, Y1: y0})
 			}
 			start++
+		} else if n := len(in.breaks); in.opts.Words && n > 0 && in.breaks[n-1].Off == int32(start)-1 {
+			// The run ended with a space: the word after it begins where
+			// this string begins, which a kern may have moved.
+			in.breaks[n-1].X1, in.breaks[n-1].Y1 = x0, y0
+		}
+		if len(marks) > 0 && marks[0].glyphs == 0 {
+			// The string begins with a space: the word before it ended
+			// where the string before this one ended.
+			in.breaks = append(in.breaks, Break{Off: int32(start) + marks[0].off, X0: endX, Y0: endY})
+			b := &in.breaks[len(in.breaks)-1]
+			b.X1, b.Y1 = in.afterMark(marks[0], x0, y0, f.Vertical)
+			marks = marks[1:]
 		}
 		in.placeMarks(marks, start, x0, y0, f.Vertical)
 		last.Len = int32(len(in.text)) - last.Off
@@ -566,6 +578,24 @@ func (in *interp) markSpaces(f *font.Font, raw []byte) {
 	}
 }
 
+// along returns where a string that starts at (x0, y0) has got to after
+// an advance, as showCodes works it out for the whole string.
+func (in *interp) along(x0, y0, advance float64, glyphs, spaces int, vertical bool) (float64, float64) {
+	g, ge := &in.gs, &in.geom
+	spacing := float64(glyphs)*g.tc + float64(spaces)*g.tw
+	if vertical {
+		ty := advance*g.size - spacing
+		return x0 + ty*ge.c, y0 + ty*ge.d
+	}
+	tx := (advance*g.size + spacing) * g.th
+	return x0 + tx*ge.a, y0 + tx*ge.b
+}
+
+// afterMark returns where the space of a mark ends.
+func (in *interp) afterMark(m mark, x0, y0 float64, vertical bool) (float64, float64) {
+	return in.along(x0, y0, m.after, m.glyphs2, m.space2, vertical)
+}
+
 // placeMarks turns the marks of a string into breaks: the string's text
 // is at start in the page's text, and the string starts at (x0, y0).
 func (in *interp) placeMarks(marks []mark, start int, x0, y0 float64, vertical bool) {
@@ -573,20 +603,22 @@ func (in *interp) placeMarks(marks []mark, start int, x0, y0 float64, vertical b
 		return
 	}
 	g, ge := &in.gs, &in.geom
-	// How far along the line the string has got after an advance, as
-	// showCodes works it out for the whole string.
 	at := func(advance float64, glyphs, spaces int) (float64, float64) {
-		spacing := float64(glyphs)*g.tc + float64(spaces)*g.tw
-		if vertical {
-			ty := advance*g.size - spacing
-			return x0 + ty*ge.c, y0 + ty*ge.d
-		}
-		tx := (advance*g.size + spacing) * g.th
-		return x0 + tx*ge.a, y0 + tx*ge.b
+		return in.along(x0, y0, advance, glyphs, spaces, vertical)
 	}
+	// A word ends with its last glyph: the character spacing after it is
+	// not part of it, as it is not part of a string.
+	tc := g.tc
 	for _, m := range marks {
 		b := Break{Off: int32(start) + m.off}
 		b.X0, b.Y0 = at(m.before, m.glyphs, m.spaces)
+		if m.glyphs > 0 && tc != 0 {
+			if vertical {
+				b.X0, b.Y0 = b.X0+tc*ge.c, b.Y0+tc*ge.d
+			} else {
+				b.X0, b.Y0 = b.X0-tc*g.th*ge.a, b.Y0-tc*g.th*ge.b
+			}
+		}
 		b.X1, b.Y1 = at(m.after, m.glyphs2, m.space2)
 		in.breaks = append(in.breaks, b)
 	}

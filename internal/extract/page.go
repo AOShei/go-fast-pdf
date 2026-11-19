@@ -229,8 +229,7 @@ type interp struct {
 	// the string being shown, by their place in its text.
 	breaks []Break
 	marks  []mark
-	// ops counts operators between two looks at Options.Stop.
-	ops     uint32
+	// stopped is set once Options.Stop was found set.
 	stopped bool
 	// The path being built, and the shapes painted so far.
 	path       pathState
@@ -429,7 +428,7 @@ func (in *interp) reset(f *file.File, p *file.Page, opts Options, res *Result) {
 	in.clips, in.textClip, in.clipPainted = 0, 0, in.clipPainted[:0]
 	in.path.reset()
 	in.shapes, in.shapesUpTo = in.shapes[:0], -1
-	in.breaks, in.marks, in.ops, in.stopped = in.breaks[:0], in.marks[:0], 0, false
+	in.breaks, in.marks, in.stopped = in.breaks[:0], in.marks[:0], false
 }
 
 func (in *interp) resourcesAt(level int) *resources {
@@ -532,17 +531,25 @@ func (in *interp) run(p *file.Page) {
 
 // exec runs the operators of a scanner to its end.
 func (in *interp) exec(scan *content.Scanner) {
-	for !in.stopped {
+	if in.stopped {
+		return
+	}
+	// A page can have millions of operators: whoever waits for it can
+	// call it off. That is looked at every so many operators, counted
+	// here and not in the interpreter, so that it costs next to nothing.
+	const every = 1024
+	left := every
+	for {
 		op, args, ok := scan.Next()
 		if !ok {
 			return
 		}
 		in.operator(scan, op, args)
-		// A page can have millions of operators: whoever waits for it
-		// can call it off.
-		if in.opts.Stop != nil {
-			if in.ops++; in.ops&1023 == 0 && in.opts.Stop.Load() {
+		if left--; left == 0 {
+			left = every
+			if in.stopped || in.opts.Stop != nil && in.opts.Stop.Load() {
 				in.stopped = true
+				return
 			}
 		}
 	}
@@ -1070,7 +1077,7 @@ func (in *interp) drawXObject(rawName []byte) {
 // number of forms are all bounded, so a form that draws itself, or a
 // tree of forms that doubles at every level, ends.
 func (in *interp) drawForm(xobj syntax.Value) {
-	if xobj.Kind != syntax.Stream {
+	if xobj.Kind != syntax.Stream || in.stopped {
 		return
 	}
 	if in.level >= in.opts.MaxFormDepth || in.formCalls >= maxFormsPerPage {

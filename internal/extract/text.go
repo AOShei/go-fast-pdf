@@ -386,8 +386,12 @@ func (in *interp) showCodes(f *font.Font, raw []byte) {
 			in.markSpaces(f, raw)
 		}
 	}
-	marks := in.marks
-	in.marks = in.marks[:0]
+	// The spaces of this string, when words are asked for. Nothing of
+	// this is done otherwise: strings are shown by the thousand.
+	var marks []mark
+	if in.opts.Words {
+		marks, in.marks = in.marks, in.marks[:0]
+	}
 
 	// Text in a clipping mode belongs to the clip of its text object;
 	// text that is painted while other text clips paints through it.
@@ -452,7 +456,10 @@ func (in *interp) showCodes(f *font.Font, raw []byte) {
 	sep := p.separator(x0, y0, x1, y1, ge.dx, ge.dy, ge.size)
 	leftward := p.leftward
 	along := (x0-p.ex)*p.dx + (y0-p.ey)*p.dy
-	endX, endY := p.ex, p.ey // where the string before this one ended
+	var endX, endY float64
+	if in.opts.Words {
+		endX, endY = p.ex, p.ey // where the string before this one ended
+	}
 	p.font, p.textLo, p.textHi = f, int32(start), int32(len(in.text))
 	p.sx, p.sy, p.ex, p.ey = x0, y0, x1, y1
 	if p.serial != ge.serial || !p.valid {
@@ -497,20 +504,24 @@ func (in *interp) showCodes(f *font.Font, raw []byte) {
 				in.breaks = append(in.breaks, Break{Off: int32(start), X0: endX, Y0: endY, X1: x0, Y1: y0})
 			}
 			start++
-		} else if n := len(in.breaks); in.opts.Words && n > 0 && in.breaks[n-1].Off == int32(start)-1 {
-			// The run ended with a space: the word after it begins where
-			// this string begins, which a kern may have moved.
-			in.breaks[n-1].X1, in.breaks[n-1].Y1 = x0, y0
+		} else if in.opts.Words {
+			if n := len(in.breaks); n > 0 && in.breaks[n-1].Off == int32(start)-1 {
+				// The run ended with a space: the word after it begins
+				// where this string begins, which a kern may have moved.
+				in.breaks[n-1].X1, in.breaks[n-1].Y1 = x0, y0
+			}
 		}
-		if len(marks) > 0 && marks[0].glyphs == 0 {
-			// The string begins with a space: the word before it ended
-			// where the string before this one ended.
-			in.breaks = append(in.breaks, Break{Off: int32(start) + marks[0].off, X0: endX, Y0: endY})
-			b := &in.breaks[len(in.breaks)-1]
-			b.X1, b.Y1 = in.afterMark(marks[0], x0, y0, f.Vertical)
-			marks = marks[1:]
+		if len(marks) > 0 {
+			if marks[0].glyphs == 0 {
+				// The string begins with a space: the word before it ended
+				// where the string before this one ended.
+				in.breaks = append(in.breaks, Break{Off: int32(start) + marks[0].off, X0: endX, Y0: endY})
+				b := &in.breaks[len(in.breaks)-1]
+				b.X1, b.Y1 = in.afterMark(marks[0], x0, y0, f.Vertical)
+				marks = marks[1:]
+			}
+			in.placeMarks(marks, start, x0, y0, f.Vertical)
 		}
-		in.placeMarks(marks, start, x0, y0, f.Vertical)
 		last.Len = int32(len(in.text)) - last.Off
 		last.X1, last.Y1 = x1, y1
 		last.LX, last.LY = x0, y0
@@ -525,7 +536,9 @@ func (in *interp) showCodes(f *font.Font, raw []byte) {
 		in.tooMuchText()
 		return
 	}
-	in.placeMarks(marks, start, x0, y0, f.Vertical)
+	if len(marks) > 0 {
+		in.placeMarks(marks, start, x0, y0, f.Vertical)
+	}
 	in.runs = append(in.runs, Run{
 		Off: int32(start), Len: int32(len(in.text) - start),
 		X0: x0, Y0: y0, X1: x1, Y1: y1, LX: x0, LY: y0, Dx: ge.dx, Dy: ge.dy, Nx: ge.nx, Ny: ge.ny,

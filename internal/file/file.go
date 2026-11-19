@@ -650,12 +650,19 @@ func (f *File) object(num int64, depth int) syntax.Value {
 
 // weigh estimates the memory a parsed object takes.
 func weigh(v *syntax.Value, depth int) int64 {
-	n := int64(unsafe.Sizeof(*v))
+	return values(v, depth) * int64(unsafe.Sizeof(*v))
+}
+
+// values counts the values an object is made of.
+func values(v *syntax.Value, depth int) int64 {
+	n := int64(1 + len(v.List))
 	if depth > 64 {
 		return n
 	}
 	for i := range v.List {
-		n += weigh(&v.List[i], depth+1)
+		if len(v.List[i].List) > 0 {
+			n += values(&v.List[i], depth+1) - 1
+		}
 	}
 	return n
 }

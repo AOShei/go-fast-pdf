@@ -196,10 +196,10 @@
 // Text is covered, and stands on a background, with the band of its
 // small letters: from the baseline to somewhat over half the font size
 // above it. Text cannot be told from its background when the shared
-// measure of contrast, which compares brightness, is below its threshold
-// and the two colours are also within an eighth of the range of each
-// other in red, green and blue: green text on a red box of the same
-// brightness is in plain view. Text painted with an opacity is judged as
+// measure of contrast says so (gofastcore.LowContrast): the two are
+// close in brightness, and close in red and in green, so that green text
+// on a red box of the same brightness, which is in plain view, is not
+// flagged. Text painted with an opacity is judged as
 // the colour that shows, and text painted with a blend mode or through
 // a soft mask is not judged.
 //

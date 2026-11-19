@@ -8,10 +8,12 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"testing"
 
+	gofastpdf "github.com/AOShei/go-fast-pdf"
 	"github.com/AOShei/go-fast-pdf/internal/pdftest"
 )
 
@@ -156,6 +158,44 @@ func TestEveryExportedIdentifierIsDocumented(t *testing.T) {
 					}
 				}
 			}
+		}
+	}
+}
+
+// TestEveryWarningCodeHasAConstant: every code of this library's own
+// that the sources name is the value of an exported constant, so that
+// a caller can compare with a name and not with a string.
+func TestEveryWarningCodeHasAConstant(t *testing.T) {
+	constants := map[string]bool{}
+	for _, code := range []string{
+		gofastpdf.WarnRTLVisualOrder, gofastpdf.WarnDeepHiddenIncomplete, gofastpdf.WarnGlyphTextAssumed, gofastpdf.WarnFontMissing,
+		gofastpdf.WarnContentStreamDamaged, gofastpdf.WarnContentStreamUnreadable, gofastpdf.WarnContentBytesSkipped,
+		gofastpdf.WarnObjectUnreadable, gofastpdf.WarnPageTreeDamaged, gofastpdf.WarnXRefSectionUnreadable,
+		gofastpdf.WarnXRefEntryUnreadable, gofastpdf.WarnStringUndecryptable,
+	} {
+		if constants[code] || !strings.HasPrefix(code, "pdf.") {
+			t.Errorf("the constant with the value %q: twice, or not a code of this library", code)
+		}
+		constants[code] = true
+	}
+	code := regexp.MustCompile(`"(pdf\.[a-z_]+)"`)
+	used := map[string]bool{}
+	filepath.WalkDir(".", func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		data, _ := os.ReadFile(path)
+		for _, m := range code.FindAllStringSubmatch(string(data), -1) {
+			used[m[1]] = true
+			if !constants[m[1]] {
+				t.Errorf("%s names the code %q, which has no constant", path, m[1])
+			}
+		}
+		return nil
+	})
+	for c := range constants {
+		if !used[c] {
+			t.Errorf("the code %q has a constant and is used nowhere", c)
 		}
 	}
 }

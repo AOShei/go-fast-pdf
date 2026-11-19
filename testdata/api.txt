@@ -14,6 +14,22 @@ const (
 	WarnGlyphTextAssumed = "pdf.glyph_text_assumed"
 
 	WarnFontMissing = "pdf.font_missing"
+
+	WarnContentStreamDamaged = "pdf.content_stream_damaged"
+
+	WarnContentStreamUnreadable = "pdf.content_stream_unreadable"
+
+	WarnContentBytesSkipped = "pdf.content_bytes_skipped"
+
+	WarnObjectUnreadable = "pdf.object_unreadable"
+
+	WarnPageTreeDamaged = "pdf.page_tree_damaged"
+
+	WarnXRefSectionUnreadable = "pdf.xref_section_unreadable"
+
+	WarnXRefEntryUnreadable = "pdf.xref_entry_unreadable"
+
+	WarnStringUndecryptable = "pdf.string_undecryptable"
 )
 
 const Format = "pdf"

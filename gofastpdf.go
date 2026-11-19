@@ -135,6 +135,30 @@ const (
 	// WarnFontMissing: text on the page is set in a font that the page's
 	// resources do not define.
 	WarnFontMissing = "pdf.font_missing"
+	// WarnContentStreamDamaged: a content stream of the page is damaged;
+	// what could be decoded before the damage was read.
+	WarnContentStreamDamaged = "pdf.content_stream_damaged"
+	// WarnContentStreamUnreadable: a content stream of the page could
+	// not be decoded at all.
+	WarnContentStreamUnreadable = "pdf.content_stream_unreadable"
+	// WarnContentBytesSkipped: bytes of a content stream of the page are
+	// not valid syntax and were skipped.
+	WarnContentBytesSkipped = "pdf.content_bytes_skipped"
+	// WarnObjectUnreadable: an object of the file could not be read and
+	// was taken as null. It is a warning of the document.
+	WarnObjectUnreadable = "pdf.object_unreadable"
+	// WarnPageTreeDamaged: a node of the page tree is not what it should
+	// be; the pages under it may be missing.
+	WarnPageTreeDamaged = "pdf.page_tree_damaged"
+	// WarnXRefSectionUnreadable: a section of the cross-reference data
+	// could not be read.
+	WarnXRefSectionUnreadable = "pdf.xref_section_unreadable"
+	// WarnXRefEntryUnreadable: an entry of the cross-reference data is
+	// unusable.
+	WarnXRefEntryUnreadable = "pdf.xref_entry_unreadable"
+	// WarnStringUndecryptable: a string of an encrypted file could not be
+	// decrypted.
+	WarnStringUndecryptable = "pdf.string_undecryptable"
 )
 
 // pageOut is what one page worker hands to the merge.

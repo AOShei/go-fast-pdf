@@ -63,6 +63,12 @@ var deepCases = []deepCase{
 	{hiddenCase: hiddenCase{name: "nearly transparent text on a white rectangle",
 		before: "1 g " + band + " f 0 g q /Faint gs " + hide + "Q\n", resources: deepStates, want: gofastcore.HiddenLowContrast}},
 
+	// A difference in blue alone does not make text legible.
+	{hiddenCase: hiddenCase{name: "yellow text on the white page",
+		before: "1 1 0 rg " + hide + "0 g\n", want: gofastcore.HiddenLowContrast}, plain: gofastcore.HiddenLowContrast},
+	{hiddenCase: hiddenCase{name: "cream text on a white rectangle over a dark page",
+		before: "0.1 g 0 300 612 300 re f 1 g " + band + " f 1 1 0.87 rg " + hide + "0 g\n", want: gofastcore.HiddenLowContrast}},
+
 	// --- covered by what is painted after the text ---
 	{hiddenCase: hiddenCase{name: "text under a black rectangle drawn later",
 		after: hide + "0 g " + band + " f", want: gofastcore.HiddenOccluded}},
@@ -131,7 +137,8 @@ var deepCases = []deepCase{
 	// --- text that must not be flagged ---
 	{hiddenCase: hiddenCase{name: "green text on a red rectangle that is as bright",
 		before: "0.9 0 0 rg " + band + " f 0 0.54 0 rg " + hide + "0 g\n"}},
-	{hiddenCase: hiddenCase{name: "yellow text on the white page", before: "1 1 0 rg " + hide + "0 g\n"}},
+	{hiddenCase: hiddenCase{name: "red text on a green rectangle that is as bright",
+		before: "0 0.54 0 rg " + band + " f 0.9 0 0 rg " + hide + "0 g\n"}},
 	{hiddenCase: hiddenCase{name: "white text on a dark banner", before: "0.1 g " + band + " f " + white}},
 	{hiddenCase: hiddenCase{name: "white text on a dark banner, in a font whose glyphs have no width",
 		before: "0.1 g " + band + " f 1 g BT /Narrow 12 Tf 72 500 Td " + secret + " ET 0 g\n",

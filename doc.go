@@ -62,8 +62,21 @@
 // Text blocks are paragraphs, in reading order. A PDF without tags
 // does not say where a paragraph ends or in which order a page is read,
 // so both are worked out from where the text is, and every text block
-// has OriginInferred. Headings, lists and tables are not recognised yet:
-// their text is in paragraph blocks.
+// has OriginInferred. Lists and tables are not recognised yet: their
+// text is in paragraph blocks.
+//
+// Headings are blocks of kind heading. A block that an entry of the
+// outline names, on the page the entry points at, is a heading at the
+// entry's level with OriginNative: the file says it is one. Otherwise a
+// short block is a heading when it is set at least 15 percent larger
+// than the text of the document, or bold on one line where the text is
+// not bold; its level is from its size, 1 for a title set about twice
+// as large as the text, down to 4 for bold at the size of the text. A
+// page with more such blocks than it can have headings, a map or a
+// diagram, gets none by type. The size of the text of the document is
+// the size most of it is set in, counted over the pages put in order so
+// far and those that wait after them; a page read by itself uses its
+// own.
 //
 // Running headers and footers are blocks of kind header and footer: text
 // that the pages repeat at their top or bottom, a title, a date, a page

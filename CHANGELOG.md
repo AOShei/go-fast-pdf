@@ -22,6 +22,7 @@ files made to exhaust it, and is several times faster. The tag follows that of g
   and pages drawn out of order are put in the order they are read.
 - **Running headers and footers** are tagged by comparing each page with its neighbours, and a paragraph
   split by a page break is marked as continued.
+- **Headings**, with levels: named by the outline, or found by their size and weight.
 - **Hidden text is flagged.** Nine reasons: invisible, the text layer of a scan, tiny, off the page,
   transparent, invisible characters, low contrast, covered, clipped. `Options.DeepHidden` checks the last
   three against the shapes a page paints. `Document.HiddenChecked` says which reasons were checked in

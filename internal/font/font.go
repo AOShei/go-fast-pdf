@@ -31,6 +31,7 @@ package font
 import (
 	"math"
 	"sort"
+	"strings"
 	"sync/atomic"
 	"unicode/utf16"
 	"unicode/utf8"
@@ -59,6 +60,10 @@ type Font struct {
 	// LongestText is the length in bytes of the longest text that one
 	// character code of the font stands for.
 	LongestText int
+	// Bold is set for a font whose strokes are heavier than a regular
+	// font's: its descriptor says so (a weight of 600 or more, or the
+	// flag that forces bold), or its name does.
+	Bold bool
 
 	// A simple font: the text and the advance of each of its 256 codes.
 	// An empty text is a code with no mapping, unless the code is blank:
@@ -266,6 +271,53 @@ func Load(f *file.File, ref syntax.Value) *Font {
 	return font
 }
 
+// bold reports whether a font is bold: by the weight or the flags of
+// its descriptor (that of its descendant, for a composite font), or by
+// the name of the font.
+func bold(f *file.File, dict syntax.Value, name string) bool {
+	// The name first: it settles most fonts without reading more. Arial-
+	// BoldMT, TimesNewRomanPS-BoldItalicMT, Helvetica-Black,
+	// MyriadPro-Semibold, NimbusSans-Heavy, CMBX10 (TeX's bold extended).
+	for _, w := range []string{"bold", "black", "heavy", "demi"} { // "semibold" has "bold"
+		if containsFold(name, w) {
+			return true
+		}
+	}
+	if i := strings.IndexByte(name, '+'); i >= 0 {
+		name = name[i+1:]
+	}
+	if strings.HasPrefix(name, "CMB") {
+		return true
+	}
+	descriptor := f.Resolve(dict.Get("FontDescriptor"))
+	if !descriptor.IsDict() {
+		if kids := f.Resolve(dict.Get("DescendantFonts")).Elems(); len(kids) > 0 {
+			descriptor = f.Resolve(f.Resolve(kids[0]).Get("FontDescriptor"))
+		}
+	}
+	if weight, ok := f.Resolve(descriptor.Get("FontWeight")).Float(); ok && weight >= 600 {
+		return true
+	}
+	const forceBold = 1 << 18
+	flags, _ := f.Resolve(descriptor.Get("Flags")).Integer()
+	return flags&forceBold != 0
+}
+
+// containsFold reports whether s contains the lower-case ASCII word w,
+// in any case, without making a copy of s.
+func containsFold(s, w string) bool {
+	for i := 0; i+len(w) <= len(s); i++ {
+		j := 0
+		for j < len(w) && s[i+j]|0x20 == w[j] {
+			j++
+		}
+		if j == len(w) {
+			return true
+		}
+	}
+	return false
+}
+
 // maxCachedFonts is the number of fonts of a file that are kept at a
 // time.
 const maxCachedFonts = 1024
@@ -307,6 +359,7 @@ func parse(f *file.File, dict syntax.Value) *Font {
 		}
 	}
 
+	font.Bold = bold(f, dict, font.BaseFont)
 	if f.Resolve(dict.Get("Subtype")).IsName("Type0") {
 		font.parseComposite(f, dict, toUni)
 		if font.toUni != nil {

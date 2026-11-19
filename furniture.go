@@ -177,6 +177,12 @@ type furnitureWindow struct {
 	// they are when a second page comes.
 	firstLater bool
 
+	// The letters of the pages by size, for headings, and the entries of
+	// the outline by the page they point at.
+	sizes  sizes
+	titles map[int][]title
+
+	sizesRoom   [16]sizeCount
 	pendingRoom [2 * (furnitureReach + 1)]pageOut
 	pmarksRoom  [2 * (furnitureReach + 1)][]mark
 	behindRoom  [furnitureReach][]mark
@@ -189,8 +195,10 @@ func (w *furnitureWindow) push(out *pageOut, emit func(*pageOut) bool) bool {
 		return false
 	}
 	if w.pending == nil {
-		// The room is in the window itself: its size is known.
+		// The room is in the window itself: its size is known, or as for
+		// the sizes of the text, a document has few.
 		w.pending, w.pmarks, w.behind = w.pendingRoom[:0], w.pmarksRoom[:0], w.behindRoom[:0]
+		w.sizes = w.sizesRoom[:0]
 	}
 	if len(w.pending) == cap(w.pending) {
 		// Move what waits to the front, so the room is used again.
@@ -205,6 +213,7 @@ func (w *furnitureWindow) push(out *pageOut, emit func(*pageOut) bool) bool {
 	if !alone && w.firstLater {
 		w.pmarks[0], w.firstLater = marks(&w.pending[0].part), false
 	}
+	w.sizes.add(&out.part, out.styles)
 	w.pending = append(w.pending, *out)
 	if alone {
 		w.pmarks, w.firstLater = append(w.pmarks, nil), true
@@ -274,6 +283,8 @@ func (w *furnitureWindow) next(emit func(*pageOut) bool) bool {
 	if last >= 0 {
 		w.last.open = !sentenceEnds(part.Blocks[last].Text)
 	}
+
+	headings(part, out.styles, &w.sizes, w.titles[part.Number])
 
 	if len(w.behind) == furnitureReach {
 		copy(w.behind, w.behind[1:])

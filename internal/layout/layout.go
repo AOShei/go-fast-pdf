@@ -85,7 +85,21 @@ type Result struct {
 	// Lines are the lines of the text blocks, block by block, when
 	// Options.Lines is set.
 	Lines []Line
-	Stats Stats
+	// Styles has one entry per block: how its text is set. An image
+	// block has the zero Style.
+	Styles []Style
+	Stats  Stats
+}
+
+// Style is how the text of a block is set: by its line with the most
+// text.
+type Style struct {
+	// Size is the size the text is displayed at.
+	Size float64
+	// Bold is set when the font of that line is bold.
+	Bold bool
+	// Lines is the number of lines of the block.
+	Lines int
 }
 
 // Line is one line of a text block.
@@ -247,6 +261,10 @@ func Build(page Page, c *extract.Content, opts Options) Result {
 	}
 	res.HasText = len(res.Blocks) > 0
 	res.Stats = b.stats
+	res.Styles = make([]Style, len(final), cap(res.Blocks))
+	for k, i := range final {
+		res.Styles[k] = b.styleOf(i)
+	}
 	if opts.Lines {
 		b.linesOf(&res, final)
 	}
@@ -262,8 +280,34 @@ func Build(page Page, c *extract.Content, opts Options) Result {
 		for i := range res.Lines {
 			res.Lines[i].Block = at[res.Lines[i].Block]
 		}
+		styles := res.Styles[:len(res.Blocks)]
+		for k := len(at) - 1; k >= 0; k-- {
+			styles[at[k]] = res.Styles[k]
+		}
+		for k, img := range res.Images {
+			if img >= 0 {
+				styles[k] = Style{}
+			}
+		}
+		res.Styles = styles
 	}
 	return res
+}
+
+// styleOf is the style of a block: that of its line with the most text.
+func (b *builder) styleOf(i int32) Style {
+	var s Style
+	most := int32(-1)
+	for li := b.blocks[i].line; li >= 0; li = b.lines[li].next {
+		ln := &b.lines[li]
+		s.Lines++
+		if n := ln.thi - ln.tlo; n > most {
+			most = n
+			s.Size = ln.size
+			s.Bold = ln.main != nil && ln.main.Bold
+		}
+	}
+	return s
 }
 
 // farAway bounds the coordinates of a box. A page can place text a

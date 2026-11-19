@@ -10,6 +10,7 @@ import (
 	gofastcore "github.com/AOShei/go-fast-core"
 	"github.com/AOShei/go-fast-pdf/internal/charset"
 	"github.com/AOShei/go-fast-pdf/internal/file"
+	"github.com/AOShei/go-fast-pdf/internal/layout"
 	"github.com/AOShei/go-fast-pdf/internal/syntax"
 )
 
@@ -296,6 +297,10 @@ func (out *pageOut) addNotes(extras []extra) {
 	})
 
 	merged := make([]gofastcore.Block, 0, n+len(extras))
+	var styles []layout.Style
+	if len(out.styles) == n {
+		styles = make([]layout.Style, n+len(extras))
+	}
 	moved := make([]int32, n) // where each block of the content is now
 	next := 0
 	for k := 0; k <= n; k++ {
@@ -314,6 +319,12 @@ func (out *pageOut) addNotes(extras []extra) {
 		}
 	}
 	out.part.Blocks = merged
+	if styles != nil {
+		for k := range n {
+			styles[moved[k]] = out.styles[k]
+		}
+		out.styles = styles
+	}
 	for i := range out.images {
 		out.images[i].block = moved[out.images[i].block]
 	}

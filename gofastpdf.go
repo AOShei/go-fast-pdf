@@ -168,6 +168,9 @@ type pageOut struct {
 	decoded int64
 	// images says, for each image block of the part, which image it is.
 	images []imageRef
+	// styles says, for each block of the part, how its text is set; the
+	// zero Style for a block that is not text of the page.
+	styles []layout.Style
 	// lines are the lines of the page, when they were asked for.
 	lines []layout.Line
 	// What the page contributes to the document's warnings.
@@ -229,7 +232,7 @@ func (e *Extractor) page(f *file.File, p *file.Page, opts *gofastcore.Options, w
 			}
 		}
 	}})
-	out.lines = lay.Lines
+	out.lines, out.styles = lay.Lines, lay.Styles
 	out.decoded, out.external, out.stats = res.Decoded, res.External, lay.Stats
 	out.actualDiffers, out.actualLonger, out.longGlyph = res.ActualDiffers, res.ActualLonger, res.LongGlyphText
 	part.Blocks = lay.Blocks

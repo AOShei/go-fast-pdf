@@ -352,7 +352,7 @@ func deepAgainstDefault(plain, deep *gofastcore.Document) string {
 // compares what it hands out with the document that Extract gave: the
 // parts of the iterator, and for every page its lines.
 func handleAgainstDocument(path string, doc *gofastcore.Document) string {
-	f, err := gofastpdf.Open(path, &gofastcore.Options{Workers: 8})
+	f, err := gofastpdf.Open(path, &gofastcore.Options{Workers: 8, Images: gofastcore.ImagesNone})
 	if err != nil {
 		return "Open: " + err.Error()
 	}

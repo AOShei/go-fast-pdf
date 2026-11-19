@@ -270,6 +270,17 @@ func TestImagesAndWorkers(t *testing.T) {
 			t.Errorf("-images %s: %d image blocks, %d with data", mode, blocks, data)
 		}
 	}
+	// Without the flag the images are listed: a picture is content.
+	stdout, _, status := command(t, path)
+	listed := 0
+	for _, b := range document(t, stdout).Parts[0].Blocks {
+		if b.Kind == gofastcore.KindImage {
+			listed++
+		}
+	}
+	if status != 0 || listed != 1 {
+		t.Errorf("without -images: status %d, %d image blocks", status, listed)
+	}
 }
 
 func TestOutputFile(t *testing.T) {

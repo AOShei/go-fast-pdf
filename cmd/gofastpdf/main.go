@@ -140,7 +140,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	output := flags.String("o", "", "write to this `file` and not to standard output")
 	password := flags.String("password", "", "the password of an encrypted file")
 	pages := flags.String("pages", "", "the pages to read: 3, 2-5, 4- or -7 (default: all)")
-	images := flags.String("images", "none", "images: none, meta (where and how large) or data (their bytes too)")
+	images := flags.String("images", "meta", "images: meta (a block for each, with where it is and how large), data (their bytes too) or none")
 	workers := flags.Int("workers", 0, "pages read at a time (default: one per processor)")
 	deep := flags.Bool("deep-hidden", false, "check text against the shapes each page paints as well: white on a white box, text under a box, text cut off")
 	var exclude hiddenFlag
@@ -179,6 +179,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	}
 	switch *images {
 	case "none":
+		opts.Images = gofastcore.ImagesNone
 	case "meta":
 		opts.Images = gofastcore.ImagesMeta
 	case "data":

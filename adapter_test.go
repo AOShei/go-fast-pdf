@@ -55,6 +55,9 @@ type extractOpts struct {
 
 func (o extractOpts) options() *gofastcore.Options {
 	opts := &gofastcore.Options{Password: o.Password, Workers: max(o.Workers, 1), DeepHidden: o.Deep}
+	// Said in so many words: which of the modes an option left out means
+	// is core's to say.
+	opts.Images = gofastcore.ImagesNone
 	if o.Images {
 		opts.Images = gofastcore.ImagesMeta
 	}

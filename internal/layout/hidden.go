@@ -285,26 +285,9 @@ func faint(c extract.Color, alpha float32, back extract.Color) bool {
 		}
 		c.R, c.G, c.B = mix(c.R, back.R), mix(c.G, back.G), mix(c.B, back.B)
 	}
-	// The shared measure of contrast compares how bright two colours
-	// are, and two colours can be equally bright and plain to tell apart:
-	// green on red, yellow on white. Text is faint when its colour is
-	// also close to the background in each of its parts. Two grays that
-	// the shared measure cannot tell apart are never further apart than
-	// colourSlack, so this takes no flag away from gray on gray. It is
-	// also the quick way to say that dark text on white is not faint.
-	if farApart(c.R, back.R) || farApart(c.G, back.G) || farApart(c.B, back.B) {
-		return false
-	}
+	// The shared test: close in brightness, and close in red and green,
+	// since two colours can be equally bright and plain to tell apart.
 	return gofastcore.LowContrast(c.R, c.G, c.B, back.R, back.G, back.B)
-}
-
-// colourSlack is how far the red, green or blue of faint text may be
-// from that of its background, of 255.
-const colourSlack = 32
-
-func farApart(a, b uint8) bool {
-	d := int(a) - int(b)
-	return d > colourSlack || d < -colourSlack
 }
 
 // overprintSlack is how far from a run the same text may be printed

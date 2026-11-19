@@ -92,13 +92,13 @@ func describe(p *gofastcore.Part) string {
 	return sb.String()
 }
 
-// visibleBlocks describes the blocks of a part that carry no hidden
-// reason.
+// visibleBlocks describes the text blocks of a part that carry no
+// hidden reason.
 func visibleBlocks(p *gofastcore.Part) string {
 	q := *p
 	q.Blocks = nil
 	for i := range p.Blocks {
-		if p.Blocks[i].Hidden == 0 {
+		if p.Blocks[i].Hidden == 0 && p.Blocks[i].Kind != gofastcore.KindImage {
 			q.Blocks = append(q.Blocks, p.Blocks[i])
 		}
 	}
@@ -118,6 +118,18 @@ func texts(p *gofastcore.Part) []string {
 			out = append(out, b.Hidden.String()+": "+b.Text)
 		default:
 			out = append(out, b.Text)
+		}
+	}
+	return out
+}
+
+// textBlocks is texts without the image blocks: for a test of text on
+// a page that has images, whatever the image mode is.
+func textBlocks(p *gofastcore.Part) []string {
+	var out []string
+	for _, s := range texts(p) {
+		if s != "<image>" {
+			out = append(out, s)
 		}
 	}
 	return out

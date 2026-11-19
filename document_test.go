@@ -208,10 +208,32 @@ func TestImages(t *testing.T) {
 		{Content: text("Third page.", 720) + draw("Jpeg", 600) + "q 50 0 0 50 300 300 cm BI /W 1 /H 1 /CS /G /BPC 8 ID \x80\nEI Q\n", Resources: resources},
 	}}
 
-	t.Run("no image blocks by default", func(t *testing.T) {
-		doc := mustExtract(t, d.bytes(), nil)
+	t.Run("no image blocks when none are asked for", func(t *testing.T) {
+		doc := mustExtract(t, d.bytes(), &gofastcore.Options{Images: gofastcore.ImagesNone})
 		if got := texts(&doc.Parts[0]); !reflect.DeepEqual(got, []string{"Above the picture.", "Below the picture."}) {
 			t.Errorf("blocks %q", got)
+		}
+	})
+	// Which mode the options mean when they name none is for the shared
+	// model to say; this library does what the mode says.
+	t.Run("options that name no mode", func(t *testing.T) {
+		var mode gofastcore.ImageMode
+		named := mustExtract(t, d.bytes(), &gofastcore.Options{Images: mode})
+		if diff := sameDocument(mustExtract(t, d.bytes(), nil), named); diff != "" {
+			t.Errorf("no options, and options with the mode of value zero: %s", diff)
+		}
+		want := 0
+		if mode != gofastcore.ImagesNone {
+			want = 3
+		}
+		n := 0
+		for _, b := range named.Parts[0].Blocks {
+			if b.Kind == gofastcore.KindImage {
+				n++
+			}
+		}
+		if n != want {
+			t.Errorf("%d image blocks on the first page, want %d", n, want)
 		}
 	})
 

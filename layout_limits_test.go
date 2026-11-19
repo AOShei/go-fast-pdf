@@ -199,3 +199,62 @@ func TestDeepHiddenCost(t *testing.T) {
 		})
 	}
 }
+
+// TestImageCost: a block for every image costs what the images cost,
+// however many a page has. A page may list a hundred thousand.
+func TestImageCost(t *testing.T) {
+	if testing.Short() || pdftest.RaceEnabled {
+		t.Skip("large pages, timed")
+	}
+	const n = 100000
+	pages := map[string]func(sb *strings.Builder){
+		"a grid of images": func(sb *strings.Builder) {
+			for i := 0; i < n; i++ {
+				fmt.Fprintf(sb, "q 9 0 0 9 %d %d cm /Im1 Do Q\n", 10+(i%400)*10, 10+(i/400)*10)
+			}
+		},
+		"all images in one place": func(sb *strings.Builder) {
+			for i := 0; i < n; i++ {
+				sb.WriteString("q 9 0 0 9 100 100 cm /Im1 Do Q\n")
+			}
+		},
+		"images among a thousand lines of text": func(sb *strings.Builder) {
+			for i := 0; i < n; i++ {
+				fmt.Fprintf(sb, "q 9 0 0 9 %d %d cm /Im1 Do Q\n", 2000+(i%200)*10, 10+(i/200)*10)
+				if i%100 == 0 {
+					fmt.Fprintf(sb, "BT /F1 10 Tf 1 0 0 1 72 %d Tm (line %d of the text beside the pictures) Tj ET\n", 10+(i/100)*14, i/100)
+				}
+			}
+		},
+	}
+	for name, fill := range pages {
+		t.Run(name, func(t *testing.T) {
+			var sb strings.Builder
+			fill(&sb)
+			data := synthDoc{Font: fontCourier, Objects: []string{grayImage},
+				Pages: []synthPage{{Content: sb.String(), Resources: "/XObject << /Im1 1 0 R >>", MediaBox: "[0 0 5000 15000]"}}}.bytes()
+			start := time.Now()
+			plain := mustExtract(t, data, &gofastcore.Options{Images: gofastcore.ImagesNone})
+			base := time.Since(start)
+			start = time.Now()
+			doc := mustExtract(t, data, &gofastcore.Options{Images: gofastcore.ImagesMeta})
+			took := time.Since(start)
+			images := 0
+			for _, b := range doc.Parts[0].Blocks {
+				if b.Kind == gofastcore.KindImage {
+					images++
+				}
+			}
+			t.Logf("%d image blocks among %d blocks, %v (%v without image blocks)", images, len(doc.Parts[0].Blocks), took.Round(time.Millisecond), base.Round(time.Millisecond))
+			if images != n || len(doc.Parts[0].Blocks)-images != len(plain.Parts[0].Blocks) {
+				t.Errorf("%d image blocks and %d others; without image blocks %d", images, len(doc.Parts[0].Blocks)-images, len(plain.Parts[0].Blocks))
+			}
+			// The contract check and the JSON round trip of a hundred
+			// thousand blocks are most of this; the bound is loose and far
+			// below what a step that goes with the square would need.
+			if took > 20*time.Second {
+				t.Errorf("took %v", took)
+			}
+		})
+	}
+}

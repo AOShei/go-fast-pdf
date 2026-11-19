@@ -8,29 +8,19 @@ import (
 )
 
 // TestFaint: a colour is faint on a background when the shared test
-// cannot tell the two apart and they are close in colour as well. Every
-// colour is tried on white, on black and on a colour in between.
+// says that the two cannot be told apart. Every colour is tried on
+// white, on black and on a colour in between; then what this package
+// adds to the test: opacity, and colours that could not be converted.
 func TestFaint(t *testing.T) {
-	near := func(a, b uint8) bool { return int(a)-int(b) <= colourSlack && int(b)-int(a) <= colourSlack }
 	for _, back := range []extract.Color{white, {Known: true}, {R: 230, G: 40, B: 90, Known: true}} {
 		for r := 0; r < 256; r++ {
 			for g := 0; g < 256; g++ {
 				for b := 0; b < 256; b += 5 {
 					c := extract.Color{R: uint8(r), G: uint8(g), B: uint8(b), Known: true}
-					want := gofastcore.LowContrast(c.R, c.G, c.B, back.R, back.G, back.B) && near(c.R, back.R) && near(c.G, back.G) && near(c.B, back.B)
-					if got := faint(c, 1, back); got != want {
-						t.Fatalf("colour %d %d %d on %v: faint %v, want %v", r, g, b, back, got, want)
+					if got, want := faint(c, 1, back), gofastcore.LowContrast(c.R, c.G, c.B, back.R, back.G, back.B); got != want {
+						t.Fatalf("colour %d %d %d on %v: faint %v, the shared test %v", r, g, b, back, got, want)
 					}
 				}
-			}
-		}
-	}
-	// Two grays that the shared test cannot tell apart are close in
-	// colour: the second condition takes nothing away from them.
-	for a := 0; a < 256; a++ {
-		for b := 0; b < 256; b++ {
-			if gofastcore.LowContrast(uint8(a), uint8(a), uint8(a), uint8(b), uint8(b), uint8(b)) && !near(uint8(a), uint8(b)) {
-				t.Fatalf("gray %d on gray %d: without contrast and not close", a, b)
 			}
 		}
 	}
@@ -43,8 +33,8 @@ func TestFaint(t *testing.T) {
 		{"white on white", white, white, 1, true},
 		{"black on white", extract.Color{Known: true}, white, 1, false},
 		{"green on red, equally bright", extract.Color{G: 138, Known: true}, extract.Color{R: 230, Known: true}, 1, false},
-		{"yellow on white", extract.Color{R: 255, G: 255, Known: true}, white, 1, false},
-		{"pale yellow on white", extract.Color{R: 255, G: 255, B: 230, Known: true}, white, 1, true},
+		{"yellow on white", extract.Color{R: 255, G: 255, Known: true}, white, 1, true},
+		{"cream on white", extract.Color{R: 255, G: 255, B: 222, Known: true}, white, 1, true},
 		{"dark gray on black", extract.Color{R: 18, G: 18, B: 18, Known: true}, extract.Color{Known: true}, 1, true},
 		{"black at 3 percent on white", extract.Color{Known: true}, white, 0.03, true},
 		{"black at half on white", extract.Color{Known: true}, white, 0.5, false},

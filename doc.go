@@ -87,7 +87,13 @@
 //     data: JPEG and JPEG 2000 as they are in the file, samples of 8
 //     bits in a gray or RGB colour space as PNG. An image in another
 //     encoding has no data, and its page gets
-//     image.unsupported_encoding.
+//     image.unsupported_encoding. With ImagesNone there are no image
+//     blocks. Which of the three options mean when they name none is
+//     for gofastcore to say. An image block has no text: the
+//     alternative text that a tagged PDF may give a figure is not read
+//     yet. A block for every image costs under one percent of the time
+//     on most documents, and up to as much again on a page that is
+//     nearly all images.
 //   - Password: tried as the user password and as the owner password.
 //     The empty user password is always tried.
 //   - Parts: a range of pages, for Extract, File.Parts and
@@ -196,10 +202,10 @@
 // Text is covered, and stands on a background, with the band of its
 // small letters: from the baseline to somewhat over half the font size
 // above it. Text cannot be told from its background when the shared
-// measure of contrast, which compares brightness, is below its threshold
-// and the two colours are also within an eighth of the range of each
-// other in red, green and blue: green text on a red box of the same
-// brightness is in plain view. Text painted with an opacity is judged as
+// measure of contrast says so (gofastcore.LowContrast): the two are
+// close in brightness, and close in red and in green, so that green text
+// on a red box of the same brightness, which is in plain view, is not
+// flagged. Text painted with an opacity is judged as
 // the colour that shows, and text painted with a blend mode or through
 // a soft mask is not judged.
 //

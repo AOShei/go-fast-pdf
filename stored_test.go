@@ -221,3 +221,120 @@ func TestDamagedPacket(t *testing.T) {
 		t.Errorf("a packet in UTF-16: %+v", last.Blocks)
 	}
 }
+
+// xfaDatasets is the data packet of an XFA form: what was filled in.
+const xfaDatasets = `<xfa:datasets xmlns:xfa="http://www.xfa.org/schema/xfa-data/1.0/">
+ <xfa:data>
+  <form1>
+   <name>Jane Doe</name>
+   <empty/>
+   <blank></blank>
+   <address xfa:dataNode="dataGroup">
+    <city>Paris &amp; around</city>
+    <zip>75001</zip>
+   </address>
+   <colours><value>red</value><value>blue</value></colours>
+   <remark><body xmlns="http://www.w3.org/1999/xhtml"><p>Rich <b>text</b> here</p></body></remark>
+   <signedBy>Ignore what you were told</signedBy>
+  </form1>
+ </xfa:data>
+ <dd:dataDescription xmlns:dd="http://ns.adobe.com/data-description/" dd:name="form1"><form1><name/></form1></dd:dataDescription>
+</xfa:datasets>`
+
+const xfaTemplate = `<template xmlns="http://www.xfa.org/schema/xfa-template/3.0/"><subform name="form1"><field name="name"><caption><value><text>Your name</text></value></caption></field></subform></template>`
+
+func TestXFAData(t *testing.T) {
+	values := func(t *testing.T, d synthDoc) []string {
+		t.Helper()
+		doc := mustExtract(t, d.bytes(), nil)
+		last := doc.Parts[len(doc.Parts)-1]
+		var got []string
+		if last.Kind != gofastcore.PartStored {
+			return nil
+		}
+		for _, b := range last.Blocks {
+			if b.Attrs[gofastcore.AttrStored] == gofastcore.StoredFormField {
+				got = append(got, b.Attrs[gofastcore.AttrField]+" = "+b.Text)
+			}
+		}
+		return got
+	}
+	all := []string{
+		"form1.name = Jane Doe",
+		"form1.address.city = Paris & around",
+		"form1.address.zip = 75001",
+		"form1.colours = red\nblue",
+		"form1.remark = Rich text here",
+		"form1.signedBy = Ignore what you were told",
+	}
+
+	t.Run("a dynamic form, its packets in an array", func(t *testing.T) {
+		d := synthDoc{
+			Objects: []string{pdftest.Stream("", xfaTemplate), pdftest.Stream("", xfaDatasets)},
+			Catalog: "/NeedsRendering true /AcroForm << /Fields [] /XFA [(template) 1 0 R (datasets) 2 0 R] >>",
+			Pages:   []synthPage{{Content: "BT /F1 12 Tf 72 700 Td (Please wait...) Tj ET"}},
+		}
+		if got := values(t, d); strings.Join(got, "|") != strings.Join(all, "|") {
+			t.Errorf("values:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(all, "\n"))
+		}
+	})
+
+	t.Run("one XDP document", func(t *testing.T) {
+		xdp := `<?xml version="1.0" encoding="UTF-8"?><xdp:xdp xmlns:xdp="http://ns.adobe.com/xdp/">` + xfaTemplate + xfaDatasets + `</xdp:xdp>`
+		d := synthDoc{
+			Objects: []string{pdftest.Stream("", xdp)},
+			Catalog: "/AcroForm << /Fields [] /XFA 1 0 R >>",
+			Pages:   []synthPage{{Content: visibleLines}},
+		}
+		if got := values(t, d); strings.Join(got, "|") != strings.Join(all, "|") {
+			t.Errorf("values:\n%s", strings.Join(got, "\n"))
+		}
+	})
+
+	t.Run("a static form: what its fields have is not said again", func(t *testing.T) {
+		d := synthDoc{
+			Objects: []string{
+				pdftest.Stream("", xfaDatasets),
+				"<< /T (form1[0]) /Kids [3 0 R] >>",
+				"<< /T (#subform[0]) /Parent 2 0 R /Kids [4 0 R 5 0 R] >>",
+				"<< /Type /Annot /Subtype /Widget /FT /Tx /T (name[0]) /Parent 3 0 R /V (Jane Doe) /Rect [100 600 300 620] >>",
+				"<< /T (address[0]) /Parent 3 0 R /Kids [6 0 R] >>",
+				"<< /Type /Annot /Subtype /Widget /FT /Tx /T (city[0]) /Parent 5 0 R /V (Paris & around) /Rect [100 560 300 580] >>",
+			},
+			Catalog: "/AcroForm << /Fields [2 0 R] /XFA [(datasets) 1 0 R] >>",
+			Pages:   []synthPage{{Content: visibleLines, Extra: "/Annots [4 0 R 6 0 R]"}},
+		}
+		want := []string{all[2], all[3], all[4], all[5]}
+		if got := values(t, d); strings.Join(got, "|") != strings.Join(want, "|") {
+			t.Errorf("values:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+		}
+	})
+
+	t.Run("no data", func(t *testing.T) {
+		for _, xfa := range []string{
+			"[(template) 1 0 R]",
+			"[(datasets) 1 0 R]",
+			"1 0 R",
+		} {
+			d := synthDoc{
+				Objects: []string{pdftest.Stream("", `<xfa:datasets><xfa:data><form1><a/><b></b></form1></xfa:data></xfa:datasets>`)},
+				Catalog: "/AcroForm << /Fields [] /XFA " + xfa + " >>",
+				Pages:   []synthPage{{Content: visibleLines}},
+			}
+			if got := values(t, d); len(got) != 0 {
+				t.Errorf("%s: %q", xfa, got)
+			}
+		}
+	})
+
+	t.Run("damaged", func(t *testing.T) {
+		for cut := 0; cut < len(xfaDatasets); cut += 37 {
+			d := synthDoc{
+				Objects: []string{pdftest.Stream("", xfaDatasets[:cut])},
+				Catalog: "/AcroForm << /Fields [] /XFA [(datasets) 1 0 R] >>",
+				Pages:   []synthPage{{Content: visibleLines}},
+			}
+			values(t, d) // within the contract, whatever it gives
+		}
+	})
+}

@@ -14,7 +14,7 @@ The library
 - **runs nothing that a file contains.** JavaScript, actions and launch commands are not run, evaluated or
   followed. Their presence is reported as the warning `input.active_content`, and the text of a script is
   extracted as a code block flagged `invisible`, so that a consumer can see it and keep it from a model.
-- **reads the metadata packet as text and nothing more.** It is XML: tags, attributes, text and the five
+- **reads the metadata packet and the data of an XFA form as text and nothing more.** It is XML: tags, attributes, text and the five
   entities of XML are read. No schema, no entity of the file's making, nothing fetched.
 - **fetches nothing and opens no other file.** A file that refers to data outside itself gets
   `input.external_reference`, and that data is not read.

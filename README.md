@@ -198,7 +198,7 @@ Settings that only PDF has are fields of `gofastpdf.Extractor`. The
 - **Outline, page labels, document information, attached files** - attached files are handed to a child
   extractor that you supply
 - **What a file stores and shows nowhere** - scripts, the metadata packet, entries of the file's own making
-  in the document information, form fields on no page: read as text, never run, flagged `invisible`, with
+  in the document information, form fields on no page, the filled-in data of an XFA form: read as text, never run, flagged `invisible`, with
   `Attrs["stored"]` saying what each is. A page's scripts are on the page; the rest is in a last part of
   kind `stored`
 - **Lines and words** - `Page.Lines` gives every line with its font and size and the box of each word

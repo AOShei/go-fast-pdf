@@ -111,6 +111,12 @@
 //     says that the document information does not ("custom_xml", as
 //     "property: values"); and the values of fields of the form that
 //     are on no page ("form_field", with the field's name).
+//   - The data of an XFA form, which only Adobe's viewer shows: each
+//     value filled in, as "form_field" with the path of its element as
+//     the field's name (form1.address.city). A value that the form
+//     also has in an ordinary field, as a static XFA form does, is read
+//     there and not said again. The template of the form, its captions
+//     and its static text, is not read.
 //
 // A value is given once, and values that say nothing in words (a yes or
 // no, a number, a date, an identifier) are left out; anything with

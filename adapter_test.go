@@ -55,8 +55,8 @@ type extractOpts struct {
 
 func (o extractOpts) options() *gofastcore.Options {
 	opts := &gofastcore.Options{Password: o.Password, Workers: max(o.Workers, 1), DeepHidden: o.Deep}
-	// Said in so many words: which of the modes an option left out means
-	// is core's to say.
+	// Said in so many words: an option left out means a block for every
+	// image.
 	opts.Images = gofastcore.ImagesNone
 	if o.Images {
 		opts.Images = gofastcore.ImagesMeta
@@ -223,6 +223,12 @@ func checkContract(doc *gofastcore.Document, opts *gofastcore.Options) error {
 		// A page without text says which kind it is, and only then.
 		none, image := p.Has(gofastcore.WarnPartNoText), p.Has(gofastcore.WarnPartImageOnly)
 		failed := p.Has(gofastcore.WarnPartFailed)
+		// A page that the limit on text cut may have lost its text to
+		// the cut: it has none here and is not a page without text. Or it
+		// had none to begin with and says so. Both are right.
+		if p.Has(gofastcore.WarnLimitExceeded) && !text {
+			continue
+		}
 		switch {
 		case text && (none || image):
 			return fmt.Errorf("page %d has text and a warning that it has none", p.Number)

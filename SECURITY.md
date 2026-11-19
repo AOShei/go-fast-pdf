@@ -48,6 +48,7 @@ Limits of `gofastcore.Limits`, set through `Options.Limits`:
 |---|---|---|
 | `MaxInputBytes` | 1 GiB | `ErrLimitExceeded`, before the input is read |
 | `MaxDecodedBytes` | 1 GiB | The document ends before the page that would pass it, with `limit.exceeded` |
+| `MaxTextBytes` | 256 MiB | The titles of the outline, the names of the parts, and for every block its text and 128 bytes are counted. The page that reaches the limit is cut before the block that does not fit, with `limit.exceeded`; nothing after it is read and attached files are listed only |
 | `MaxParts` | none | The first pages of the range are returned, with `limit.exceeded` |
 | `MaxDepth` | 4 | Attached files further down are listed and not extracted |
 
@@ -74,7 +75,7 @@ Bounds that are fixed:
 | Pixels of an image whose data is handed on | 268,435,456 |
 | Fonts kept for one file | 1,024 |
 | Outline items | 131,072, 64 levels deep |
-| Attached files | 4,096 |
+| Attached files | 4,096; the name and the stated type of each are held to 1,024 bytes |
 | Annotations looked at on one page, form fields in a file | 16,384 and 65,536 |
 | Work of the `DeepHidden` checks on one page | 33,554,432 comparisons |
 | Warnings kept for one file | 100 |
@@ -83,11 +84,24 @@ A limit that cuts something is reported: as an error where there is no document,
 the warning named above where there is one. A document that was cut is never returned as if it were
 whole.
 
-Not yet bounded as a whole: the text of a document across its pages. A page's text is bounded, and so
-is the number of pages, but a small file can draw one long form on every page. The shared model gets a
-limit for this (`Limits.MaxTextBytes`) with go-fast-core v0.1.0, and this library will apply it in the
-release that requires that version. Until then, `MaxParts` and reading page by page (`Open`,
-`File.Parts`) are the ways to bound it.
+**Counted together with attached files.** Decoded bytes and text are counted for a document and the
+files attached to it together, through the budgets of go-fast-core that the context carries. An attached
+file is read by the `Child` extractor within what its document has left, and this library reads within
+what it is given when it is itself the child. So a file that attaches four thousand files, each just
+inside a limit, costs one limit and not four thousand.
+
+**Where the counting happens.** Pages are read side by side. Decoded bytes and text are counted when a
+page is handed on in page order, so that the place where a document is cut does not depend on the
+number of workers. What is held and not yet counted is the pages being read and those waiting to be
+handed on: at most three for each worker, each of at most 16 MiB of text.
+
+**Blocks count as text.** A block takes memory beyond its text: its place, its kind, and for an image
+its size and identifier. A file can draw one small image a hundred thousand times on every page with a
+few bytes of content for each. So every block takes 128 bytes from `MaxTextBytes` beyond its text, about
+what a block takes written down (the documents of 3,150 real files write 157 bytes a block). At the
+default of 256 MiB a document has at most two million blocks, and holds at most about five times the
+limit in memory (an image block was measured at 662 bytes). The largest real document met so far, 21
+pages that draw 271,808 images, takes an eighth of the default.
 
 ## Password-protected files
 

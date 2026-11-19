@@ -17,8 +17,13 @@ import (
 // Bounds on what the document-level structures of a file may make this
 // package do. Each is far above what documents have.
 const (
-	maxTreeNodes    = 1 << 16 // nodes of one name tree or number tree
-	maxTreeEntries  = 1 << 20
+	maxTreeNodes   = 1 << 16 // nodes of one name tree or number tree
+	maxTreeEntries = 1 << 20
+	// maxNameBytes is the longest name of an attached file that is kept,
+	// and the longest type it may state. A file can give every one of
+	// its attached files one long string as its name; held to the length
+	// of a name, the names need no counting against the limit on text.
+	maxNameBytes    = 1024
 	maxOutlineItems = 1 << 17
 	maxOutlineDepth = 64
 	maxAnnotations  = 1 << 14 // looked at on one page
@@ -43,6 +48,10 @@ type described struct {
 	// invisible is set when the document information or the outline has
 	// invisible characters.
 	invisible bool
+	// outlineCut is set when the titles of the outline are more than
+	// the limit on text, and the outline ends where the limit was
+	// reached.
+	outlineCut bool
 }
 
 // describe reads what the document says about itself: its information,
@@ -78,7 +87,7 @@ func (f *File) describe() *described {
 		// --- page labels and outline ---
 		d.label = pageLabels(in, catalog.Get("PageLabels"))
 		if outlines := in.Resolve(catalog.Get("Outlines")); outlines.IsDict() {
-			d.outline = outline(in, catalog, outlines, f.pages)
+			d.outline, d.outlineCut = outline(in, catalog, outlines, f.pages, f.textLimit)
 		}
 
 		// --- things that run, and things outside the file ---
@@ -96,7 +105,7 @@ func (f *File) describe() *described {
 
 		// --- attached files ---
 		walkTree(in, names.Get("EmbeddedFiles"), "Names", func(key, val syntax.Value) bool {
-			d.attachments = append(d.attachments, attachment{name: text(in, key), spec: val})
+			d.attachments = append(d.attachments, attachment{name: clipName(text(in, key)), spec: val})
 			return len(d.attachments) < maxAttachments
 		})
 
@@ -124,6 +133,18 @@ func (st *state) attach(ctx context.Context, doc *gofastcore.Document, list []at
 			doc.Children = append(doc.Children, child)
 		}
 	}
+}
+
+// clipName holds a name to maxNameBytes, cutting between characters.
+func clipName(s string) string {
+	if len(s) <= maxNameBytes {
+		return s
+	}
+	n := maxNameBytes
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return strings.TrimSpace(s[:n])
 }
 
 // text returns a text string of the file, cleaned for the shared model.
@@ -428,7 +449,11 @@ func letters(n int, first byte) string {
 }
 
 // outline reads the document's bookmarks.
-func outline(f *file.File, catalog, outlines syntax.Value, pages []file.Page) []gofastcore.OutlineItem {
+//
+// most bounds the titles, taken together: every entry can name one long
+// string of the file as its title, so the outline of a small file can
+// be very large. cut reports that the outline ends for that reason.
+func outline(f *file.File, catalog, outlines syntax.Value, pages []file.Page, most int64) (items []gofastcore.OutlineItem, cut bool) {
 	// Page object numbers, to find the page a destination points at.
 	byObj := make(map[int64]int, len(pages))
 	for i := range pages {
@@ -561,8 +586,12 @@ func outline(f *file.File, catalog, outlines syntax.Value, pages []file.Page) []
 		if !item.IsDict() {
 			continue
 		}
+		title := text(f, item.Get("Title"))
+		if most -= int64(len(title)); most < 0 {
+			return out, true
+		}
 		part, y := target(item)
-		out = append(out, gofastcore.OutlineItem{Title: text(f, item.Get("Title")), Level: e.level, Part: part, Y: y})
+		out = append(out, gofastcore.OutlineItem{Title: title, Level: e.level, Part: part, Y: y})
 		// The entries under this one come before the one after it.
 		if next := item.Get("Next"); !next.IsNull() {
 			stack = append(stack, entry{next, e.level})
@@ -571,7 +600,7 @@ func outline(f *file.File, catalog, outlines syntax.Value, pages []file.Page) []
 			stack = append(stack, entry{first, e.level + 1})
 		}
 	}
-	return out
+	return out, false
 }
 
 // attachment is a file attached to the document or to a page.
@@ -591,7 +620,7 @@ func (st *state) child(ctx context.Context, a *attachment) *gofastcore.Document 
 	name := a.name
 	for _, key := range []string{"UF", "F", "Unix", "Mac", "DOS"} {
 		if s := text(f, spec.Get(key)); s != "" {
-			name = s
+			name = clipName(s)
 			break
 		}
 	}
@@ -607,7 +636,7 @@ func (st *state) child(ctx context.Context, a *attachment) *gofastcore.Document 
 	}
 	mime := ""
 	if sub := f.Resolve(stream.Get("Subtype")); sub.Kind == syntax.Name {
-		mime = cleanString(strings.ToValidUTF8(sub.NameString(), "�"))
+		mime = clipName(cleanString(strings.ToValidUTF8(sub.NameString(), "�")))
 	}
 	size, _ := f.Resolve(f.Resolve(stream.Get("Params")).Get("Size")).Integer()
 	if size < 0 {
@@ -625,9 +654,15 @@ func (st *state) child(ctx context.Context, a *attachment) *gofastcore.Document 
 		d.Warn(gofastcore.SeverityError, gofastcore.WarnChildFailed, why)
 		return d
 	}
+	// A limit that was reached before this file: it is listed and not
+	// read. The document says which limit.
+	if st.text.Spent() {
+		st.unread = true
+		return opts.ExtractChild(ctx, name, mime, nil, size)
+	}
 	if st.budget <= 0 {
 		st.attachmentsCut = true
-		return failed("the limit on decoded bytes was reached before this file")
+		return opts.ExtractChild(ctx, name, mime, nil, size)
 	}
 	data, err := f.Decode(stream, []byte{}, min(st.budget, f.Limits().MaxStreamBytes))
 	st.budget -= int64(len(data))
@@ -637,7 +672,13 @@ func (st *state) child(ctx context.Context, a *attachment) *gofastcore.Document 
 		}
 		return failed(cleanString("the attached file could not be decoded: " + err.Error()))
 	}
-	return opts.ExtractChild(ctx, name, mime, bytes.NewReader(data), int64(len(data)))
+	// The extractor of the attached file counts what it decodes and the
+	// text it makes against what this document has left of both, which
+	// the context tells it, and what it used is gone when it returns.
+	st.settle()
+	child := opts.ExtractChild(ctx, name, mime, bytes.NewReader(data), int64(len(data)))
+	st.budget = min(st.budget, st.dec.Left())
+	return child
 }
 
 // annotations looks at the annotations of a page for two things: files

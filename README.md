@@ -14,8 +14,8 @@ share.
   exhaust them.
 - It starts no program, fetches nothing, runs nothing that a file contains, and does no OCR.
 
-> **Status.** This is the tree of v0.2.0. The release is tagged once go-fast-core has its v0.1.0 tag;
-> until then `go get github.com/AOShei/go-fast-pdf@main`. The API is not that of v0.1:
+> **Status.** This is the tree of v0.2.0, which is not tagged yet: the go-fast libraries are released
+> together. Until then `go get github.com/AOShei/go-fast-pdf@main`. The API is not that of v0.1:
 > [MIGRATION.md](MIGRATION.md) says what became what.
 
 ## Speed
@@ -23,14 +23,14 @@ share.
 <!-- comparison:begin (written by go run ./bench/compare -readme README.md) -->
 | | Pages per second | Time against go-fast-pdf | Most memory |
 |---|---:|---:|---:|
-| go-fast-pdf | 12,342 | 1 | 28 MB |
-| go-fast-pdf, all processors | 20,903 | 0.59 times | 36 MB |
-| gofastpdf (the command) | 9,383 | 1.32 times | 17 MB |
-| pdftotext (poppler) | 1,969 | 6.27 times | 18 MB |
-| PyMuPDF | 2,230 | 5.53 times | 61 MB |
-| pypdfium2 (PDFium) | 2,212 | 5.58 times | 30 MB |
-| pypdf | 347 | 35.6 times | 71 MB |
-| pdfplumber | 56 | 218 times | 52 MB |
+| go-fast-pdf | 12,571 | 1 | 27 MB |
+| go-fast-pdf, all processors | 19,627 | 0.64 times | 47 MB |
+| gofastpdf (the command) | 9,588 | 1.31 times | 17 MB |
+| pdftotext (poppler) | 2,046 | 6.14 times | 20 MB |
+| PyMuPDF | 2,237 | 5.62 times | 61 MB |
+| pypdfium2 (PDFium) | 2,226 | 5.65 times | 30 MB |
+| pypdf | 348 | 36.1 times | 71 MB |
+| pdfplumber | 57 | 222 times | 52 MB |
 
 8 documents, 530 pages, 9.7 MB: the long documents of the public corpus's tuning set and one small one.
 Each program reads each document 5 times and its best time counts. Measured on AMD Ryzen 9 9900X 12-Core Processor (24 threads, linux/amd64) with go1.27.3-X:nodwarf5, 2026-11-19.
@@ -174,7 +174,7 @@ for _, line := range lines {
 }
 ```
 
-Options are `gofastcore.Options`: `Workers`, `Images` (none, description, data), `Password`,
+Options are `gofastcore.Options`: `Workers`, `Images` (a block for each image, which is the default; its data too; or none), `Password`,
 `Parts` (a range of pages), `Limits`, `DeepHidden` and `Child` (an extractor for attached files).
 Settings that only PDF has are fields of `gofastpdf.Extractor`. The
 [package documentation](https://pkg.go.dev/github.com/AOShei/go-fast-pdf) says what each does for PDF.
@@ -281,8 +281,9 @@ a page and are extracted by design: treat them as you treat any text from the fi
 ## Untrusted files
 
 The library is made to be given files from anywhere. Every size that a file decides is bounded: the
-input (1 GiB by default), what its streams decode to (1 GiB together, 64 MiB each), pages, objects,
-nesting, the text and the shapes of one page. A limit that cuts a document is reported as a warning or
+input (1 GiB by default), what its streams decode to (1 GiB together, 64 MiB each), the text and the
+blocks of the document (256 MiB), pages, objects, nesting, the text and the shapes of one page. Decoded bytes and text
+are counted for a document and the files attached to it together. A limit that cuts a document is reported as a warning or
 an error, never passed over. Reading stops when the context ends, also inside a long page. One opened
 file can be read from many goroutines, and the result is the same for any number of workers.
 [SECURITY.md](SECURITY.md) has the threat model, every default, and how to report a problem.

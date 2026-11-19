@@ -10,8 +10,8 @@ module.
 | v0.1 | v0.2 |
 |---|---|
 | `import "github.com/AOShei/go-fast-pdf/pkg/loader"` | `import gofastpdf "github.com/AOShei/go-fast-pdf"` and `gofastcore "github.com/AOShei/go-fast-core"` |
-| `loader.LoadPDF(path, false)` | `gofastpdf.ExtractFile(ctx, path, nil)` |
-| `loader.LoadPDF(path, true)` | `gofastpdf.ExtractFile(ctx, path, &gofastcore.Options{Images: gofastcore.ImagesMeta})` |
+| `loader.LoadPDF(path, true)` | `gofastpdf.ExtractFile(ctx, path, nil)`: a block for every image is the default |
+| `loader.LoadPDF(path, false)` | `gofastpdf.ExtractFile(ctx, path, &gofastcore.Options{Images: gofastcore.ImagesNone})` |
 | `loader.LoadPDFConcurrent(path, 8, false)` | `gofastpdf.ExtractFile(ctx, path, &gofastcore.Options{Workers: 8})`; without `Workers`, one per processor |
 | Reading from memory or a reader | `gofastpdf.Extract(ctx, readerAt, size, opts)`, `gofastpdf.OpenBytes(data, opts)` |
 | A page at a time (not in v0.1) | `gofastpdf.Open(path, opts)`, then `File.Parts(ctx)` or `File.Page(n)` |

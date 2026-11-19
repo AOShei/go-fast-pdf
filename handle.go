@@ -42,6 +42,10 @@ type File struct {
 	asked   int
 	tooMany bool
 	budget  int64 // Limits.MaxDecodedBytes, resolved
+	// textLimit is Limits.MaxTextBytes, resolved. It bounds the outline
+	// when it is read; a reading of the pages counts against a budget
+	// made from it.
+	textLimit int64
 
 	once sync.Once
 	desc described
@@ -163,7 +167,8 @@ func (e *Extractor) OpenBytes(data []byte, opts *gofastcore.Options) (*File, err
 	if rng.Last == 0 || rng.Last > len(pages) {
 		rng.Last = len(pages)
 	}
-	f := &File{e: e, f: inner, opts: *opts, name: opts.Name, size: int64(len(data)), pages: pages, budget: budget}
+	f := &File{e: e, f: inner, opts: *opts, name: opts.Name, size: int64(len(data)), pages: pages, budget: budget,
+		textLimit: gofastcore.ResolveLimit(opts.Limits.MaxTextBytes, gofastcore.DefaultMaxTextBytes)}
 	f.lo, f.hi, f.asked = rng.First-1, rng.Last, rng.Last-rng.First+1
 	if most := gofastcore.ResolveLimit(int64(opts.Limits.MaxParts), math.MaxInt64); int64(f.asked) > most {
 		f.hi, f.tooMany = f.lo+int(most), true
@@ -243,6 +248,10 @@ func (f *File) Warnings() []gofastcore.Warning {
 		ws = append(ws, gofastcore.Warning{Code: gofastcore.WarnTextHidden, Severity: gofastcore.SeverityWarning,
 			Message: "the document information or the outline has invisible characters"})
 	}
+	if d.outlineCut {
+		ws = append(ws, gofastcore.Warning{Code: gofastcore.WarnLimitExceeded, Severity: gofastcore.SeverityError,
+			Message: fmt.Sprintf("the titles of the outline are more than the limit on text of %d bytes; the outline ends after %d entries", f.textLimit, len(d.outline))})
+	}
 	return ws
 }
 
@@ -270,8 +279,8 @@ func (f *File) warnings(active, external bool) []gofastcore.Warning {
 }
 
 // state is what putting parts together in page order carries from one
-// part to the next: the budget for decoded bytes, and which images have
-// had their data.
+// part to the next: what is left of the limits on decoded bytes and on
+// text, and which images have had their data.
 type state struct {
 	f      *File
 	budget int64
@@ -279,10 +288,117 @@ type state struct {
 	// imagesCut and attachmentsCut are set when data was left out because
 	// the budget ran out.
 	imagesCut, attachmentsCut bool
+
+	// decodeLimit is what budget started at: the limit of this file, or
+	// what the document it is embedded in had left, if that is less.
+	decodeLimit int64
+	// dec is the count of decoded bytes that this document shares with
+	// the documents embedded in it and with the one it is embedded in.
+	// The pages are counted in budget; the two are made to agree before
+	// an embedded file is handed on and when the reading ends.
+	dec *gofastcore.DecodeBudget
+	// text counts the text of the document against Limits.MaxTextBytes.
+	text      *gofastcore.TextBudget
+	textLimit int64
+	// outline is the number of entries of the outline that the text
+	// budget had room for, and outlineCut says that those are not all.
+	outline    int
+	outlineCut bool
+	// unread is set when an attached file was not read because the text
+	// budget was spent.
+	unread bool
 }
 
+// newState is the state for a page read by itself: the limits apply to
+// it alone.
 func (f *File) newState() *state {
-	return &state{f: f, budget: f.budget, images: map[string]bool{}}
+	_, text := gofastcore.WithTextBudget(context.Background(), f.opts.Limits)
+	return &state{f: f, budget: f.budget, decodeLimit: f.budget, images: map[string]bool{}, text: text, textLimit: text.Left()}
+}
+
+// begin is the state for one reading of the pages in order, and the
+// context that carries its budgets to the extractors of attached files.
+// The budgets are this file's, or what the document it is embedded in
+// has left of its own, which ctx says.
+//
+// The titles of the outline are taken from the text budget here, before
+// any page: where a document is cut must not depend on when its outline
+// happens to be read.
+func (f *File) begin(ctx context.Context) (context.Context, *state) {
+	st := &state{f: f, images: map[string]bool{}}
+	ctx, st.dec = gofastcore.WithDecodeBudget(ctx, f.opts.Limits, DefaultMaxDecodedBytes)
+	st.budget = st.dec.Left()
+	st.decodeLimit = st.budget
+	ctx, st.text = gofastcore.WithTextBudget(ctx, f.opts.Limits)
+	st.textLimit = st.text.Left()
+	d := f.describe()
+	for st.outline < len(d.outline) {
+		if !st.text.Take(len(d.outline[st.outline].Title)) {
+			st.outlineCut = true
+			break
+		}
+		st.outline++
+	}
+	if d.outlineCut && !st.outlineCut {
+		// The outline was cut when it was read, at the limit of this
+		// file. Nothing is left for the pages.
+		st.outlineCut = true
+		for !st.text.Spent() {
+			st.text.Take(math.MaxInt32)
+		}
+	}
+	return ctx, st
+}
+
+// end closes the budgets: what this document used is taken from the
+// document it is embedded in.
+func (st *state) end() {
+	st.settle()
+	st.dec.Close()
+	st.text.Close()
+}
+
+// settle makes the shared count of decoded bytes say what this document
+// has left.
+func (st *state) settle() {
+	st.dec.Take(st.dec.Left() - st.budget)
+}
+
+// blockCost is what a block takes from the budget for text beyond its
+// own text: about what it takes to write a block down that has none,
+// its kind, its place and, for an image, what the image is. Over the
+// 3,150 files of the corpus and the soak set the JSON of a document is
+// 157 bytes a block beyond the text.
+//
+// Without it the budget would bound the text and not the document. A
+// file can draw one image a hundred thousand times on every page with a
+// few bytes of content for each, and a block of no text would be free.
+const blockCost = 128
+
+// charge takes a part from the budget for text: its name, where the
+// file gives it one, and for each of its blocks the text and blockCost.
+// It reports whether all of it was there to take. If not, the part is
+// cut before the block that did not fit, and says so; nothing after it
+// is read.
+func (st *state) charge(part *gofastcore.Part) bool {
+	ok := st.text.Take(len(part.Name))
+	if !ok {
+		part.Name = ""
+	}
+	kept := 0
+	for ok && kept < len(part.Blocks) {
+		if ok = st.text.Take(blockCost + len(part.Blocks[kept].Text)); ok {
+			kept++
+		}
+	}
+	if ok {
+		return true
+	}
+	clear(part.Blocks[kept:])
+	part.Blocks = part.Blocks[:kept]
+	part.Warn(gofastcore.SeverityError, gofastcore.WarnLimitExceeded,
+		fmt.Sprintf("the text and the blocks of the document are more than the limit on text of %d bytes; this page is cut where the limit was reached", st.textLimit))
+	return false
 }
 
 // finish completes the part of one page: the name its label gives it,
@@ -426,23 +542,29 @@ func (f *File) Parts(ctx context.Context) iter.Seq2[gofastcore.Part, error] {
 			yield(gofastcore.Part{}, ErrClosed)
 			return
 		}
-		st := f.newState()
+		ctx, st := f.begin(ctx)
+		defer st.end()
 		var limit error
 		last, stopped := 0, false
 		err := f.each(ctx, want{}, func(out *pageOut) bool {
 			if st.budget -= out.decoded; st.budget < 0 {
 				limit = fmt.Errorf("%w: the document decodes to more than the limit of %d bytes; what follows page %d is not read",
-					gofastcore.ErrLimitExceeded, f.budget, last)
+					gofastcore.ErrLimitExceeded, st.decodeLimit, last)
 				return false
 			}
 			st.finish(out)
 			f.note(out)
 			last = out.part.Number
+			whole := st.charge(&out.part)
 			if !yield(out.part, nil) {
 				stopped = true
 				return false
 			}
-			return true
+			if !whole {
+				limit = fmt.Errorf("%w: the text and the blocks of the document are more than the limit on text of %d bytes; page %d is cut and what follows it is not read",
+					gofastcore.ErrLimitExceeded, st.textLimit, last)
+			}
+			return whole
 		})
 		switch {
 		case stopped:
@@ -487,7 +609,8 @@ func (p *Page) Number() int { return p.p.Number }
 // Options.Images at ImagesData, each image therefore has its data on
 // the first block that shows it on this page, also when an earlier page
 // shows it too, where Document and Parts give the data once for the
-// document. The limit on decoded bytes applies to the page by itself.
+// document. The limits on decoded bytes and on text apply to the page
+// by itself.
 func (p *Page) Part() (gofastcore.Part, error) {
 	out, err := p.read(want{})
 	return out.part, err
@@ -499,7 +622,9 @@ func (p *Page) read(w want) (pageOut, error) {
 		return pageOut{}, ErrClosed
 	}
 	out := f.e.page(f.f, p.p, &f.opts, w)
-	f.newState().finish(&out)
+	st := f.newState()
+	st.finish(&out)
+	st.charge(&out.part)
 	f.note(&out)
 	return out, nil
 }
@@ -521,10 +646,12 @@ func (f *File) Document(ctx context.Context) (*gofastcore.Document, error) {
 	// The parts are put together in page order, and the budget for
 	// decoded bytes is charged in that order, so where a document is cut
 	// does not depend on how the workers were scheduled.
-	st := f.newState()
+	// So is the budget for text, after the titles of the outline.
+	ctx, st := f.begin(ctx)
+	defer st.end()
 	var attachments []attachment
 	active, external, incomplete, spent := false, false, false, false
-	last := 0
+	last, cut := 0, 0
 	err := f.each(ctx, want{}, func(out *pageOut) bool {
 		if st.budget -= out.decoded; st.budget < 0 {
 			spent = true
@@ -535,15 +662,19 @@ func (f *File) Document(ctx context.Context) (*gofastcore.Document, error) {
 		last = out.part.Number
 		active, external, incomplete = active || out.active, external || out.external, incomplete || out.deepIncomplete
 		attachments = append(attachments, out.attachments...)
+		whole := st.charge(&out.part)
+		if !whole {
+			cut = last
+		}
 		doc.Parts = append(doc.Parts, out.part)
-		return true
+		return whole
 	})
 	if err != nil {
 		return nil, err
 	}
 
 	d := f.describe()
-	doc.Metadata, doc.Outline = f.Metadata(), f.Outline()
+	doc.Metadata, doc.Outline = f.Metadata(), f.Outline()[:st.outline]
 	st.attach(ctx, doc, append(append([]attachment(nil), d.attachments...), attachments...))
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -556,15 +687,27 @@ func (f *File) Document(ctx context.Context) (*gofastcore.Document, error) {
 	}
 	if spent {
 		doc.Warn(gofastcore.SeverityError, gofastcore.WarnLimitExceeded,
-			fmt.Sprintf("the document decodes to more than the limit of %d bytes; what follows page %d is not read", f.budget, last))
+			fmt.Sprintf("the document decodes to more than the limit of %d bytes; what follows page %d is not read", st.decodeLimit, last))
 	}
 	if st.attachmentsCut {
 		doc.Warn(gofastcore.SeverityError, gofastcore.WarnLimitExceeded,
-			fmt.Sprintf("the document decodes to more than the limit of %d bytes; some attached files were not extracted", f.budget))
+			fmt.Sprintf("the document decodes to more than the limit of %d bytes; some attached files were not extracted", st.decodeLimit))
 	}
 	if st.imagesCut {
 		doc.Warn(gofastcore.SeverityError, gofastcore.WarnLimitExceeded,
-			fmt.Sprintf("the document decodes to more than the limit of %d bytes; the data of some images is not included", f.budget))
+			fmt.Sprintf("the document decodes to more than the limit of %d bytes; the data of some images is not included", st.decodeLimit))
+	}
+	if st.outlineCut {
+		doc.Warn(gofastcore.SeverityError, gofastcore.WarnLimitExceeded,
+			fmt.Sprintf("the titles of the outline are more than the limit on text of %d bytes; the outline ends after %d entries", st.textLimit, st.outline))
+	}
+	if cut > 0 {
+		doc.Warn(gofastcore.SeverityError, gofastcore.WarnLimitExceeded,
+			fmt.Sprintf("the text and the blocks of the document are more than the limit on text of %d bytes; page %d is cut and what follows it is not read", st.textLimit, cut))
+	}
+	if st.unread {
+		doc.Warn(gofastcore.SeverityError, gofastcore.WarnLimitExceeded,
+			fmt.Sprintf("the limit on text of %d bytes was reached; some attached files were not read", st.textLimit))
 	}
 
 	// The reasons that were checked completely. Without DeepHidden, low

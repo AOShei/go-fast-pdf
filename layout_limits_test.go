@@ -258,3 +258,127 @@ func TestImageCost(t *testing.T) {
 		})
 	}
 }
+
+// TestResourceCost: a page that uses very many named resources takes
+// time in proportion to their number. Each name is looked up in its
+// dictionary, and a dictionary can list a hundred thousand.
+func TestResourceCost(t *testing.T) {
+	if testing.Short() || pdftest.RaceEnabled {
+		t.Skip("large pages, timed")
+	}
+	const n = 100000
+	// Names of one length that differ at the end: the slowest to tell
+	// apart.
+	name := func(i int) string { return fmt.Sprintf("NameOfAResourceThatIsLong%07d", i) }
+	entries := func(value string) string {
+		var sb strings.Builder
+		for i := 0; i < n; i++ {
+			fmt.Fprintf(&sb, "/%s %s\n", name(i), value)
+		}
+		return sb.String()
+	}
+	pages := map[string]struct {
+		resources string
+		use       func(sb *strings.Builder, i int)
+	}{
+		"images": {"/XObject << " + entries("1 0 R") + " >>", func(sb *strings.Builder, i int) {
+			fmt.Fprintf(sb, "q 9 0 0 9 %d %d cm /%s Do Q\n", 10+(i%400)*10, 10+(i/400)*10, name(i))
+		}},
+		"graphics states": {"/ExtGState << " + entries("<< /ca 1 >>") + " >>", func(sb *strings.Builder, i int) {
+			fmt.Fprintf(sb, "/%s gs\n", name(i))
+		}},
+		"colour spaces": {"/ColorSpace << " + entries("/DeviceRGB") + " >>", func(sb *strings.Builder, i int) {
+			fmt.Fprintf(sb, "/%s cs\n", name(i))
+		}},
+		"property lists": {"/Properties << " + entries("<< /MCID 1 >>") + " >>", func(sb *strings.Builder, i int) {
+			fmt.Fprintf(sb, "/Span /%s BDC EMC\n", name(i))
+		}},
+		"fonts that are not there": {"/XObject << " + entries("1 0 R") + " >>", func(sb *strings.Builder, i int) {
+			fmt.Fprintf(sb, "BT /%s 10 Tf ET\n", name(i))
+		}},
+		"names that are not there": {"/XObject << " + entries("1 0 R") + " >> /ExtGState << " + entries("<< /ca 1 >>") + " >>", func(sb *strings.Builder, i int) {
+			fmt.Fprintf(sb, "/Missing%d Do /Missing%d gs\n", i, i)
+		}},
+	}
+	for label, p := range pages {
+		t.Run(label, func(t *testing.T) {
+			var sb strings.Builder
+			for i := 0; i < n; i++ {
+				p.use(&sb, n-1-i%2*i-(1-i%2)*(n-1-i)) // from both ends by turns
+			}
+			sb.WriteString("BT /F1 10 Tf 72 72 Td (text) Tj ET")
+			data := synthDoc{Font: fontCourier, Objects: []string{grayImage},
+				Pages: []synthPage{{Content: sb.String(), Resources: p.resources, MediaBox: "[0 0 5000 5000]"}}}.bytes()
+			start := time.Now()
+			doc := mustExtract(t, data, &gofastcore.Options{Images: gofastcore.ImagesNone})
+			took := time.Since(start)
+			t.Logf("%v", took.Round(time.Millisecond))
+			if !strings.Contains(doc.Text(), "text") {
+				t.Error("the text of the page is not there")
+			}
+			if took > 5*time.Second {
+				t.Errorf("took %v", took)
+			}
+		})
+	}
+}
+
+// A large dictionary of resources is searched through an index, a small
+// one from its start. Both find the same: the first entry of a name
+// that is there twice, and nothing for a name that is not there.
+func TestLargeResourceDictionary(t *testing.T) {
+	form := func(text string) string {
+		return pdftest.Stream("/Type /XObject /Subtype /Form /BBox [0 0 600 800] /Resources << /Font << /F1 5 0 R >> >>",
+			"BT /F1 10 Tf 72 700 Td ("+text+") Tj ET")
+	}
+	for _, others := range []int{0, 5, 500} {
+		var dict strings.Builder
+		dict.WriteString("/XObject << /Twice 1 0 R ")
+		for i := 0; i < others; i++ {
+			fmt.Fprintf(&dict, "/Other%d 2 0 R ", i)
+		}
+		dict.WriteString("/Twice 2 0 R /Last 1 0 R >>")
+		data := synthDoc{Font: fontCourier, Objects: []string{form("first"), form("second")},
+			Pages: []synthPage{{Content: "/Twice Do /Missing Do q 1 0 0 1 0 -100 cm /Last Do Q", Resources: dict.String()}}}.bytes()
+		doc := mustExtract(t, data, nil)
+		if got := strings.Join(strings.Fields(doc.Text()), " "); got != "first first" {
+			t.Errorf("a dictionary of %d entries: %q, want the first entry of the name twice", others+3, got)
+		}
+	}
+}
+
+// TestOutlineCost: an outline of a hundred thousand items, each of which
+// names its destination, in a dictionary of a hundred thousand names,
+// is read in time that goes with their number.
+func TestOutlineCost(t *testing.T) {
+	if testing.Short() || pdftest.RaceEnabled {
+		t.Skip("a large outline, timed")
+	}
+	const n = 100000
+	name := func(i int) string { return fmt.Sprintf("DestinationWithALongName%07d", i) }
+	objects := []string{fmt.Sprintf("<< /Type /Outlines /First 2 0 R /Last %d 0 R >>", n+1)}
+	for i := 0; i < n; i++ {
+		next := ""
+		if i < n-1 {
+			next = fmt.Sprintf("/Next %d 0 R", i+3)
+		}
+		objects = append(objects, fmt.Sprintf("<< /Title (Item %d) /Parent 1 0 R %s /Dest /%s >>", i, next, name(n-1-i)))
+	}
+	page := len(objects) + 5
+	var dests strings.Builder
+	for i := 0; i < n; i++ {
+		fmt.Fprintf(&dests, "/%s [%d 0 R /XYZ 0 %d 0]\n", name(i), page, 100+i%600)
+	}
+	data := synthDoc{Objects: objects, Catalog: "/Outlines 1 0 R /Dests << " + dests.String() + " >>",
+		Pages: []synthPage{{Content: visibleLines}}}.bytes()
+	start := time.Now()
+	doc := mustExtract(t, data, nil)
+	took := time.Since(start)
+	t.Logf("%d items, %v", len(doc.Outline), took.Round(time.Millisecond))
+	if len(doc.Outline) != n || doc.Outline[n-1].Part != 1 || doc.Outline[0].Y == 0 {
+		t.Errorf("%d items, the last %+v", len(doc.Outline), doc.Outline[len(doc.Outline)-1])
+	}
+	if took > 5*time.Second {
+		t.Errorf("took %v", took)
+	}
+}

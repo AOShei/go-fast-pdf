@@ -443,7 +443,7 @@ func outline(f *file.File, catalog, outlines syntax.Value, pages []file.Page) []
 	// along one path; a tree that is not in order is read whole, once,
 	// when a name is not found that way.
 	dests := f.Resolve(catalog.Get("Names")).Get("Dests")
-	var all map[string]syntax.Value
+	var all, old map[string]syntax.Value
 	lookup := func(name string) syntax.Value {
 		if all == nil {
 			if v, ok := findName(f, dests, name); ok {
@@ -462,7 +462,18 @@ func outline(f *file.File, catalog, outlines syntax.Value, pages []file.Page) []
 		if v, ok := all[name]; ok {
 			return v
 		}
-		return f.Resolve(catalog.Get("Dests")).Get(name)
+		// The dictionary is read into a map once: an outline can have a
+		// hundred thousand items, and the dictionary as many names.
+		if old == nil {
+			dict := f.Resolve(catalog.Get("Dests"))
+			old = map[string]syntax.Value{}
+			for i := len(dict.List)&^1 - 2; i >= 0 && dict.IsDict(); i -= 2 {
+				if k := &dict.List[i]; k.Kind == syntax.Name {
+					old[string(k.Data)] = dict.List[i+1] // the first of a name wins
+				}
+			}
+		}
+		return old[name]
 	}
 	target := func(item syntax.Value) (part int, y float64) {
 		dest := f.Resolve(item.Get("Dest"))

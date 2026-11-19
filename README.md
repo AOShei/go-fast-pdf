@@ -185,6 +185,8 @@ Settings that only PDF has are fields of `gofastpdf.Extractor`. The
   Glyph List; ligatures are written as their letters
 - **Paragraphs and reading order** - lines are joined into paragraphs; columns, tables drawn by rows, and
   pages drawn out of order are put in reading order
+- **Running headers and footers** - titles, dates and page numbers that the pages repeat in their margins
+  are tagged, and the renderers leave them out; a paragraph split by a page break is joined again
 - **Hidden text** - flagged with its reason, never dropped: see below
 - **Encryption** - RC4, AES-128 and AES-256, with user and owner passwords, and files encrypted for a
   certificate, with the private key (`Options.Keys`)
@@ -314,8 +316,7 @@ file can be read from many goroutines, and the result is the same for any number
 
 ## Limitations
 
-- **Structure** - every text block is a paragraph. Headings, lists, tables and running headers are not
-  recognised yet
+- **Structure** - headings, lists and tables are not recognised yet; their text is in paragraphs
 - **Scripts written from right to left** - the text is given in the order the page draws it, with a warning
 - **Fonts without any mapping** - glyphs of embedded CFF and TrueType programs that the PDF does not
   describe are read by their codes or reported as unmapped; the legacy CJK encodings are not built in

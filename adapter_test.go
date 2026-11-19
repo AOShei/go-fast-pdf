@@ -120,13 +120,6 @@ func pageText(p *gofastcore.Part) string {
 		_, stored := b.Attrs[gofastcore.AttrStored]
 		return field || stored || b.Kind == gofastcore.KindNote
 	}
-	any := false
-	for i := range p.Blocks {
-		any = any || extra(&p.Blocks[i])
-	}
-	if !any {
-		return p.Text()
-	}
 	q := *p
 	q.Blocks = nil
 	for i := range p.Blocks {
@@ -134,7 +127,12 @@ func pageText(p *gofastcore.Part) string {
 			q.Blocks = append(q.Blocks, p.Blocks[i])
 		}
 	}
-	return q.Text()
+	// With the running headers and footers, which the reference reader
+	// gives as text of the page, and which the renderers leave out
+	// unless asked.
+	var sb strings.Builder
+	(&gofastcore.Document{Parts: []gofastcore.Part{q}}).WriteText(&sb, &gofastcore.RenderOptions{Furniture: true})
+	return sb.String()
 }
 
 // errContract marks a result that the library must never return: a
@@ -179,7 +177,9 @@ func checkContract(doc *gofastcore.Document, opts *gofastcore.Options) error {
 	// in their order, and the Markdown is there when the text is.
 	var words []string
 	for _, b := range doc.AllBlocks() {
-		words = append(words, strings.Fields(b.Text)...)
+		if !b.Kind.Furniture() { // the renderers leave running headers and footers out
+			words = append(words, strings.Fields(b.Text)...)
+		}
 	}
 	text := doc.Text()
 	if got := strings.Fields(text); !reflect.DeepEqual(got, words) && len(got)+len(words) > 0 {
@@ -243,6 +243,10 @@ func checkContract(doc *gofastcore.Document, opts *gofastcore.Options) error {
 				}
 				continue
 			case gofastcore.KindParagraph:
+				text = true
+			case gofastcore.KindHeader, gofastcore.KindFooter:
+				// Running headers and footers: text of the page that the
+				// layout found in its margins and on the pages around it.
 				text = true
 			case gofastcore.KindCode:
 				// A script of the page's actions: stored, never shown.

@@ -92,7 +92,11 @@ func TestBudgets(t *testing.T) {
 			if allocs > b.allocsPerPage {
 				t.Errorf("%.0f allocations per page, over the budget of %.0f", allocs, b.allocsPerPage)
 			}
-			if perPage > b.bytesPerPage {
+			// Coverage changes what the compiler inlines and what escapes
+			// to the heap, and so the bytes; not the number of allocations
+			// enough to matter. Bytes are held to their budget only in a
+			// build without it.
+			if perPage > b.bytesPerPage && testing.CoverMode() == "" {
 				t.Errorf("%.0f bytes per page, over the budget of %.0f", perPage, b.bytesPerPage)
 			}
 		})

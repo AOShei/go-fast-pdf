@@ -773,7 +773,10 @@ func scanAction(f *file.File, act syntax.Value, out *pageOut, depth int) {
 // scanFields looks at the actions of the document's form fields.
 func scanFields(f *file.File, fields syntax.Value, out *pageOut) {
 	seen := map[int64]bool{}
-	stack := f.Resolve(fields).Elems()
+	// A stack of its own: the elements of a parsed array belong to the
+	// file's cache of objects, and pushing onto them would change the
+	// array for everything that reads it later.
+	stack := append([]syntax.Value(nil), f.Resolve(fields).Elems()...)
 	for n := 0; len(stack) > 0 && n < maxFields; n++ {
 		ref := stack[len(stack)-1]
 		stack = stack[:len(stack)-1]

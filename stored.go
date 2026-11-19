@@ -83,9 +83,14 @@ func (r *reader) packet(v syntax.Value) (s string, ok bool) {
 	if !ok || len(data) == 0 {
 		return "", ok
 	}
-	if len(data) >= 2 && (data[0] == 0xFE && data[1] == 0xFF || data[0] == 0xFF && data[1] == 0xFE) {
+	switch {
+	case len(data) >= 2 && (data[0] == 0xFE && data[1] == 0xFF || data[0] == 0xFF && data[1] == 0xFE):
 		s = charset.TextString(data) // UTF-16, which TextString reads by its mark
-	} else {
+	case utf8.Valid(data):
+		// The usual case, checked eight bytes at a time; ToValidUTF8
+		// would look at every character.
+		s = strings.TrimPrefix(string(data), "\uFEFF")
+	default:
 		s = strings.ToValidUTF8(strings.TrimPrefix(string(data), "\uFEFF"), "\uFFFD")
 	}
 	r.room -= len(s)
@@ -588,8 +593,14 @@ func packetProperties(src string) (out []property) {
 				out = append(out, p)
 			}
 		case tokClose:
-			if local(t.name) == "Description" {
+			switch local(t.name) {
+			case "Description":
 				inDescription = false
+			case "RDF":
+				// The metadata ends here. What follows is the blank space
+				// a packet keeps to be edited in place, kilobytes of it,
+				// which would take longer to look at than the rest.
+				return out
 			}
 		}
 	}

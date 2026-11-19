@@ -2,6 +2,7 @@ package extract
 
 import (
 	"fmt"
+	"runtime/debug"
 	"strings"
 	"testing"
 
@@ -346,6 +347,14 @@ func TestShapeBound(t *testing.T) {
 // clips nor wanted as shapes is read without converting a number of
 // them, which shows as no allocation and no trace in the result.
 func TestPathsCostNothingUnlessWanted(t *testing.T) {
+	if pdftest.RaceEnabled {
+		// The race detector drops pooled buffers at random, and they are
+		// then allocated again.
+		t.Skip("allocation counts are not meaningful under the race detector")
+	}
+	// The collector empties the pools of buffers as well; it is kept from
+	// running while allocations are counted.
+	defer debug.SetGCPercent(debug.SetGCPercent(-1))
 	var sb strings.Builder
 	for i := range 2000 {
 		fmt.Fprintf(&sb, "%d %d m %d %d l %d %d %d %d %d %d c h S %d 0 9 9 re f\n", i, i, i+5, i, i, i, i+1, i+1, i+2, i+2, i)

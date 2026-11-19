@@ -53,6 +53,7 @@ type line struct {
 
 	pred  int32 // the line it continues, -1 for the first of a paragraph
 	start bool  // set when the line starts a paragraph
+	next  int32 // the line that follows in its paragraph, in b.lines; -1 for the last
 }
 
 // layoutGroup lays out the pieces of one group, which share their

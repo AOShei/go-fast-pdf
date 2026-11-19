@@ -98,6 +98,25 @@ func (r *Run) Em() float64 {
 	return r.SizeX
 }
 
+// Break is where a space of the page's text is on the page: it begins
+// at (X0, Y0) on the baseline, where the word before it ends, and ends
+// at (X1, Y1), where the word after it begins.
+type Break struct {
+	// Off is the position of the space in the page's text.
+	Off            int32
+	X0, Y0, X1, Y1 float64
+}
+
+// mark is a space in the string being shown: where it is in the text of
+// the string, and how far the string has advanced before it and after
+// it, as Font.Append counts an advance.
+type mark struct {
+	off             int32
+	glyphs, spaces  int
+	before, after   float64
+	glyphs2, space2 int // the counts after the space
+}
+
 // Gap is a space that is not in the file: two strings of one run stand
 // apart by more than the threshold, and a space was put between their
 // texts.
@@ -363,7 +382,12 @@ func (in *interp) showCodes(f *font.Font, raw []byte) {
 		in.text, sh = f.Append(in.text, raw)
 		in.unmapped += sh.Unmapped
 		in.assumed += sh.Assumed
+		if in.opts.Words {
+			in.markSpaces(f, raw)
+		}
 	}
+	marks := in.marks
+	in.marks = in.marks[:0]
 
 	// Text in a clipping mode belongs to the clip of its text object;
 	// text that is painted while other text clips paints through it.
@@ -428,6 +452,7 @@ func (in *interp) showCodes(f *font.Font, raw []byte) {
 	sep := p.separator(x0, y0, x1, y1, ge.dx, ge.dy, ge.size)
 	leftward := p.leftward
 	along := (x0-p.ex)*p.dx + (y0-p.ey)*p.dy
+	endX, endY := p.ex, p.ey // where the string before this one ended
 	p.font, p.textLo, p.textHi = f, int32(start), int32(len(in.text))
 	p.sx, p.sy, p.ex, p.ey = x0, y0, x1, y1
 	if p.serial != ge.serial || !p.valid {
@@ -468,7 +493,12 @@ func (in *interp) showCodes(f *font.Font, raw []byte) {
 			copy(in.text[start+1:], in.text[start:])
 			in.text[start] = ' '
 			in.gaps = append(in.gaps, Gap{Off: int32(start), Width: float32(along)})
+			if in.opts.Words {
+				in.breaks = append(in.breaks, Break{Off: int32(start), X0: endX, Y0: endY, X1: x0, Y1: y0})
+			}
+			start++
 		}
+		in.placeMarks(marks, start, x0, y0, f.Vertical)
 		last.Len = int32(len(in.text)) - last.Off
 		last.X1, last.Y1 = x1, y1
 		last.LX, last.LY = x0, y0
@@ -483,6 +513,7 @@ func (in *interp) showCodes(f *font.Font, raw []byte) {
 		in.tooMuchText()
 		return
 	}
+	in.placeMarks(marks, start, x0, y0, f.Vertical)
 	in.runs = append(in.runs, Run{
 		Off: int32(start), Len: int32(len(in.text) - start),
 		X0: x0, Y0: y0, X1: x1, Y1: y1, LX: x0, LY: y0, Dx: ge.dx, Dy: ge.dy, Nx: ge.nx, Ny: ge.ny,
@@ -507,6 +538,58 @@ func writtenLeftward(text []byte) bool {
 		}
 	}
 	return false
+}
+
+// markSpaces notes the spaces in the text of the string raw, which has
+// just been shown in the font f: where each is in that text, and the
+// advance of the string before and after it. The codes are gone through
+// one by one, which Append does not do; it is done only when words are
+// asked for.
+func (in *interp) markSpaces(f *font.Font, raw []byte) {
+	var sh font.Shown
+	off := 0
+	for len(raw) > 0 {
+		n := min(max(f.CodeLen(raw), 1), len(raw))
+		var one font.Shown
+		in.silent, one = f.Append(in.silent[:0], raw[:n])
+		if len(in.silent) == 1 && in.silent[0] == ' ' {
+			in.marks = append(in.marks, mark{
+				off: int32(off), glyphs: sh.Glyphs, spaces: sh.Spaces, before: sh.Advance,
+				after: sh.Advance + one.Advance, glyphs2: sh.Glyphs + one.Glyphs, space2: sh.Spaces + one.Spaces,
+			})
+		}
+		off += len(in.silent)
+		sh.Advance += one.Advance
+		sh.Glyphs += one.Glyphs
+		sh.Spaces += one.Spaces
+		raw = raw[n:]
+	}
+}
+
+// placeMarks turns the marks of a string into breaks: the string's text
+// is at start in the page's text, and the string starts at (x0, y0).
+func (in *interp) placeMarks(marks []mark, start int, x0, y0 float64, vertical bool) {
+	if len(marks) == 0 {
+		return
+	}
+	g, ge := &in.gs, &in.geom
+	// How far along the line the string has got after an advance, as
+	// showCodes works it out for the whole string.
+	at := func(advance float64, glyphs, spaces int) (float64, float64) {
+		spacing := float64(glyphs)*g.tc + float64(spaces)*g.tw
+		if vertical {
+			ty := advance*g.size - spacing
+			return x0 + ty*ge.c, y0 + ty*ge.d
+		}
+		tx := (advance*g.size + spacing) * g.th
+		return x0 + tx*ge.a, y0 + tx*ge.b
+	}
+	for _, m := range marks {
+		b := Break{Off: int32(start) + m.off}
+		b.X0, b.Y0 = at(m.before, m.glyphs, m.spaces)
+		b.X1, b.Y1 = at(m.after, m.glyphs2, m.space2)
+		in.breaks = append(in.breaks, b)
+	}
 }
 
 // printedAgain reports whether the string whose text is in.text[start:]

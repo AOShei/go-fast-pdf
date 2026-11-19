@@ -55,6 +55,10 @@ type Options struct {
 	// MaxDeepSteps bounds the work of those checks on the page; 0 means
 	// the default.
 	MaxDeepSteps int
+	// Lines returns the lines of the text blocks with their words, in
+	// Result.Lines. The words are placed exactly when the content was
+	// read with extract.Options.Words.
+	Lines bool
 }
 
 // Result is the page as blocks.
@@ -78,7 +82,30 @@ type Result struct {
 	// more shapes than are followed: low contrast and covering shapes
 	// were then not checked for all of its text.
 	DeepIncomplete bool
-	Stats          Stats
+	// Lines are the lines of the text blocks, block by block, when
+	// Options.Lines is set.
+	Lines []Line
+	Stats Stats
+}
+
+// Line is one line of a text block.
+type Line struct {
+	// Block is the index in Result.Blocks of the block the line is in.
+	Block int
+	// Text is the text of the line by itself.
+	Text string
+	BBox gofastcore.Rect
+	// Font is the name of the font that most of the line is set in,
+	// without the tag of a subset, and Size the size it is displayed at.
+	Font  string
+	Size  float64
+	Words []Word
+}
+
+// Word is a stretch of a line between two spaces.
+type Word struct {
+	Text string
+	BBox gofastcore.Rect
 }
 
 // Stats counts what the layout did. It is for measurement.
@@ -220,8 +247,21 @@ func Build(page Page, c *extract.Content, opts Options) Result {
 	}
 	res.HasText = len(res.Blocks) > 0
 	res.Stats = b.stats
+	if opts.Lines {
+		b.linesOf(&res, final)
+	}
 	if opts.Images && len(c.Images) > 0 {
 		b.placeImages(&res)
+		// The image blocks have moved the text blocks along.
+		at := make([]int, 0, len(final))
+		for k, img := range res.Images {
+			if img < 0 {
+				at = append(at, k)
+			}
+		}
+		for i := range res.Lines {
+			res.Lines[i].Block = at[res.Lines[i].Block]
+		}
 	}
 	return res
 }

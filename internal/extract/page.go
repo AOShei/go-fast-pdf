@@ -12,9 +12,11 @@ package extract
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"math"
 	"sync"
+	"sync/atomic"
 	"unicode/utf8"
 
 	gofastcore "github.com/AOShei/go-fast-core"
@@ -70,6 +72,10 @@ type Content struct {
 	Forms []Quad
 	// Images are the images drawn, in order.
 	Images []Image
+	// Breaks are the places of the spaces in Text, in the order of the
+	// text, when Options.Words is set: where each begins and ends on the
+	// page. A space that has none is one of text that replaces glyphs.
+	Breaks []Break
 	// Shapes are the paths and shadings painted, in order, when
 	// Options.Shapes is set. ShapesUpTo is -1 when all of them are
 	// listed. Otherwise there were more than are kept, and it is the Seq
@@ -91,6 +97,12 @@ type Options struct {
 	Shapes bool
 	// MaxShapes bounds the shapes recorded; 0 means 65536.
 	MaxShapes int
+	// Words records where the spaces of the text are on the page, in
+	// Content.Breaks, so that a reader can place every word.
+	Words bool
+	// Stop, when set, is looked at as the content is read. Once it holds
+	// true the page is abandoned and its result has ErrStopped.
+	Stop *atomic.Bool
 	// Use, when set, is called with the page's content once it is read,
 	// before the buffers that hold it are reused. Result.Text is then
 	// not made.
@@ -213,6 +225,13 @@ type interp struct {
 	gaps   []Gap
 	images []Image
 	forms  []Quad
+	// Where the spaces are, when words are asked for: marks are those of
+	// the string being shown, by their place in its text.
+	breaks []Break
+	marks  []mark
+	// ops counts operators between two looks at Options.Stop.
+	ops     uint32
+	stopped bool
 	// The path being built, and the shapes painted so far.
 	path       pathState
 	shapes     []Shape
@@ -279,9 +298,17 @@ func Page(f *file.File, p *file.Page, opts Options) (res Result) {
 	return res
 }
 
+// ErrStopped is the error of a page that was abandoned because
+// Options.Stop was set.
+var ErrStopped = errors.New("the page was abandoned")
+
 // finish turns what the interpreter collected into the result.
 func (in *interp) finish() {
 	res := in.res
+	if in.stopped {
+		res.Err = ErrStopped
+		return
+	}
 	if in.clips > 0 {
 		for i := range in.runs {
 			if r := &in.runs[i]; r.Clip != 0 && int(r.Clip) < len(in.clipPainted) && in.clipPainted[r.Clip] {
@@ -303,7 +330,7 @@ func (in *interp) finish() {
 			in.unmapped++
 		}
 		in.opts.Use(&Content{Runs: in.runs, Text: in.text, Gaps: in.gaps, Forms: in.forms, Images: in.images,
-			Shapes: in.shapes, ShapesUpTo: in.shapesUpTo})
+			Breaks: in.breaks, Shapes: in.shapes, ShapesUpTo: in.shapesUpTo})
 	} else {
 		out := assemble(in.str[:0], in.runs, in.text)
 		in.str = out
@@ -370,6 +397,9 @@ func (in *interp) trim() {
 	if cap(in.shapes) > 4096 {
 		in.shapes = nil
 	}
+	if cap(in.breaks) > keep/16 {
+		in.breaks = nil
+	}
 	in.path = pathState{} // its operands point into the buffers above
 	if cap(in.stack) > 256 {
 		in.stack = nil
@@ -399,6 +429,7 @@ func (in *interp) reset(f *file.File, p *file.Page, opts Options, res *Result) {
 	in.clips, in.textClip, in.clipPainted = 0, 0, in.clipPainted[:0]
 	in.path.reset()
 	in.shapes, in.shapesUpTo = in.shapes[:0], -1
+	in.breaks, in.marks, in.ops, in.stopped = in.breaks[:0], in.marks[:0], 0, false
 }
 
 func (in *interp) resourcesAt(level int) *resources {
@@ -501,12 +532,19 @@ func (in *interp) run(p *file.Page) {
 
 // exec runs the operators of a scanner to its end.
 func (in *interp) exec(scan *content.Scanner) {
-	for {
+	for !in.stopped {
 		op, args, ok := scan.Next()
 		if !ok {
 			return
 		}
 		in.operator(scan, op, args)
+		// A page can have millions of operators: whoever waits for it
+		// can call it off.
+		if in.opts.Stop != nil {
+			if in.ops++; in.ops&1023 == 0 && in.opts.Stop.Load() {
+				in.stopped = true
+			}
+		}
 	}
 }
 

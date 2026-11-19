@@ -41,6 +41,7 @@ type blk struct {
 	key            int32 // its first run in the order drawn
 	size           float64
 	text           string
+	line           int32 // its first line, in b.lines; the others follow by line.next
 }
 
 // paragraphs joins the lines b.lines[first:] into paragraphs and
@@ -178,7 +179,7 @@ func (b *builder) paragraphs(first int, hidden gofastcore.Hidden) {
 		if !lines[li].start {
 			continue
 		}
-		bl := blk{hidden: hidden, key: lines[li].key, size: lines[li].size}
+		bl := blk{hidden: hidden, key: lines[li].key, size: lines[li].size, line: int32(first) + li}
 		bl.x0, bl.y0, bl.x1, bl.y1 = lines[li].x0, lines[li].y0, lines[li].x1, lines[li].y1
 		b.out = b.out[:0]
 		var prev *line
@@ -188,6 +189,9 @@ func (b *builder) paragraphs(first int, hidden gofastcore.Hidden) {
 			bl.key = min(bl.key, ln.key)
 			b.joinLine(prev, ln)
 			prev = ln
+			if ln.next = -1; b.claims[at] >= 0 {
+				ln.next = int32(first) + b.claims[at]
+			}
 		}
 		if bl.text = b.clean(b.out); bl.text != "" {
 			b.blocks = append(b.blocks, bl)

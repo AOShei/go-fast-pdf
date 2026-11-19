@@ -34,6 +34,7 @@ type Line struct {
 
 // Word is one word of a line: what stands between two spaces.
 type Word struct {
+	// Text is the word as it stands in the text of its line.
 	Text string
 	// BBox is the box of the word on its page. It runs from where the
 	// word begins on the line to where it ends, as wide as its glyphs

@@ -14,13 +14,13 @@ func TestFaintAgreesWithTheSharedTest(t *testing.T) {
 		for g := 0; g < 256; g++ {
 			for b := 0; b < 256; b += 5 {
 				c := extract.Color{R: uint8(r), G: uint8(g), B: uint8(b), Known: true}
-				if got, want := faint(c), gofastcore.LowContrast(c.R, c.G, c.B, 255, 255, 255); got != want {
+				if got, want := faint(c, 1, white), gofastcore.LowContrast(c.R, c.G, c.B, 255, 255, 255); got != want {
 					t.Fatalf("colour %d %d %d: faint %v, the shared test %v", r, g, b, got, want)
 				}
 			}
 		}
 	}
-	if faint(extract.Color{R: 255, G: 255, B: 255}) {
+	if faint(extract.Color{R: 255, G: 255, B: 255}, 1, white) {
 		t.Error("a colour that could not be converted is not judged")
 	}
 }

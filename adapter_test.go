@@ -104,8 +104,11 @@ func extractBytes(data []byte, o extractOpts) (*extraction, error) {
 // cannot be read is an error of another kind and is no defect.
 var errContract = errors.New("the document breaks the contract of the shared model")
 
-// defaultChecked is what Document.HiddenChecked is for every run until
-// the deep checks exist.
+// deepChecked are the reasons that Document.HiddenChecked lists only
+// for a run with DeepHidden.
+const deepChecked = gofastcore.HiddenLowContrast | gofastcore.HiddenOccluded | gofastcore.HiddenClipped
+
+// defaultChecked is what Document.HiddenChecked is for a run without it.
 const defaultChecked = gofastcore.HiddenInvisible | gofastcore.HiddenTextLayer | gofastcore.HiddenTiny |
 	gofastcore.HiddenOffPage | gofastcore.HiddenTransparent | gofastcore.HiddenChars
 
@@ -148,15 +151,24 @@ func checkContract(doc *gofastcore.Document, opts *gofastcore.Options) error {
 	if opts.Images == gofastcore.ImagesNone && (strings.TrimSpace(doc.Markdown()) == "") != (strings.TrimSpace(text) == "") {
 		return fmt.Errorf("the Markdown is empty and the text is not, or the other way round")
 	}
-	if doc.HiddenChecked != defaultChecked {
-		return fmt.Errorf("hidden_checked is %s", doc.HiddenChecked)
+	// What was checked: the reasons of the default checks, and with
+	// DeepHidden the three that need the shapes of a page, two of which
+	// are left out when a page had more shapes than are followed.
+	incomplete := false
+	for i := range doc.Parts {
+		incomplete = incomplete || doc.Parts[i].Has(gofastpdf.WarnDeepHiddenIncomplete)
 	}
-	deep := false
-	for _, w := range doc.Warnings {
-		deep = deep || w.Code == gofastpdf.WarnDeepHiddenUnavailable
+	want := defaultChecked
+	switch {
+	case !opts.DeepHidden && incomplete:
+		return fmt.Errorf("%s without DeepHidden", gofastpdf.WarnDeepHiddenIncomplete)
+	case opts.DeepHidden && incomplete:
+		want |= gofastcore.HiddenClipped
+	case opts.DeepHidden:
+		want |= deepChecked
 	}
-	if deep != opts.DeepHidden {
-		return fmt.Errorf("%s present: %v, DeepHidden: %v", gofastpdf.WarnDeepHiddenUnavailable, deep, opts.DeepHidden)
+	if doc.HiddenChecked != want {
+		return fmt.Errorf("hidden_checked is %s, want %s", doc.HiddenChecked, want)
 	}
 	for i := range doc.Parts {
 		p := &doc.Parts[i]

@@ -46,9 +46,18 @@ type Run struct {
 	Clip        int32
 	ClipPainted bool
 	// Fill and Stroke are the colours, and FillAlpha and StrokeAlpha
-	// the opacities from the graphics state (1 is opaque).
+	// the opacities (1 is opaque): those of the graphics state, times
+	// those of the transparency groups the run is drawn in.
 	Fill, Stroke           Color
 	FillAlpha, StrokeAlpha float32
+	// Blend is set when the run is painted with a blend mode other than
+	// the normal one or through a soft mask, or is in a transparency
+	// group that is: what a reader sees of it is then not its colour
+	// laid over what is under it.
+	Blend bool
+	// Region is what the clipping paths in force leave of the page: the
+	// run is painted only there.
+	Region Region
 	// OptionalOff is set when the run belongs to optional content that
 	// is switched off in the document's default configuration.
 	OptionalOff bool
@@ -457,7 +466,8 @@ func (in *interp) showCodes(f *font.Font, raw []byte) {
 		Off: int32(start), Len: int32(len(in.text) - start),
 		X0: x0, Y0: y0, X1: x1, Y1: y1, LX: x0, LY: y0, Dx: ge.dx, Dy: ge.dy, Nx: ge.nx, Ny: ge.ny,
 		Size: ge.size, SizeX: ge.sizeX, Rise: g.rise * ge.lenY, SpaceWidth: ge.space, Font: f,
-		Mode: g.mode, Clip: clip, Fill: g.fill.color, Stroke: g.stroke.color, FillAlpha: g.fillAlpha, StrokeAlpha: g.strokeAlpha,
+		Mode: g.mode, Clip: clip, Fill: g.fill.color, Stroke: g.stroke.color,
+		FillAlpha: g.fillAlpha * g.alphaScale, StrokeAlpha: g.strokeAlpha * g.alphaScale, Blend: g.blend(), Region: g.region,
 		OptionalOff: in.offDepth > 0, Seq: in.seq, Form: in.form,
 		Sep: sep, ActualText: replaced, Glyphs: int32(sh.Glyphs), Unmapped: int32(sh.Unmapped), Assumed: int32(sh.Assumed),
 	})
@@ -556,7 +566,8 @@ func (in *interp) continues(last *Run, f *font.Font) bool {
 func (in *interp) sameVisibility(last *Run) bool {
 	g := &in.gs
 	return last.Mode == g.mode && last.Fill == g.fill.color && last.Stroke == g.stroke.color &&
-		last.FillAlpha == g.fillAlpha && last.StrokeAlpha == g.strokeAlpha &&
+		last.FillAlpha == g.fillAlpha*g.alphaScale && last.StrokeAlpha == g.strokeAlpha*g.alphaScale &&
+		last.Blend == g.blend() && last.Region == g.region &&
 		last.OptionalOff == (in.offDepth > 0) && last.Seq == in.seq && last.Form == in.form
 }
 

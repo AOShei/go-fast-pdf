@@ -49,6 +49,12 @@ type Options struct {
 	// NoHiddenChecks treats all text as visible. It is for measuring
 	// what the checks cost.
 	NoHiddenChecks bool
+	// Deep makes the checks that need the shapes of the page, which the
+	// content must have been read with (extract.Options.Shapes).
+	Deep bool
+	// MaxDeepSteps bounds the work of those checks on the page; 0 means
+	// the default.
+	MaxDeepSteps int
 }
 
 // Result is the page as blocks.
@@ -68,7 +74,11 @@ type Result struct {
 	// RightToLeft reports that some text is in a script written from
 	// right to left.
 	RightToLeft bool
-	Stats       Stats
+	// DeepIncomplete is set when Options.Deep was set and the page has
+	// more shapes than are followed: low contrast and covering shapes
+	// were then not checked for all of its text.
+	DeepIncomplete bool
+	Stats          Stats
 }
 
 // Stats counts what the layout did. It is for measurement.
@@ -85,8 +95,11 @@ type Stats struct {
 	Tabs, LetterSpaced int
 	// Reordered reports that the blocks are not in the order drawn.
 	Reordered bool
-	// Unjudged is the number of visible runs drawn after something else
-	// was painted on the page: their contrast is not judged by default.
+	// Unjudged is the number of runs whose contrast is not judged because
+	// what they stand on is not known: by default the visible runs drawn
+	// after something else was painted on the page, and with
+	// Options.Deep those under which the last thing painted is not one
+	// rectangle of one colour that holds them.
 	Unjudged int
 }
 
@@ -97,28 +110,31 @@ type builder struct {
 	opts  Options
 	scale float64 // points per unit of the page's coordinates
 
-	pieces []piece
-	order  []int32 // piece indices, grouped
-	lines  []line
-	lidx   []int32 // backing store of the lines' piece lists
-	text   []byte  // the lines' texts
-	cands  []cand
-	frags  []frag
-	blocks []blk
-	bidx   []int32 // backing store of the blocks' line lists
-	sorted []int32
-	sortB  []int32
-	pred   []int32
-	claims []int32
-	hist   []int32
-	alt    []int32
-	occ    []occluder
-	big    []box
-	out    []byte
-	stats  Stats
+	pieces  []piece
+	order   []int32 // piece indices, grouped
+	lines   []line
+	lidx    []int32 // backing store of the lines' piece lists
+	text    []byte  // the lines' texts
+	cands   []cand
+	frags   []frag
+	blocks  []blk
+	bidx    []int32 // backing store of the blocks' line lists
+	sorted  []int32
+	sortB   []int32
+	pred    []int32
+	claims  []int32
+	hist    []int32
+	alt     []int32
+	occ     []occluder
+	big     []box
+	patches []patch
+	grid    grid
+	out     []byte
+	stats   Stats
 
-	controls int
-	rtl      bool
+	controls   int
+	rtl        bool
+	incomplete bool
 }
 
 var builders = sync.Pool{New: func() any { return new(builder) }}
@@ -184,7 +200,7 @@ func Build(page Page, c *extract.Content, opts Options) Result {
 	}
 	final = append(final, offPage...)
 
-	res := Result{Controls: b.controls, RightToLeft: b.rtl, Stats: b.stats}
+	res := Result{Controls: b.controls, RightToLeft: b.rtl, DeepIncomplete: b.incomplete, Stats: b.stats}
 	res.Blocks = make([]gofastcore.Block, 0, len(final)+len(c.Images)*btoi(opts.Images))
 	for _, i := range final {
 		bl := &b.blocks[i]
@@ -246,7 +262,7 @@ func (b *builder) reset(page Page, c *extract.Content, opts Options) {
 	b.text, b.cands, b.frags, b.blocks, b.bidx = b.text[:0], b.cands[:0], b.frags[:0], b.blocks[:0], b.bidx[:0]
 	b.occ, b.big = b.occ[:0], b.big[:0]
 	b.stats = Stats{Runs: len(c.Runs)}
-	b.controls, b.rtl = 0, false
+	b.controls, b.rtl, b.incomplete = 0, false, false
 }
 
 // trim drops what one unusually large page grew.
@@ -266,6 +282,12 @@ func (b *builder) trim() {
 	}
 	if cap(b.cands) > keep {
 		b.cands, b.frags = nil, nil
+	}
+	if cap(b.patches) > keep {
+		b.patches = nil
+	}
+	if cap(b.grid.nodes) > keep {
+		b.grid.nodes = nil
 	}
 	// The blocks hold strings: they are not kept alive by the pool.
 	clear(b.blocks[:cap(b.blocks)])

@@ -38,6 +38,10 @@ type Extractor struct {
 	// noHiddenChecks leaves out the checks for hidden text. It exists
 	// to measure what they cost and is not reachable from outside.
 	noHiddenChecks bool
+	// maxShapes and maxDeepSteps bound what the checks of DeepHidden
+	// follow on one page; 0 means the defaults. Tests set them to reach
+	// the bounds with a small page.
+	maxShapes, maxDeepSteps int
 }
 
 var _ gofastcore.Extractor = (*Extractor)(nil)
@@ -194,12 +198,17 @@ func (e *Extractor) Extract(ctx context.Context, r io.ReaderAt, size int64, opts
 			fmt.Sprintf("the document decodes to more than the limit of %d bytes; the data of some images is not included", budget))
 	}
 
-	// The reasons that were checked completely. Low contrast, occlusion
-	// and clipping are checked in part and are not listed.
+	// The reasons that were checked completely. Without DeepHidden, low
+	// contrast, covering and clipping are checked in part and are not
+	// listed. With it they are, unless a page has more shapes than are
+	// followed: then the first two were not checked on all of that page,
+	// and are not listed for the document.
 	doc.HiddenChecked = hiddenChecked
-	if opts.DeepHidden {
-		doc.Warn(gofastcore.SeverityWarning, WarnDeepHiddenUnavailable,
-			"the checks of Options.DeepHidden are not implemented in this version; only the default checks were made")
+	if opts.DeepHidden && !e.noHiddenChecks {
+		doc.HiddenChecked |= gofastcore.HiddenClipped
+		if !m.deepIncomplete {
+			doc.HiddenChecked |= gofastcore.HiddenLowContrast | gofastcore.HiddenOccluded
+		}
 	}
 	if invisibleInMetadata(doc) {
 		doc.Warn(gofastcore.SeverityWarning, gofastcore.WarnTextHidden, "the document information or the outline has invisible characters")
@@ -219,9 +228,10 @@ const (
 	// right to left. Its text is given in the order the page draws it,
 	// which may be the order of display and not of reading.
 	WarnRTLVisualOrder = "pdf.rtl_visual_order"
-	// WarnDeepHiddenUnavailable: Options.DeepHidden was set, and this
-	// version makes only the default checks.
-	WarnDeepHiddenUnavailable = "pdf.deep_hidden_unavailable"
+	// WarnDeepHiddenIncomplete: Options.DeepHidden was set and the page
+	// paints more shapes than are followed. Its text is complete; low
+	// contrast and covering shapes were not checked for all of it.
+	WarnDeepHiddenIncomplete = "pdf.deep_hidden_incomplete"
 	// WarnGlyphTextAssumed: characters on the page are set in a font
 	// that does not say which characters its glyphs are; they were read
 	// as the characters their codes stand for.
@@ -240,6 +250,9 @@ type pageOut struct {
 	images []imageRef
 	// What the page contributes to the document's warnings.
 	active, external bool
+	// deepIncomplete is set when the checks of DeepHidden were not made
+	// for all of the page.
+	deepIncomplete bool
 	// attachments are the files attached to the page by annotations.
 	attachments []attachment
 	// What the layout and the interpreter counted. It is for
@@ -270,9 +283,11 @@ func (e *Extractor) page(f *file.File, p *file.Page, opts *gofastcore.Options) (
 
 	var lay layout.Result
 	images := 0
-	res := extract.Page(f, p, extract.Options{Use: func(c *extract.Content) {
-		lay = layout.Build(layout.Page{M: m, Width: w, Height: h}, c,
-			layout.Options{Images: opts.Images != gofastcore.ImagesNone, NoHiddenChecks: e.noHiddenChecks})
+	res := extract.Page(f, p, extract.Options{Shapes: opts.DeepHidden, MaxShapes: e.maxShapes, Use: func(c *extract.Content) {
+		lay = layout.Build(layout.Page{M: m, Width: w, Height: h}, c, layout.Options{
+			Images: opts.Images != gofastcore.ImagesNone, NoHiddenChecks: e.noHiddenChecks,
+			Deep: opts.DeepHidden, MaxDeepSteps: e.maxDeepSteps,
+		})
 		images = len(c.Images)
 		for k, i := range lay.Images {
 			if i >= 0 {
@@ -298,6 +313,11 @@ func (e *Extractor) page(f *file.File, p *file.Page, opts *gofastcore.Options) (
 		part.Warn(gofastcore.SeverityWarning, gofastcore.WarnTextUnmappedGlyphs,
 			fmt.Sprintf("%d characters on the page are control characters and appear as U+FFFD", lay.Controls))
 	}
+	if lay.DeepIncomplete {
+		out.deepIncomplete = true
+		part.Warn(gofastcore.SeverityWarning, WarnDeepHiddenIncomplete,
+			"the page paints more shapes than are followed; low contrast and covering shapes were not checked for all of its text")
+	}
 	if lay.RightToLeft {
 		part.Warn(gofastcore.SeverityWarning, WarnRTLVisualOrder,
 			"the page has text in a script written from right to left; it is given in the order the page draws it")
@@ -321,6 +341,7 @@ type merger struct {
 	lastPage int
 
 	active, external bool
+	deepIncomplete   bool
 	attachments      []attachment
 	images           map[string]bool // the IDs that have had their data
 	inline           int
@@ -344,6 +365,7 @@ func (m *merger) add(out *pageOut) bool {
 	m.lastPage = out.part.Number
 	m.active = m.active || out.active
 	m.external = m.external || out.external
+	m.deepIncomplete = m.deepIncomplete || out.deepIncomplete
 	m.attachments = append(m.attachments, out.attachments...)
 	m.doc.Parts = append(m.doc.Parts, out.part)
 	part := &m.doc.Parts[len(m.doc.Parts)-1]

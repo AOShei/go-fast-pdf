@@ -47,8 +47,11 @@ type Image struct {
 	Seq, After int32
 	// Opaque is false for an image that lets what is under it show: one
 	// with a mask or a soft mask, a stencil, or one painted with an
-	// opacity below 1.
+	// opacity below 1, with a blend mode or through a soft mask.
 	Opaque bool
+	// Region is what the clipping paths in force leave of the page: the
+	// image is painted only there.
+	Region Region
 }
 
 // Content is what a page's content streams draw, as the interpreter
@@ -65,6 +68,13 @@ type Content struct {
 	Forms []Quad
 	// Images are the images drawn, in order.
 	Images []Image
+	// Shapes are the paths and shadings painted, in order, when
+	// Options.Shapes is set. ShapesUpTo is -1 when all of them are
+	// listed. Otherwise there were more than are kept, and it is the Seq
+	// of the first that is missing: of what is painted from there on,
+	// only the text and the images are known.
+	Shapes     []Shape
+	ShapesUpTo int32
 }
 
 // Options says what to extract besides text.
@@ -73,6 +83,12 @@ type Options struct {
 	Images bool
 	// Runs returns the page's runs in Result.Runs.
 	Runs bool
+	// Shapes records the paths and shadings that the page paints, in
+	// Content.Shapes, and follows every clipping path. Without it only
+	// clipping paths that are rectangles are followed.
+	Shapes bool
+	// MaxShapes bounds the shapes recorded; 0 means 65536.
+	MaxShapes int
 	// Use, when set, is called with the page's content once it is read,
 	// before the buffers that hold it are reused. Result.Text is then
 	// not made.
@@ -195,13 +211,17 @@ type interp struct {
 	gaps   []Gap
 	images []Image
 	forms  []Quad
-	form   int32 // the form being drawn, -1 on the page itself
-	seq    int32 // paint operations so far, text excluded
-	prev   lineEnd
-	full   bool // a limit was reached: no more text is taken
-	str    []byte
-	name   []byte
-	silent []byte
+	// The path being built, and the shapes painted so far.
+	path       pathState
+	shapes     []Shape
+	shapesUpTo int32
+	form       int32 // the form being drawn, -1 on the page itself
+	seq        int32 // paint operations so far, text excluded
+	prev       lineEnd
+	full       bool // a limit was reached: no more text is taken
+	str        []byte
+	name       []byte
+	silent     []byte
 
 	unmapped    int
 	assumed     int
@@ -233,6 +253,9 @@ func Page(f *file.File, p *file.Page, opts Options) (res Result) {
 	}
 	if opts.MaxDecodedBytes <= 0 {
 		opts.MaxDecodedBytes = 512 << 20
+	}
+	if opts.MaxShapes <= 0 {
+		opts.MaxShapes = maxShapesPerPage
 	}
 	in := interps.Get().(*interp)
 	defer func() {
@@ -277,7 +300,8 @@ func (in *interp) finish() {
 			}
 			in.unmapped++
 		}
-		in.opts.Use(&Content{Runs: in.runs, Text: in.text, Gaps: in.gaps, Forms: in.forms, Images: in.images})
+		in.opts.Use(&Content{Runs: in.runs, Text: in.text, Gaps: in.gaps, Forms: in.forms, Images: in.images,
+			Shapes: in.shapes, ShapesUpTo: in.shapesUpTo})
 	} else {
 		out := assemble(in.str[:0], in.runs, in.text)
 		in.str = out
@@ -341,6 +365,10 @@ func (in *interp) trim() {
 	if cap(in.images) > 4096 {
 		in.images = nil
 	}
+	if cap(in.shapes) > 4096 {
+		in.shapes = nil
+	}
+	in.path = pathState{} // its operands point into the buffers above
 	if cap(in.stack) > 256 {
 		in.stack = nil
 	}
@@ -367,6 +395,8 @@ func (in *interp) reset(f *file.File, p *file.Page, opts Options, res *Result) {
 	in.unmapped, in.assumed, in.fontMissing = 0, 0, false
 	in.formActive, in.formCalls = in.formActive[:0], 0
 	in.clips, in.textClip, in.clipPainted = 0, 0, in.clipPainted[:0]
+	in.path.reset()
+	in.shapes, in.shapesUpTo = in.shapes[:0], -1
 }
 
 func (in *interp) resourcesAt(level int) *resources {
@@ -527,6 +557,8 @@ func (in *interp) operator(scan *content.Scanner, op []byte, args []content.Oper
 		if in.textClip != 0 {
 			g.clip = in.textClip
 			in.textClip = 0
+			// What is painted from here on shows only inside the glyphs.
+			g.region.Inexact = true
 		}
 	case "Tc":
 		if a := last(args, 1); a != nil {
@@ -656,8 +688,40 @@ func (in *interp) operator(scan *content.Scanner, op []byte, args []content.Oper
 	case "EMC":
 		in.endMarked()
 
+	// --- paths ---
+	case "re":
+		in.pathOp('r', args, 4)
+	case "m":
+		in.pathOp('m', args, 2)
+	case "l":
+		in.pathOp('l', args, 2)
+	case "c":
+		in.pathOp('c', args, 6)
+	case "v", "y":
+		in.pathOp('c', args, 4)
+	case "h":
+		// Closing a path changes nothing about where it lies.
+	case "W", "W*":
+		in.path.clip = true
+	case "w":
+		if a := last(args, 1); a != nil && in.opts.Shapes {
+			g.lineWidth = abs(finite(a[0].Float()))
+		}
+
 	// --- painting ---
-	case "S", "s", "f", "F", "f*", "B", "B*", "b", "b*", "sh":
+	case "n":
+		in.endPath(false, false)
+	case "f", "F", "f*":
+		in.endPath(true, false)
+		in.painted()
+	case "S", "s":
+		in.endPath(false, true)
+		in.painted()
+	case "B", "B*", "b", "b*":
+		in.endPath(true, true)
+		in.painted()
+	case "sh":
+		in.shade()
 		in.painted()
 	case "BI":
 		in.inlineImage(args)
@@ -884,7 +948,8 @@ func (in *interp) addImage(img Image) {
 	// drawn in.
 	img.Quad = in.gs.ctm.quad([4]float64{0, 0, 1, 1})
 	img.Seq, img.After = in.seq, int32(len(in.runs))
-	img.Opaque = img.Opaque && in.gs.fillAlpha >= 1 && in.offDepth == 0
+	img.Opaque = img.Opaque && in.gs.fillAlpha*in.gs.alphaScale >= 1 && !in.gs.blend() && in.offDepth == 0
+	img.Region = in.gs.region
 	in.images = append(in.images, img)
 }
 
@@ -981,10 +1046,28 @@ func (in *interp) drawForm(xobj syntax.Value) {
 		}
 		in.gs.ctm = fm.mul(in.gs.ctm)
 	}
-	if box, ok := in.f.Rect(xobj.Get("BBox")); ok && len(in.forms) < maxFormsPerPage {
-		in.forms = append(in.forms, in.gs.ctm.quad(box))
-		in.form = int32(len(in.forms) - 1)
+	if box, ok := in.f.Rect(xobj.Get("BBox")); ok {
+		// A form is painted inside its box only.
+		q := in.gs.ctm.quad(box)
+		upright := near(q[0], q[6]) && near(q[1], q[3]) && near(q[2], q[4]) && near(q[5], q[7]) ||
+			near(q[1], q[7]) && near(q[0], q[2]) && near(q[3], q[5]) && near(q[4], q[6])
+		in.gs.region.cut(min(q[0], q[2], q[4], q[6]), min(q[1], q[3], q[5], q[7]),
+			max(q[0], q[2], q[4], q[6]), max(q[1], q[3], q[5], q[7]), upright)
+		if len(in.forms) < maxFormsPerPage {
+			in.forms = append(in.forms, q)
+			in.form = int32(len(in.forms) - 1)
+		}
 	}
+	// A transparency group is painted as one thing, with the opacity,
+	// the blend mode and the soft mask in force where it is drawn. Inside
+	// it they start afresh.
+	if group := in.f.Resolve(xobj.Get("Group")); group.IsDict() && in.f.Resolve(group.Get("S")).IsName("Transparency") {
+		g := &in.gs
+		g.alphaScale *= g.fillAlpha
+		g.outerBlend = g.blend()
+		g.fillAlpha, g.strokeAlpha, g.blendMode, g.softMask = 1, 1, false, false
+	}
+	in.path.reset()
 
 	level := in.level + 1
 	// A form without resources of its own uses those of what draws it.
@@ -1016,5 +1099,6 @@ func (in *interp) drawForm(xobj syntax.Value) {
 	in.stack = in.stack[:min(len(in.stack), stackDepth)]
 	in.gs, in.tm, in.tlm, in.form = saved, savedTm, savedTlm, savedForm
 	in.geomValid = false
+	in.path.reset()
 	in.formActive = in.formActive[:len(in.formActive)-1]
 }

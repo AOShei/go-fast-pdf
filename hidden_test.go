@@ -142,59 +142,72 @@ var hiddenCases = []hiddenCase{
 
 // TestHiddenText checks the reasons that the default checks give, on a
 // page that also has ordinary text, and that hidden text leaves the
-// visible text as it is.
+// visible text as it is. The checks of DeepHidden change none of them.
 func TestHiddenText(t *testing.T) {
 	for _, c := range hiddenCases {
 		t.Run(c.name, func(t *testing.T) {
-			doc := mustExtract(t, c.doc(true).bytes(), nil)
-			part := &doc.Parts[0]
-
-			var hidden []*gofastcore.Block
-			for i := range part.Blocks {
-				if b := &part.Blocks[i]; b.Text == "secret words" {
-					hidden = append(hidden, b)
-				}
-			}
-			if len(hidden) != 1 {
-				t.Fatalf("%d blocks with the added text:\n%s", len(hidden), describe(part))
-			}
-			if got := hidden[0].Hidden; got != c.want {
-				t.Errorf("reasons %q, want %q\n%s", got, c.want, describe(part))
-			}
-
-			// The warning, and its severity.
-			w, warned := warning(part.Warnings, gofastcore.WarnTextHidden)
-			switch {
-			case c.want == 0 && warned:
-				t.Errorf("warning %+v for text that is not hidden", w)
-			case c.want != 0 && !warned:
-				t.Error("no text.hidden warning")
-			case c.want != 0 && w.Severity != gofastcore.SeverityWarning:
-				t.Errorf("severity %s", w.Severity)
-			}
-
-			// Hidden text is extracted, and a caller can leave it out.
-			if !strings.Contains(doc.Text(), "secret words") {
-				t.Error("the hidden text is not in the rendered text")
-			}
-			var sb strings.Builder
-			doc.WriteText(&sb, &gofastcore.RenderOptions{ExcludeHidden: gofastcore.HiddenAny})
-			if has := strings.Contains(sb.String(), "secret words"); has != (c.want == 0) {
-				t.Errorf("with every hidden reason excluded, the added text is present: %v", has)
-			}
-			if !strings.Contains(sb.String(), visibleText) {
-				t.Errorf("the visible paragraph is not in the text:\n%s", sb.String())
-			}
-
-			// The visible blocks are those of the page without the
-			// added text, in text, order and box.
-			if c.want != 0 {
-				plain := mustExtract(t, c.doc(false).bytes(), nil)
-				if got, want := visibleBlocks(part), visibleBlocks(&plain.Parts[0]); got != want {
-					t.Errorf("visible blocks with the hidden text:\n%swithout it:\n%s", got, want)
-				}
-			}
+			checkHidden(t, c, &gofastcore.Options{}, c.want)
+			checkHidden(t, c, &gofastcore.Options{DeepHidden: true}, c.want)
 		})
+	}
+}
+
+// checkHidden extracts the page of a case and checks that the added
+// text is one block with the reasons want, and everything that follows
+// from that.
+func checkHidden(t *testing.T, c hiddenCase, opts *gofastcore.Options, want gofastcore.Hidden) {
+	t.Helper()
+	doc := mustExtract(t, c.doc(true).bytes(), opts)
+	part := &doc.Parts[0]
+	mode := "by default"
+	if opts.DeepHidden {
+		mode = "with DeepHidden"
+	}
+
+	var hidden []*gofastcore.Block
+	for i := range part.Blocks {
+		if b := &part.Blocks[i]; b.Text == "secret words" {
+			hidden = append(hidden, b)
+		}
+	}
+	if len(hidden) != 1 {
+		t.Fatalf("%s: %d blocks with the added text:\n%s", mode, len(hidden), describe(part))
+	}
+	if got := hidden[0].Hidden; got != want {
+		t.Errorf("%s: reasons %q, want %q\n%s", mode, got, want, describe(part))
+	}
+
+	// The warning, and its severity.
+	w, warned := warning(part.Warnings, gofastcore.WarnTextHidden)
+	switch {
+	case want == 0 && warned:
+		t.Errorf("%s: warning %+v for text that is not hidden", mode, w)
+	case want != 0 && !warned:
+		t.Errorf("%s: no text.hidden warning", mode)
+	case want != 0 && w.Severity != gofastcore.SeverityWarning:
+		t.Errorf("%s: severity %s", mode, w.Severity)
+	}
+
+	// Hidden text is extracted, and a caller can leave it out.
+	if !strings.Contains(doc.Text(), "secret words") {
+		t.Errorf("%s: the hidden text is not in the rendered text", mode)
+	}
+	var sb strings.Builder
+	doc.WriteText(&sb, &gofastcore.RenderOptions{ExcludeHidden: gofastcore.HiddenAny})
+	if has := strings.Contains(sb.String(), "secret words"); has != (want == 0) {
+		t.Errorf("%s: with every hidden reason excluded, the added text is present: %v", mode, has)
+	}
+	if !strings.Contains(sb.String(), visibleText) {
+		t.Errorf("%s: the visible paragraph is not in the text:\n%s", mode, sb.String())
+	}
+
+	// The visible blocks are those of the page without the added text,
+	// in text, order and box.
+	if want != 0 {
+		plain := mustExtract(t, c.doc(false).bytes(), opts)
+		if got, want := visibleBlocks(part), visibleBlocks(&plain.Parts[0]); got != want {
+			t.Errorf("%s: visible blocks with the hidden text:\n%swithout it:\n%s", mode, got, want)
+		}
 	}
 }
 
@@ -363,25 +376,31 @@ func TestTextLayer(t *testing.T) {
 }
 
 // TestHiddenChecked: every document says which reasons were checked
-// completely, and a request for the deep checks is answered.
+// completely: six by default, and with DeepHidden the three that need
+// the shapes of a page as well.
 func TestHiddenChecked(t *testing.T) {
 	docs := map[string][]byte{
 		"no hidden text":     onePage(visibleLines).bytes(),
 		"hidden text":        hiddenCases[0].doc(true).bytes(),
-		"a partial check":    hiddenCases[11].doc(true).bytes(), // occluded: found, and still not listed
+		"a partial check":    hiddenCases[11].doc(true).bytes(), // occluded: found by default, and not listed
 		"a blank page":       onePage("").bytes(),
 		"three pages":        synthDoc{Pages: []synthPage{{Content: visibleLines}, {Content: ""}, {Content: visibleLines}}}.bytes(),
 		"an unreadable page": damagedMiddlePage(),
 	}
 	for name, data := range docs {
-		for _, opts := range []gofastcore.Options{{}, {Workers: 4}, {DeepHidden: true}, {Parts: gofastcore.PartRange{First: 1, Last: 1}}} {
-			doc := mustExtract(t, data, &opts) // checkContract compares HiddenChecked and the warning
-			if doc.HiddenChecked != defaultChecked {
-				t.Errorf("%s, %+v: hidden_checked %s", name, opts, doc.HiddenChecked)
+		for _, opts := range []gofastcore.Options{{}, {Workers: 4}, {DeepHidden: true}, {DeepHidden: true, Workers: 4}, {Parts: gofastcore.PartRange{First: 1, Last: 1}}} {
+			doc := mustExtract(t, data, &opts) // checkContract compares HiddenChecked too
+			want := defaultChecked
+			if opts.DeepHidden {
+				want |= deepChecked
 			}
-			_, deep := warning(doc.Warnings, "pdf.deep_hidden_unavailable")
-			if deep != opts.DeepHidden {
-				t.Errorf("%s, DeepHidden %v: pdf.deep_hidden_unavailable present: %v", name, opts.DeepHidden, deep)
+			if doc.HiddenChecked != want {
+				t.Errorf("%s, %+v: hidden_checked %s, want %s", name, opts, doc.HiddenChecked, want)
+			}
+			for _, w := range append(doc.Warnings, doc.Parts[0].Warnings...) {
+				if strings.HasPrefix(w.Code, "pdf.deep_hidden") {
+					t.Errorf("%s, %+v: warning %s", name, opts, w.Code)
+				}
 			}
 		}
 	}

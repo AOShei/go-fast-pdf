@@ -140,6 +140,9 @@
 //     a page can draw white text first and the dark ground afterwards,
 //     around the letters. This takes back a low_contrast that the check
 //     without shapes gives such text.
+//   - Text is covered by a rectangle that lets nothing show through:
+//     not by one painted with an opacity below 1, with a blend mode or
+//     with overprinting.
 //   - A clipping path that is no rectangle is taken as its box, which
 //     is larger: text inside the box and outside the path is not found.
 //     An image painted through such a path is not taken to cover what

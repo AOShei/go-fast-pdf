@@ -636,6 +636,19 @@ func TestExtractorSettings(t *testing.T) {
 	if a, b := read(&gofastpdf.Extractor{}, objstm, nil), read(&gofastpdf.Extractor{ObjectStreamCacheBytes: 1}, objstm, nil); sameDocument(a, b) != "" {
 		t.Error("the document differs with a cache of one byte")
 	}
+	// Nothing kept of parsed objects at all: every object is parsed
+	// again each time it is wanted, by eight workers at once, and the
+	// document is the same.
+	for _, name := range []string{"english", "multilingual-objstm-linearized", "attached", "layout-cols2-firefox", "enc-aes-256", "para-el-libreoffice"} {
+		data, err := os.ReadFile(filepath.Join("testdata", "fixtures", name+".pdf"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		opts := &gofastcore.Options{Workers: 8, Images: gofastcore.ImagesMeta, DeepHidden: true}
+		if a, b := read(&gofastpdf.Extractor{}, data, opts), read(&gofastpdf.Extractor{ObjectCacheBytes: 1}, data, opts); sameDocument(a, b) != "" {
+			t.Errorf("%s: the document differs when no parsed object is kept: %s", name, sameDocument(a, b))
+		}
+	}
 	// MaxShapes is the bound of the deep checks.
 	shapes := manyShapes(100, "", "")
 	deep := &gofastcore.Options{DeepHidden: true}

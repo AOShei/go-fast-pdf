@@ -186,9 +186,9 @@ func TestImages(t *testing.T) {
 		unit := Quad{0, 0, 1, 0, 1, 1, 0, 1}
 		want := []Image{
 			{Name: "/Im1", Obj: 1, Rect: [4]float64{72, 500, 200, 100}, Quad: Quad{72, 500, 272, 500, 272, 600, 72, 600},
-				Width: 640, Height: 480, ColorSpace: "/DeviceRGB", Seq: 0, Opaque: true, MCID: -1},
-			{Inline: true, Rect: [4]float64{0, 0, 1, 1}, Quad: unit, Width: 4, Height: 2, ColorSpace: "/RGB", Seq: 1, Opaque: true, MCID: -1},
-			{Name: "/Im1", Obj: 1, Rect: [4]float64{0, 0, 1, 1}, Quad: unit, Width: 640, Height: 480, ColorSpace: "/DeviceRGB", Seq: 2, Opaque: true, MCID: -1},
+				Width: 640, Height: 480, ColorSpace: "/DeviceRGB", MCID: -1},
+			{Inline: true, Rect: [4]float64{0, 0, 1, 1}, Quad: unit, Width: 4, Height: 2, ColorSpace: "/RGB", MCID: -1},
+			{Name: "/Im1", Obj: 1, Rect: [4]float64{0, 0, 1, 1}, Quad: unit, Width: 640, Height: 480, ColorSpace: "/DeviceRGB", MCID: -1},
 		}
 		if fmt.Sprint(got) != fmt.Sprint(want) {
 			t.Errorf("got  %+v\nwant %+v", got, want)
@@ -444,7 +444,7 @@ func FuzzExtract(f *testing.F) {
 				t.Fatalf("page %d: text is not valid UTF-8", i+1)
 			}
 			// Every run lies inside the text, on a place that is a
-			// number, and belongs to a form that exists.
+			// number.
 			for _, r := range res.Runs {
 				if r.Off < 0 || r.Len < 0 || int(r.Off)+int(r.Len) > len(res.RunText) {
 					t.Fatalf("page %d: a run of %d bytes at %d in %d bytes of text", i+1, r.Len, r.Off, len(res.RunText))
@@ -454,31 +454,8 @@ func FuzzExtract(f *testing.F) {
 						t.Fatalf("page %d: a run has a position that is not a number: %+v", i+1, r)
 					}
 				}
-				if r.Form < -1 || int(r.Form) >= len(res.Forms) || r.Mode > 7 || r.Sep != 0 && r.Sep != ' ' && r.Sep != '\n' {
+				if r.Mode > 7 || r.Sep != 0 && r.Sep != ' ' && r.Sep != '\n' {
 					t.Fatalf("page %d: %+v", i+1, r)
-				}
-			}
-
-			// With shapes recorded the text is the same, set out in more
-			// runs where a clipping path cuts some of it off: nothing is
-			// lost, the spaces inside a run aside, and a string that is
-			// printed again under such a path is kept. Every shape has a
-			// box with an area, in the order painted.
-			var shapes []Shape
-			var text []byte
-			runs := 0
-			deep := Page(file, &pages[i], Options{Shapes: true, MaxShapes: 1000, MaxDecodedBytes: 4 << 20, Use: func(c *Content) {
-				shapes, text, runs = append(shapes, c.Shapes...), append(text, c.Text...), len(c.Runs)
-				if c.ShapesUpTo >= 0 != (len(c.Shapes) == 1000 && c.ShapesUpTo >= c.Shapes[999].Seq) {
-					t.Fatalf("page %d: %d shapes, up to %d", i+1, len(c.Shapes), c.ShapesUpTo)
-				}
-			}})
-			if deep.Err == nil != (res.Err == nil) || runs < len(res.Runs) || res.Err == nil && !within(res.RunText, text) {
-				t.Fatalf("page %d: with shapes recorded %d runs and %q (%v), without %d and %q (%v)", i+1, runs, text, deep.Err, len(res.Runs), res.RunText, res.Err)
-			}
-			for k, s := range shapes {
-				if !(s.Box[2] > s.Box[0] && s.Box[3] > s.Box[1]) || s.Opaque && !s.Exact || k > 0 && s.Seq < shapes[k-1].Seq || s.Seq < 0 {
-					t.Fatalf("page %d: shape %d of %d: %v", i+1, k, len(shapes), s)
 				}
 			}
 
@@ -506,25 +483,6 @@ func FuzzExtract(f *testing.F) {
 			}
 		}
 	})
-}
-
-// within reports whether the bytes of part, its spaces aside, are among
-// those of whole in their order.
-func within(part, whole []byte) bool {
-	k := 0
-	for _, c := range part {
-		if c == ' ' {
-			continue
-		}
-		for k < len(whole) && whole[k] != c {
-			k++
-		}
-		if k == len(whole) {
-			return false
-		}
-		k++
-	}
-	return true
 }
 
 // A page whose content cannot be decoded reports nothing that belongs to

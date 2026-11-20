@@ -47,14 +47,14 @@ type extractOpts struct {
 	Password string
 	Images   bool
 	Workers  int // 0 or 1: sequential
-	// Deep asks for the checks of DeepHidden, and Spans for spans.
-	Deep, Spans bool
+	// Spans asks for spans.
+	Spans bool
 	// Unchecked skips the contract checks, for benchmarks.
 	Unchecked bool
 }
 
 func (o extractOpts) options() *gofastcore.Options {
-	opts := &gofastcore.Options{Password: o.Password, Workers: max(o.Workers, 1), DeepHidden: o.Deep, Spans: o.Spans}
+	opts := &gofastcore.Options{Password: o.Password, Workers: max(o.Workers, 1), Spans: o.Spans}
 	// Said in so many words: an option left out means a block for every
 	// image.
 	opts.Images = gofastcore.ImagesNone
@@ -140,14 +140,6 @@ func pageText(p *gofastcore.Part) string {
 // cannot be read is an error of another kind and is no defect.
 var errContract = errors.New("the document breaks the contract of the shared model")
 
-// deepChecked are the reasons that Document.HiddenChecked lists only
-// for a run with DeepHidden.
-const deepChecked = gofastcore.HiddenLowContrast | gofastcore.HiddenOccluded | gofastcore.HiddenClipped
-
-// defaultChecked is what Document.HiddenChecked is for a run without it.
-const defaultChecked = gofastcore.HiddenInvisible | gofastcore.HiddenTextLayer | gofastcore.HiddenTiny |
-	gofastcore.HiddenOffPage | gofastcore.HiddenTransparent | gofastcore.HiddenChars
-
 // checkContract checks what must hold for every document this library
 // returns, whatever the input (section 4.2 of the plan).
 func checkContract(doc *gofastcore.Document, opts *gofastcore.Options) error {
@@ -176,8 +168,10 @@ func checkContract(doc *gofastcore.Document, opts *gofastcore.Options) error {
 	// The rendered text holds the words of the blocks, all of them and
 	// in their order, and the Markdown is there when the text is.
 	var words []string
-	for _, b := range doc.AllBlocks() {
-		if !b.Kind.Furniture() { // the renderers leave running headers and footers out
+	for p, b := range doc.AllBlocks() {
+		// The renderers leave running headers and footers out, and the
+		// stored part unless asked for it.
+		if !b.Kind.Furniture() && p.Kind != gofastcore.PartStored {
 			// The renderers put a marker back in front of its block.
 			words = append(words, strings.Fields(b.Marker)...)
 			words = append(words, strings.Fields(b.Text)...)
@@ -198,36 +192,24 @@ func checkContract(doc *gofastcore.Document, opts *gofastcore.Options) error {
 	if opts.Images == gofastcore.ImagesNone && (strings.TrimSpace(doc.Markdown()) == "") != (strings.TrimSpace(text) == "") {
 		return fmt.Errorf("the Markdown is empty and the text is not, or the other way round")
 	}
-	// What was checked: the reasons of the default checks, and with
-	// DeepHidden the three that need the shapes of a page, two of which
-	// are left out when a page had more shapes than are followed.
-	incomplete := false
-	for i := range doc.Parts {
-		incomplete = incomplete || doc.Parts[i].Has(gofastpdf.WarnDeepHiddenIncomplete)
-	}
-	want := defaultChecked
-	switch {
-	case !opts.DeepHidden && incomplete:
-		return fmt.Errorf("%s without DeepHidden", gofastpdf.WarnDeepHiddenIncomplete)
-	case opts.DeepHidden && incomplete:
-		want |= gofastcore.HiddenClipped
-	case opts.DeepHidden:
-		want |= deepChecked
-	}
-	if doc.HiddenChecked != want {
-		return fmt.Errorf("hidden_checked is %s, want %s", doc.HiddenChecked, want)
+	// No warning says that the document or a part has text it does not
+	// show: the reasons are on the blocks, and that is all.
+	for _, w := range doc.AllWarnings() {
+		if w.Code == "text.hidden" || w.Code == "text.unshown_outlier" || strings.HasPrefix(w.Code, "pdf.deep_hidden") {
+			return fmt.Errorf("warning %s", w.Code)
+		}
 	}
 	for i := range doc.Parts {
 		p := &doc.Parts[i]
 		if p.Kind == gofastcore.PartStored {
-			// What the file holds and shows nowhere: the last part, all
-			// of it flagged, every block saying what it is.
-			if i != len(doc.Parts)-1 || p.Hidden&gofastcore.HiddenInvisible == 0 || len(p.Blocks) == 0 && !p.Has(gofastcore.WarnLimitExceeded) {
-				return fmt.Errorf("the stored part is part %d of %d, hidden %q, with %d blocks", i+1, len(doc.Parts), p.Hidden, len(p.Blocks))
+			// What the file holds and shows nowhere: the last part, with
+			// no display reason, every block saying what it is.
+			if i != len(doc.Parts)-1 || p.Display != 0 || len(p.Blocks) == 0 && !p.Has(gofastcore.WarnLimitExceeded) {
+				return fmt.Errorf("the stored part is part %d of %d, display %q, with %d blocks", i+1, len(doc.Parts), p.Display, len(p.Blocks))
 			}
 			for j := range p.Blocks {
-				if b := &p.Blocks[j]; b.Attrs[gofastcore.AttrStored] == "" || b.Hidden&gofastcore.HiddenInvisible == 0 || b.Origin != gofastcore.OriginNative {
-					return fmt.Errorf("the stored part, block %d: %s with attributes %v, hidden %q, origin %s", j, b.Kind, b.Attrs, b.Hidden, b.Origin)
+				if b := &p.Blocks[j]; b.Attrs[gofastcore.AttrStored] == "" || b.Display != 0 || b.Origin != gofastcore.OriginNative {
+					return fmt.Errorf("the stored part, block %d: %s with attributes %v, display %q, origin %s", j, b.Kind, b.Attrs, b.Display, b.Origin)
 				}
 			}
 			continue
@@ -270,8 +252,8 @@ func checkContract(doc *gofastcore.Document, opts *gofastcore.Options) error {
 				// A table of a tagged PDF: the structure tree says it is
 				// one, and its cells are the text.
 				text = true
-				if b.Origin != gofastcore.OriginNative || b.Table == nil || b.Text != "" || b.Hidden != 0 {
-					return fmt.Errorf("%s: a table with origin %s, text %q and hidden %q", where, b.Origin, b.Text, b.Hidden)
+				if b.Origin != gofastcore.OriginNative || b.Table == nil || b.Text != "" || b.Display != 0 {
+					return fmt.Errorf("%s: a table with origin %s, text %q and display %q", where, b.Origin, b.Text, b.Display)
 				}
 				continue
 			case gofastcore.KindHeader, gofastcore.KindFooter:
@@ -279,9 +261,10 @@ func checkContract(doc *gofastcore.Document, opts *gofastcore.Options) error {
 				// layout found in its margins and on the pages around it.
 				text = true
 			case gofastcore.KindCode:
-				// A script of the page's actions: stored, never shown.
-				if b.Attrs[gofastcore.AttrStored] != gofastcore.StoredMacro || b.Hidden&gofastcore.HiddenInvisible == 0 || b.Origin != gofastcore.OriginNative {
-					return fmt.Errorf("%s: code with attributes %v, hidden %q, origin %s", where, b.Attrs, b.Hidden, b.Origin)
+				// A script of the page's actions: stored, with no display
+				// reason; the attribute says what it is.
+				if b.Attrs[gofastcore.AttrStored] != gofastcore.StoredMacro || b.Display != 0 || b.Origin != gofastcore.OriginNative {
+					return fmt.Errorf("%s: code with attributes %v, display %q, origin %s", where, b.Attrs, b.Display, b.Origin)
 				}
 				continue
 			case gofastcore.KindNote:
@@ -310,16 +293,10 @@ func checkContract(doc *gofastcore.Document, opts *gofastcore.Options) error {
 			if native := field || b.Kind == gofastcore.KindNote; native != (b.Origin == gofastcore.OriginNative) || !native && b.Origin != gofastcore.OriginInferred {
 				return fmt.Errorf("%s: a %s block with origin %s (the value of a form field: %v)", where, b.Kind, b.Origin, field)
 			}
-			if len(b.Spans) > 0 && b.Hidden&gofastcore.HiddenChars == 0 && !opts.Spans {
-				return fmt.Errorf("%s: spans on a block without invisible characters", where)
+			if len(b.Spans) > 0 && !opts.Spans {
+				return fmt.Errorf("%s: spans without Options.Spans", where)
 			}
-			// A block is on its page unless it is flagged as off it.
 			r := b.Loc.BBox
-			const tol = 1.0
-			off := r.X1 < -tol || r.Y1 < -tol || r.X0 > p.Width+tol || r.Y0 > p.Height+tol
-			if off && p.Width > 0 && p.Height > 0 && b.Hidden&gofastcore.HiddenOffPage == 0 {
-				return fmt.Errorf("%s: box %+v lies off a page of %v by %v and is not flagged", where, r, p.Width, p.Height)
-			}
 			for _, v := range [...]float64{r.X0, r.Y0, r.X1, r.Y1} {
 				if v != v || v > 1e9 || v < -1e9 {
 					return fmt.Errorf("%s: box %+v", where, r)

@@ -36,7 +36,6 @@ var budgets = []struct {
 	data          func(t *testing.T) []byte
 	allocsPerPage float64
 	bytesPerPage  float64
-	deep          bool
 }{
 	// Measured: 69 allocations and 26.5 KB for each of 3 pages.
 	{name: "english", data: fixtureBytes("english"), allocsPerPage: 78, bytesPerPage: 34000},
@@ -51,10 +50,6 @@ var budgets = []struct {
 	{name: "layout-cols2-firefox", data: fixtureBytes("layout-cols2-firefox"), allocsPerPage: 255, bytesPerPage: 107000},
 	// 20 and 10.0 KB.
 	{name: "100 pages of 40 lines", data: func(*testing.T) []byte { return benchPages(100) }, allocsPerPage: 23, bytesPerPage: 13000},
-	// The checks of DeepHidden allocate nothing per page that the
-	// default does not: 69 and 27.2 KB, 196 and 83.0 KB.
-	{name: "english with DeepHidden", data: fixtureBytes("english"), deep: true, allocsPerPage: 78, bytesPerPage: 35000},
-	{name: "layout-cols2-firefox with DeepHidden", data: fixtureBytes("layout-cols2-firefox"), deep: true, allocsPerPage: 255, bytesPerPage: 109000},
 }
 
 func fixtureBytes(name string) func(t *testing.T) []byte {
@@ -74,7 +69,7 @@ func TestBudgets(t *testing.T) {
 	for _, b := range budgets {
 		t.Run(b.name, func(t *testing.T) {
 			data := b.data(t)
-			opts := &gofastcore.Options{Workers: 1, DeepHidden: b.deep, Images: gofastcore.ImagesMeta}
+			opts := &gofastcore.Options{Workers: 1, Images: gofastcore.ImagesMeta}
 			pages := 0
 			run := func() {
 				doc, err := gofastpdf.Extract(context.Background(), bytes.NewReader(data), int64(len(data)), opts)

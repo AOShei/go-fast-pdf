@@ -52,7 +52,7 @@ func TestGeometry(t *testing.T) {
 			if part.Width != c.width || part.Height != c.height {
 				t.Errorf("size %v by %v, want %v by %v", part.Width, part.Height, c.width, c.height)
 			}
-			if len(part.Blocks) != 1 || part.Blocks[0].Text != "Hello" || part.Blocks[0].Hidden != 0 {
+			if len(part.Blocks) != 1 || part.Blocks[0].Text != "Hello" || part.Blocks[0].Display != 0 {
 				t.Fatalf("blocks:\n%s", describe(part))
 			}
 			got := part.Blocks[0].Loc.BBox
@@ -650,17 +650,18 @@ func TestMetadata(t *testing.T) {
 	})
 
 	t.Run("invisible characters", func(t *testing.T) {
-		// Tag characters spell a message that no viewer shows.
+		// Tag characters spell a message that no viewer shows. They are
+		// kept, as they are, and nothing is said of them.
 		b := pdftest.New()
 		b.Add("<< /Title <FEFF0041DB40DC69DB40DC67> >>")
 		pdftest.Doc(pdftest.DocOptions{Base: b}, pdftest.PageSpec{Content: visibleLines})
 		b.Trailer = "/Info 1 0 R"
 		doc := mustExtract(t, b.Bytes(), nil)
-		if w, ok := warning(doc.Warnings, gofastcore.WarnTextHidden); !ok || w.Severity != gofastcore.SeverityWarning {
-			t.Errorf("warnings %+v", doc.Warnings)
+		if doc.Metadata.Title != "A\U000E0069\U000E0067" {
+			t.Errorf("title %+q", doc.Metadata.Title)
 		}
-		if _, ok := warning(mustExtract(t, onePage(visibleLines).bytes(), nil).Warnings, gofastcore.WarnTextHidden); ok {
-			t.Error("text.hidden on a document without invisible characters")
+		if len(doc.Warnings) != 0 {
+			t.Errorf("warnings %+v", doc.Warnings)
 		}
 	})
 }

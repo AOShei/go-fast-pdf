@@ -9,7 +9,8 @@ and language models. It is written from scratch on the standard library: its one
 share.
 
 - It returns **paragraphs in reading order**, each with its place on the page, as JSON, Markdown or text.
-- It **flags text that a reader of the PDF cannot see** and says why, and leaves nothing out.
+- It extracts **everything** a page holds, and says where the file declares text **not shown** or drawn
+  with **no ink**; it leaves nothing out and judges nothing.
 - It reads files that are **encrypted or damaged**, and is bounded in time and memory on files made to
   exhaust them.
 - It starts no program, fetches nothing, runs nothing that a file contains, and does no OCR.
@@ -73,15 +74,14 @@ gofastpdf --images data document.pdf
 # An encrypted file
 gofastpdf --password secret document.pdf
 
-# With the hidden-text checks that follow the shapes of each page,
-# and the hidden text left out of what is written
-gofastpdf --deep-hidden --exclude-hidden --format text document.pdf
+# Text the file declares not shown, or drawn with no ink, left out of what is written
+gofastpdf --exclude-display --format text document.pdf
 
-# Only text hidden for the reasons named is left out
-gofastpdf --exclude-hidden=invisible,low_contrast --format text document.pdf
+# Only text with the reasons named is left out
+gofastpdf --exclude-display=hidden --format text document.pdf
 ```
 
-JSON always has everything, hidden text included and flagged. Warnings of a file that
+JSON always has everything, with what the file declares about each block. Warnings of a file that
 was read are named on standard error (`--quiet` leaves that out); a file that cannot be
 read is reported there and makes the exit status 1.
 
@@ -114,16 +114,16 @@ func main() {
         fmt.Printf("page %d %v: %.40q\n", part.Number, block.Loc.BBox, block.Text)
     }
 
-    // Text that a reader of the PDF cannot see is extracted and flagged.
+    // Text that the file declares not shown, or drawn with no ink, is
+    // extracted with the reason.
     for part, block := range doc.AllBlocks() {
-        if block.Hidden != 0 {
-            fmt.Printf("page %d, hidden (%s): %q\n", part.Number, block.Hidden, block.Text)
+        if block.Display != 0 {
+            fmt.Printf("page %d, %s: %q\n", part.Number, block.Display, block.Text)
         }
     }
-    // Leave it out of the rendered text, except the text layer of scans:
-    doc.WriteText(os.Stdout, &gofastcore.RenderOptions{
-        ExcludeHidden: gofastcore.HiddenAny &^ gofastcore.HiddenTextLayer,
-    })
+    // Leave out what the file switches off, and keep the text layer of
+    // scans, which is drawn with no ink:
+    doc.WriteText(os.Stdout, &gofastcore.RenderOptions{ExcludeDisplay: gofastcore.DisplayHidden})
 
     // What went wrong, per page and for the file.
     for part, w := range doc.AllWarnings() {
@@ -175,7 +175,7 @@ for _, line := range lines {
 ```
 
 Options are `gofastcore.Options`: `Workers`, `Images` (a block for each image, which is the default; its data too; or none), `Password`,
-`Parts` (a range of pages), `Limits`, `DeepHidden` and `Child` (an extractor for attached files).
+`Parts` (a range of pages), `Limits`, `Spans` and `Child` (an extractor for attached files).
 Settings that only PDF has are fields of `gofastpdf.Extractor`. The
 [package documentation](https://pkg.go.dev/github.com/AOShei/go-fast-pdf) says what each does for PDF.
 
@@ -197,7 +197,8 @@ Settings that only PDF has are fields of `gofastpdf.Extractor`. The
   addresses or to pages of the document (`#page=N`)
 - **Anchors** - the identifiers of the elements of a tagged PDF, and with `Options.Spans` the names of
   its destinations, on the blocks they name (`Loc.Anchor`)
-- **Hidden text** - flagged with its reason, never dropped: see below
+- **What the file declares** - text that the file switches off or draws with no ink keeps its reason
+  (`hidden`, `no_ink`) and is never dropped: see below
 - **Encryption** - RC4, AES-128 and AES-256, with user and owner passwords, and files encrypted for a
   certificate, with the private key (`Options.Keys`)
 - **Damaged files** - broken cross-reference data is rebuilt; a page that cannot be read is reported in
@@ -213,20 +214,19 @@ Settings that only PDF has are fields of `gofastpdf.Extractor`. The
   attached files are handed to a child
   extractor that you supply
 - **What a file stores and shows nowhere** - scripts, the metadata packet, entries of the file's own making
-  in the document information, form fields on no page, the filled-in data of an XFA form: read as text, never run, flagged `invisible`, with
-  `Attrs["stored"]` saying what each is. A page's scripts are on the page; the rest is in a last part of
-  kind `stored`
+  in the document information, form fields on no page, the filled-in data of an XFA form, text after the
+  last `%%EOF`: read as text, never run, with `Attrs["stored"]` saying what each is. A page's scripts are
+  on the page; the rest is in a last part of kind `stored`, which the renderers leave out unless asked
 - **Lines and words** - `Page.Lines` gives every line with its font and size and the box of each word
 
 ## Output
 
 ```json
 {
-  "schema_version": "0.1",
+  "schema_version": "0.2",
   "source": {"format": "pdf", "name": "manual.pdf", "mime": "application/pdf", "size": 48213},
   "metadata": {"title": "Technical Manual", "authors": ["A. Writer"], "extra": {"producer": "..."}},
   "outline": [{"title": "Introduction", "level": 1, "part": 1, "y": 72}],
-  "hidden_checked": "invisible+text_layer+tiny+off_page+transparent+invisible_chars",
   "parts": [
     {
       "kind": "page",
@@ -255,51 +255,35 @@ Settings that only PDF has are fields of `gofastpdf.Extractor`. The
 Coordinates are in points on the page as it is displayed (crop box, rotation and user
 unit applied), with the origin at the top left.
 
-## Hidden text
+## What the file declares
 
-A PDF can hold text that nobody who opens it sees: white on white, behind a picture, outside the page,
-in a rendering mode that paints nothing. A person does not read it and a model that is given the
-extracted text does. This library extracts such text like any other and flags it, with the reason, in
-`Block.Hidden`; the page gets the warning `text.hidden`. Nothing is left out. You decide what to do with
-it, for instance with `RenderOptions.ExcludeHidden`. Hidden text is laid out apart from the rest, so the
-visible paragraphs are what they would be without it.
+This library extracts everything a file contains and reports what the file itself declares about it. It
+does not judge whether a reader can see text, nor whether text is harmful; the absence of a reason says
+nothing about either. Judging that is outside this library.
 
-| Reason | What it means | Checked by default | With `DeepHidden` |
-|---|---|---|---|
-| `invisible` | Rendering mode that paints nothing; content of a layer that is switched off; an annotation or a form field that its flags hide; what the file stores and shows nowhere (scripts, its metadata packet, entries of its own) | in full | in full |
-| `text_layer` | The text of a scan: not painted, or covered, within an image over half the page | in full | in full |
-| `tiny` | Displayed smaller than 2 points | in full | in full |
-| `off_page` | Wholly outside the visible page | in full | in full |
-| `transparent` | Every painted part has opacity 0 | in full | in full |
-| `invisible_chars` | Characters without width or display, found by go-fast-core in any text | in full | in full |
-| `low_contrast` | Cannot be told from what is behind it | against a white page, where nothing was painted before the text | against the rectangle it stands on |
-| `occluded` | Something opaque is painted over it | under an image | under an image or a rectangle |
-| `clipped` | Outside what a clipping path leaves | outside the box of the form it is drawn in | outside the clipping paths in force |
+A block carries a reason in `Block.Display` only where the file states, by one switch or one value, that
+its text is not shown or is drawn with no ink. Following the file's own inheritance (forms, transparency
+groups, membership dictionaries) is reading the declaration.
 
-**How to read the result.** `Document.HiddenChecked` lists the reasons that were checked in full. For a
-reason on the list, a block without the flag was checked and found in view, as far as the check goes.
-For a reason not on the list (the last three, without `DeepHidden`) a flag stands where the check found
-one, and no flag says nothing. With `DeepHidden` all nine are listed, unless a page paints more shapes
-than are followed (65,536, `Extractor.MaxShapes`): that page gets `pdf.deep_hidden_incomplete` and
-`low_contrast` and `occluded` are left off the list.
+| Reason | What PDF declares |
+|---|---|
+| `hidden` | Optional content (a layer) that is off in the default configuration: `/OFF`, `/BaseState /OFF`, or a membership dictionary whose policy its layers make off |
+| `hidden` | An annotation with the Hidden or NoView flag: its text, and the value of such a form field |
+| `no_ink` | Text in render mode 3 (neither filled nor stroked), or 7 (clip only) when nothing is painted through the clip |
+| `no_ink` | Text whose opacity is 0 for what its mode paints: `/ca 0` for the fill, `/CA 0` for the stroke, by its graphics state or its transparency group |
 
-**What it costs.** Measured in instructions executed, on the benchmark documents and over the 3,150
-files of the corpus and the soak set that can be read:
+The searchable text of a scanned page is text in render mode 3 over the picture of the page, so it is
+`no_ink`: leaving out `no_ink` leaves out a scan's text.
 
-| | Benchmark documents | All 3,150 files |
-|---|---|---|
-| The default checks, against none | 0.1 to 0.8 percent | 1.1 percent |
-| `DeepHidden`, against the default | 3 to 9 percent | 20 percent |
+**Not judged:** colour against what is under the text, its size, where it is on the page or whether it is
+on the page at all, what is painted over it, clipping paths, soft masks, blend modes, how much of the page
+an image covers. **Characters are kept** as the file gives them: zero-width characters, Unicode tag
+characters and bidirectional controls stay in the text.
 
-Without `DeepHidden` no shape is recorded and no path is followed further than its first operands.
-
-**What is not detected.** A flag is evidence that text is hidden. No flag is not evidence that a
-document is safe. Not detected at all: a font whose glyphs draw nothing, or something other than what
-its mapping says; text inside images; text hidden by a soft mask, a blend mode or a pattern; text that
-is partly visible; text covered by other text or by a shape that is not an upright rectangle. Text on a
-photograph, a shading or a shape with round corners is not judged
-for contrast. The document information, the outline and the names of attached files are never shown on
-a page and are extracted by design: treat them as you treat any text from the file.
+Nothing is left out: you decide, for instance with `RenderOptions.ExcludeDisplay`. Text with a reason is
+laid out apart from the rest, so that the other paragraphs are what they would be without it. The stored
+part, the document information, the outline and the names of attached files are not shown on a page and
+have no reason: where they are says what they are.
 
 ## Untrusted files
 
@@ -317,7 +301,7 @@ file can be read from many goroutines, and the result is the same for any number
   scored against `pdftotext` word by word. A third of it is held out: scored, and never looked at when
   a heuristic is changed. A change may not lower the score of any file.
 - **A soak run** over 3,186 files and 50,569 pages, each file in a process of its own under a time limit
-  and a memory ceiling, with the default options and with `DeepHidden`: no crash, no file over its
+  and a memory ceiling, with the default options and with `Spans`: no crash, no file over its
   limits, every result within the contract of the shared model.
 - **Fuzzing** of 14 targets, 30 seconds each on every change and an hour each every night. The
   decompressor is compared with `compress/zlib` on every input.
@@ -358,7 +342,7 @@ PDF file → objects and cross-references → content interpreter → layout →
 
 * [x] The shared document model (`go-fast-core`)
 * [x] Paragraphs and reading order
-* [x] Hidden-text detection, and the deeper checks that follow drawn shapes
+* [x] What the file declares about how text is shown (`hidden`, `no_ink`)
 * [x] AES-256 encryption
 * [x] Image data (JPEG, JPEG 2000, 8-bit gray and RGB)
 * [x] Page iterator, lines and words, the command-line tool

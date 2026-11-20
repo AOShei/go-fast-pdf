@@ -77,7 +77,7 @@ func pageLinks(f *file.File, p *file.Page, m [6]float64, width, height float64, 
 			}
 		}
 		if len(l.Boxes) == 0 {
-			if r, _ := rectOnPage(f, a.Get("Rect"), m, width, height); r.X1 > r.X0 && r.Y1 > r.Y0 {
+			if r := rectOnPage(f, a.Get("Rect"), m); r.X1 > r.X0 && r.Y1 > r.Y0 {
 				l.Boxes = append(l.Boxes, r)
 			}
 		}

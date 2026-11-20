@@ -23,8 +23,8 @@ func FuzzPacket(f *testing.F) {
 		doc := gofastcore.New(Format)
 		doc.Metadata = md
 		part := gofastcore.Part{Kind: gofastcore.PartPage, Number: 1, Width: 612, Height: 792}
-		part.MarkHidden()
-		doc.Parts, doc.HiddenChecked = []gofastcore.Part{part}, gofastcore.HiddenChars
+		part.Finish()
+		doc.Parts = []gofastcore.Part{part}
 		if err := doc.Validate(); err != nil {
 			t.Fatalf("%v: %+v", err, md)
 		}

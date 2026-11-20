@@ -50,18 +50,6 @@ type Extractor struct {
 	// what keeps a file of many pages from taking more memory with every
 	// page that is read.
 	ObjectCacheBytes int64
-	// MaxShapes is the number of shapes followed on one page by the
-	// checks of Options.DeepHidden. The default is 65,536. A page that
-	// paints more gets pdf.deep_hidden_incomplete.
-	MaxShapes int
-
-	// noHiddenChecks leaves out the checks for hidden text. It exists
-	// to measure what they cost and is not reachable from outside.
-	noHiddenChecks bool
-	// maxDeepSteps bounds the work of the checks of DeepHidden on one
-	// page; 0 means the default. Tests set it to reach the bound with a
-	// small page.
-	maxDeepSteps int
 }
 
 var _ gofastcore.Extractor = (*Extractor)(nil)
@@ -112,11 +100,6 @@ func (e *Extractor) ExtractFile(ctx context.Context, path string, opts *gofastco
 	return f.Document(ctx)
 }
 
-// hiddenChecked is the set of reasons a run with default options checks
-// completely.
-const hiddenChecked = gofastcore.HiddenInvisible | gofastcore.HiddenTextLayer | gofastcore.HiddenTiny |
-	gofastcore.HiddenOffPage | gofastcore.HiddenTransparent | gofastcore.HiddenChars
-
 // Warning codes that only this library uses. Each states a fact about
 // the file or about what was done with it.
 const (
@@ -124,10 +107,6 @@ const (
 	// right to left. Its text is given in the order the page draws it,
 	// which may be the order of display and not of reading.
 	WarnRTLVisualOrder = "pdf.rtl_visual_order"
-	// WarnDeepHiddenIncomplete: Options.DeepHidden was set and the page
-	// paints more shapes than are followed. Its text is complete; low
-	// contrast and covering shapes were not checked for all of it.
-	WarnDeepHiddenIncomplete = "pdf.deep_hidden_incomplete"
 	// WarnGlyphTextAssumed: characters on the page are set in a font
 	// that does not say which characters its glyphs are; they were read
 	// as the characters their codes stand for.
@@ -175,9 +154,6 @@ type pageOut struct {
 	lines []layout.Line
 	// What the page contributes to the document's warnings.
 	active, external bool
-	// deepIncomplete is set when the checks of DeepHidden were not made
-	// for all of the page.
-	deepIncomplete bool
 	// attachments are the files attached to the page by annotations.
 	attachments []attachment
 	// scripts are the scripts of the actions that were looked at.
@@ -214,7 +190,7 @@ func (e *Extractor) page(f *file.File, p *file.Page, opts *gofastcore.Options, w
 	out.done = true
 	part := &out.part
 	part.Kind, part.Number = gofastcore.PartPage, p.Number
-	defer part.MarkHidden()
+	defer part.Finish()
 	if p.Err != nil {
 		part.Warn(gofastcore.SeverityError, gofastcore.WarnPartFailed, cleanString(p.Err.Error()))
 		return out
@@ -243,11 +219,10 @@ func (e *Extractor) page(f *file.File, p *file.Page, opts *gofastcore.Options, w
 	}
 	// The tables of a tagged PDF that the page's content is in.
 	tables := w.structure.pageTables(tags)
-	res := extract.Page(f, p, extract.Options{Shapes: opts.DeepHidden, MaxShapes: e.MaxShapes, Words: w.lines, Stop: w.stop, Use: func(c *extract.Content) {
+	res := extract.Page(f, p, extract.Options{Words: w.lines, Stop: w.stop, Use: func(c *extract.Content) {
 		// Made here, where nothing outside holds it: it stays off the heap.
 		lopts := layout.Options{
-			Images: opts.Images != gofastcore.ImagesNone, NoHiddenChecks: e.noHiddenChecks,
-			Deep: opts.DeepHidden, MaxDeepSteps: e.maxDeepSteps, Lines: w.lines,
+			Images: opts.Images != gofastcore.ImagesNone, Lines: w.lines,
 			Spans: opts.Spans, Links: links, Heading: headingOf,
 		}
 		tables.options(tags, &lopts)
@@ -278,7 +253,7 @@ func (e *Extractor) page(f *file.File, p *file.Page, opts *gofastcore.Options, w
 	part.Warnings = append(part.Warnings, res.Warnings...)
 	// The headings that the structure tree names.
 	for k := range part.Blocks {
-		if b := &part.Blocks[k]; k < len(lay.Styles) && lay.Styles[k].Heading > 0 && b.Kind == gofastcore.KindParagraph && b.Hidden == 0 {
+		if b := &part.Blocks[k]; k < len(lay.Styles) && lay.Styles[k].Heading > 0 && b.Kind == gofastcore.KindParagraph && b.Display == 0 {
 			setHeading(part, k, int(lay.Styles[k].Heading))
 			b.Origin = gofastcore.OriginNative
 		}
@@ -322,11 +297,6 @@ func (e *Extractor) page(f *file.File, p *file.Page, opts *gofastcore.Options, w
 		part.Warn(gofastcore.SeverityWarning, gofastcore.WarnTextUnmappedGlyphs,
 			fmt.Sprintf("%d characters on the page are control characters and appear as U+FFFD", lay.Controls))
 	}
-	if lay.DeepIncomplete {
-		out.deepIncomplete = true
-		part.Warn(gofastcore.SeverityWarning, WarnDeepHiddenIncomplete,
-			"the page paints more shapes than are followed; low contrast and covering shapes were not checked for all of its text")
-	}
 	if lay.RightToLeft {
 		part.Warn(gofastcore.SeverityWarning, WarnRTLVisualOrder,
 			"the page has text in a script written from right to left; it is given in the order the page draws it")
@@ -337,8 +307,8 @@ func (e *Extractor) page(f *file.File, p *file.Page, opts *gofastcore.Options, w
 	}
 	e.annotations(f, p, &out)
 	// The scripts of the page's actions and of its annotations: stored
-	// and never shown, so read as text and flagged, after everything
-	// else of the page.
+	// and never shown, so read as text, marked with what they are, after
+	// everything else of the page.
 	if code, cut := scriptBlocks(notes, out.scripts, map[string]bool{}); len(code) > 0 || cut {
 		part.Blocks = append(part.Blocks, code...)
 		if cut && !notesCut {

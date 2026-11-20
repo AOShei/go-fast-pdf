@@ -306,6 +306,25 @@ func (f *File) Info() syntax.Value {
 	return syntax.Value{}
 }
 
+// AfterEnd returns the bytes that follow the last %%EOF of the file and
+// the end of its line: data after the file's logical end. An update
+// added to a file ends in a %%EOF of its own, so only what follows the
+// last one is after the end. nil when there is no %%EOF.
+func (f *File) AfterEnd() []byte {
+	i := bytes.LastIndex(f.data, []byte("%%EOF"))
+	if i < 0 {
+		return nil
+	}
+	tail := f.data[i+len("%%EOF"):]
+	switch {
+	case bytes.HasPrefix(tail, []byte("\r\n")):
+		tail = tail[2:]
+	case len(tail) > 0 && (tail[0] == '\n' || tail[0] == '\r'):
+		tail = tail[1:]
+	}
+	return tail
+}
+
 // --- cross-reference data ---
 
 func (f *File) readXRef() error {

@@ -186,8 +186,8 @@ const hiddenPage = "BT /F1 12 Tf 72 720 Td (in plain sight) Tj ET\n" +
 	"BT /F1 12 Tf 3 Tr 72 600 Td (not painted) Tj ET\n" +
 	"0.1 g 0 300 612 200 re f 1 g 60 390 300 30 re f BT /F1 12 Tf 0 Tr 72 400 Td (white on white) Tj ET\n"
 
-func TestHiddenText(t *testing.T) {
-	path := write(t, "hidden.pdf", pdftest.OnePage(hiddenPage))
+func TestDisplay(t *testing.T) {
+	path := write(t, "display.pdf", pdftest.OnePage(hiddenPage))
 	reasons := func(args ...string) map[string]string {
 		t.Helper()
 		stdout, stderr, status := command(t, append(args, path)...)
@@ -196,27 +196,18 @@ func TestHiddenText(t *testing.T) {
 		}
 		got := map[string]string{}
 		for _, b := range document(t, stdout).Parts[0].Blocks {
-			got[b.Text] = b.Hidden.String()
+			got[b.Text] = b.Display.String()
 		}
 		return got
 	}
-	// JSON has everything, flagged; the deep checks find more.
-	if got := reasons(); got["in plain sight"] != "" || got["not painted"] != "invisible" || got["white on white"] != "" {
+	// JSON has everything, with what the file declares: text drawn with
+	// no ink is no_ink; white text on a white box is text like any other.
+	if got := reasons(); got["in plain sight"] != "" || got["not painted"] != "no_ink" || got["white on white"] != "" {
 		t.Errorf("by default: %v", got)
 	}
-	if got := reasons("-deep-hidden"); got["not painted"] != "invisible" || got["white on white"] != "low_contrast" {
-		t.Errorf("with -deep-hidden: %v", got)
-	}
-	// -exclude-hidden changes nothing in JSON.
-	if got := reasons("-exclude-hidden"); len(got) != 3 {
-		t.Errorf("JSON with -exclude-hidden: %v", got)
-	}
-
-	// The warnings of a file that was read are named on standard error,
-	// unless -quiet.
-	_, stderr, _ := command(t, path)
-	if !strings.Contains(stderr, "hidden.pdf: text.hidden") {
-		t.Errorf("the report: %q", stderr)
+	// -exclude-display changes nothing in JSON.
+	if got := reasons("-exclude-display"); len(got) != 3 {
+		t.Errorf("JSON with -exclude-display: %v", got)
 	}
 	if _, stderr, _ := command(t, "-quiet", path); stderr != "" {
 		t.Errorf("with -quiet: %q", stderr)
@@ -227,17 +218,22 @@ func TestHiddenText(t *testing.T) {
 		want string
 	}{
 		{[]string{}, "in plain sight not painted white on white"},
-		{[]string{"-exclude-hidden"}, "in plain sight white on white"},
-		{[]string{"-exclude-hidden", "-deep-hidden"}, "in plain sight"},
-		{[]string{"--exclude-hidden=low_contrast", "--deep-hidden"}, "in plain sight not painted"},
-		{[]string{"-exclude-hidden=invisible,low_contrast", "-deep-hidden"}, "in plain sight"},
-		{[]string{"-exclude-hidden=tiny+off_page", "-deep-hidden"}, "in plain sight not painted white on white"},
+		{[]string{"-exclude-display"}, "in plain sight white on white"},
+		{[]string{"--exclude-display=no_ink"}, "in plain sight white on white"},
+		{[]string{"-exclude-display=hidden"}, "in plain sight not painted white on white"},
+		{[]string{"-exclude-display=hidden+no_ink"}, "in plain sight white on white"},
 	} {
 		for _, format := range []string{"text", "markdown"} {
 			out, stderr, status := command(t, append(append([]string{"-quiet", "-format", format}, c.args...), path)...)
 			if got := strings.Join(strings.Fields(out), " "); status != 0 || got != c.want {
 				t.Errorf("%s %v: status %d, %q, want %q (%s)", format, c.args, status, got, c.want, stderr)
 			}
+		}
+	}
+	// A reason that is not one, as the old ones are not.
+	for _, old := range []string{"-exclude-display=low_contrast", "-deep-hidden", "-exclude-hidden"} {
+		if _, _, status := command(t, old, path); status != 2 {
+			t.Errorf("%s: status %d", old, status)
 		}
 	}
 }

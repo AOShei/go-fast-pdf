@@ -80,8 +80,8 @@ func TestAnnotationsAndFormFields(t *testing.T) {
 	var got []string
 	for _, b := range part.Blocks {
 		line := fmt.Sprintf("%s %s %q", b.Kind, b.Origin, b.Text)
-		if b.Hidden != 0 {
-			line += " hidden:" + b.Hidden.String()
+		if b.Display != 0 {
+			line += " display:" + b.Display.String()
 		}
 		for _, key := range []string{gofastcore.AttrField, gofastcore.AttrNoteType, gofastcore.AttrAuthor, gofastcore.AttrDate} {
 			if v, ok := b.Attrs[key]; ok {
@@ -96,7 +96,7 @@ func TestAnnotationsAndFormFields(t *testing.T) {
 		// the value of each field that displays nothing.
 		`paragraph inferred "Name:"`,
 		`paragraph inferred "Jane Doe"`,
-		`paragraph inferred "Unseen value" hidden:invisible`,
+		`paragraph inferred "Unseen value" display:hidden`,
 		`paragraph inferred "City:"`,
 		`paragraph native "Paris" field=address.city`,
 		`paragraph inferred "Colours:"`,
@@ -105,14 +105,14 @@ func TestAnnotationsAndFormFields(t *testing.T) {
 		`note native "red\nblue\ngreen" field=colours type=choices`,
 		`paragraph native "Yes" field=agree`,
 		`paragraph native "large" field=size`,
-		`paragraph native "Not for the reader" hidden:invisible field=internal`,
+		`paragraph native "Not for the reader" display:hidden field=internal`,
 		`paragraph inferred "The text at the foot of the page."`,
 		`image native ""`,
 		`paragraph inferred "Written on the page"`,
 		// What is written in the notes, in the order of the file.
 		`note native "Check this figure" type=comment author=A. Reviewer date=2026-01-02T03:04:05+01:00`,
-		`note native "A remark that is hidden" hidden:invisible type=comment`,
-		`note native "A remark off the page" hidden:off_page type=comment`,
+		`note native "A remark that is hidden" display:hidden type=comment`,
+		`note native "A remark off the page" type=comment`,
 		`note native "Written without an appearance" type=comment`,
 	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
@@ -124,14 +124,11 @@ func TestAnnotationsAndFormFields(t *testing.T) {
 			t.Errorf("%q is in the text", never)
 		}
 	}
-	if !part.Has(gofastcore.WarnTextHidden) {
-		t.Errorf("no warning for the hidden text: %v", part.Warnings)
-	}
 
 	t.Run("hidden text can be left out", func(t *testing.T) {
 		var sb strings.Builder
-		doc.WriteText(&sb, &gofastcore.RenderOptions{ExcludeHidden: gofastcore.HiddenAny})
-		for _, hidden := range []string{"Not for the reader", "Unseen value", "A remark that is hidden", "A remark off the page"} {
+		doc.WriteText(&sb, &gofastcore.RenderOptions{ExcludeDisplay: gofastcore.DisplayAny})
+		for _, hidden := range []string{"Not for the reader", "Unseen value", "A remark that is hidden"} {
 			if strings.Contains(sb.String(), hidden) {
 				t.Errorf("%q is in the text without hidden text", hidden)
 			}
@@ -163,16 +160,12 @@ func TestAnnotationsAndFormFields(t *testing.T) {
 		}
 	})
 
-	t.Run("the same for any number of workers and with the deeper checks", func(t *testing.T) {
+	t.Run("the same for any number of workers", func(t *testing.T) {
 		pages := formDoc()
 		pages.Pages = append(pages.Pages, pages.Pages[0], pages.Pages[0])
 		many := pages.bytes()
 		one := mustExtract(t, many, &gofastcore.Options{Workers: 1})
 		if diff := sameDocument(one, mustExtract(t, many, &gofastcore.Options{Workers: 8})); diff != "" {
-			t.Error(diff)
-		}
-		deep := mustExtract(t, many, &gofastcore.Options{DeepHidden: true})
-		if diff := deepAgainstDefault(one, deep); diff != "" {
 			t.Error(diff)
 		}
 	})
@@ -313,8 +306,8 @@ func TestChoiceFieldOptions(t *testing.T) {
 						before = part.Blocks[i-1].Text
 					}
 					line := fmt.Sprintf("%s %s %q after %q", part.Kind, b.Attrs[gofastcore.AttrField], b.Text, before)
-					if b.Hidden != 0 {
-						line += " hidden:" + b.Hidden.String()
+					if b.Display != 0 {
+						line += " display:" + b.Display.String()
 					}
 					out = append(out, line)
 				}
@@ -355,8 +348,8 @@ func TestChoiceFieldOptions(t *testing.T) {
 	want := []string{
 		`page country "Germany\nFrance\nItaly" after "France"`,
 		`page size "Small\nMedium\nLarge" after "Germany\nFrance\nItaly"`,
-		`page internal "a\nb" after "Small\nMedium\nLarge" hidden:invisible`,
-		`stored unseen "x\ny\nz" after "y" hidden:invisible`,
+		`page internal "a\nb" after "Small\nMedium\nLarge" display:hidden`,
+		`stored unseen "x\ny\nz" after "y"`,
 	}
 	if got := options(doc); strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("options:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))

@@ -197,9 +197,8 @@ func TestAttachments(t *testing.T) {
 				return nil, err
 			}
 			d := gofastcore.New("txt")
-			d.HiddenChecked = gofastcore.HiddenChars
 			part := gofastcore.Part{Kind: gofastcore.PartBody, Number: 1, Blocks: []gofastcore.Block{{Kind: gofastcore.KindParagraph, Text: string(buf)}}}
-			part.MarkHidden()
+			part.Finish()
 			d.Parts = append(d.Parts, part)
 			return d, nil
 		}
@@ -368,12 +367,12 @@ func TestActiveContentAndExternalReferences(t *testing.T) {
 					t.Errorf("text %q", got)
 				}
 				// A script is read as text, never run: a code block, on its
-				// page or in the stored part, flagged.
+				// page or in the stored part, with no display reason.
 				scripts := 0
 				for _, b := range doc.AllBlocks() {
 					if b.Kind == gofastcore.KindCode {
 						scripts++
-						if b.Attrs[gofastcore.AttrStored] != gofastcore.StoredMacro || b.Hidden&gofastcore.HiddenInvisible == 0 || b.Attrs[gofastcore.AttrLanguage] != "javascript" {
+						if b.Attrs[gofastcore.AttrStored] != gofastcore.StoredMacro || b.Display != 0 || b.Attrs[gofastcore.AttrLanguage] != "javascript" {
 							t.Errorf("a script: %+v", b)
 						}
 					}

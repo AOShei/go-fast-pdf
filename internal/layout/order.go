@@ -13,8 +13,8 @@ import (
 const (
 	maxOrdered  = 2000
 	maxCutDepth = 200
-	// maxPlacing bounds the comparisons made to place hidden blocks and
-	// images among the others.
+	// maxPlacing bounds the comparisons made to place blocks with a
+	// display reason, and images, among the others.
 	maxPlacing = 4 << 20
 	// columnGap is the least white space, in points, between two blocks
 	// that stand side by side.
@@ -77,7 +77,7 @@ func (b *builder) readingOrder(idx []int32) {
 		return
 	}
 	b.cut(idx, 0)
-	if b.blocks[idx[0]].hidden == 0 {
+	if b.blocks[idx[0]].display == 0 {
 		for k := 1; k < len(idx); k++ {
 			if b.blocks[idx[k]].key < b.blocks[idx[k-1]].key {
 				b.stats.Reordered = true
@@ -252,8 +252,8 @@ func place(boxes []box, x box) int {
 	return anyAbove + 1
 }
 
-// insertByPosition puts the blocks of set, which are hidden for one set
-// of reasons, among the blocks of final by where they are on the page.
+// insertByPosition puts the blocks of set, which have one set of display
+// reasons, among the blocks of final by where they are on the page.
 func (b *builder) insertByPosition(final, set []int32) []int32 {
 	if len(final)*len(set) > maxPlacing {
 		return append(final, set...)

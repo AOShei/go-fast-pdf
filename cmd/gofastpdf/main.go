@@ -36,23 +36,23 @@ func main() {
 	os.Exit(run(ctx, os.Args[1:], os.Stdout, os.Stderr))
 }
 
-// hiddenFlag is the value of -exclude-hidden: every hidden reason when
-// the flag stands alone, or the reasons named after an equals sign.
-type hiddenFlag struct {
+// displayFlag is the value of -exclude-display: every display reason
+// when the flag stands alone, or the reasons named after an equals sign.
+type displayFlag struct {
 	set     bool
-	reasons gofastcore.Hidden
+	reasons gofastcore.Display
 }
 
-func (h *hiddenFlag) String() string { return h.reasons.String() }
+func (h *displayFlag) String() string { return h.reasons.String() }
 
 // IsBoolFlag lets the flag stand without a value.
-func (h *hiddenFlag) IsBoolFlag() bool { return true }
+func (h *displayFlag) IsBoolFlag() bool { return true }
 
-func (h *hiddenFlag) Set(v string) error {
+func (h *displayFlag) Set(v string) error {
 	h.set = true
 	switch v {
 	case "true", "":
-		h.reasons = gofastcore.HiddenAny
+		h.reasons = gofastcore.DisplayAny
 		return nil
 	case "false":
 		h.set, h.reasons = false, 0
@@ -60,9 +60,9 @@ func (h *hiddenFlag) Set(v string) error {
 	}
 	h.reasons = 0
 	for _, name := range strings.FieldsFunc(v, func(r rune) bool { return r == ',' || r == '+' }) {
-		var one gofastcore.Hidden
-		if err := one.UnmarshalText([]byte(name)); err != nil || one == 0 || one&gofastcore.HiddenUnknown != 0 {
-			return fmt.Errorf("%q is not a hidden reason; the reasons are %s", name, allReasons())
+		var one gofastcore.Display
+		if err := one.UnmarshalText([]byte(name)); err != nil || one == 0 || one&gofastcore.DisplayUnknown != 0 {
+			return fmt.Errorf("%q is not a display reason; the reasons are %s", name, allReasons())
 		}
 		h.reasons |= one
 	}
@@ -72,10 +72,10 @@ func (h *hiddenFlag) Set(v string) error {
 	return nil
 }
 
-// allReasons lists the names of the hidden reasons.
+// allReasons lists the names of the display reasons.
 func allReasons() string {
 	var names []string
-	for bit := gofastcore.Hidden(1); bit != 0 && bit.Valid(); bit <<= 1 {
+	for bit := gofastcore.Display(1); bit != 0 && bit.Valid(); bit <<= 1 {
 		if name := bit.String(); name != "" {
 			names = append(names, name)
 		}
@@ -142,9 +142,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	pages := flags.String("pages", "", "the pages to read: 3, 2-5, 4- or -7 (default: all)")
 	images := flags.String("images", "meta", "images: meta (a block for each, with where it is and how large), data (their bytes too) or none")
 	workers := flags.Int("workers", 0, "pages read at a time (default: one per processor)")
-	deep := flags.Bool("deep-hidden", false, "check text against the shapes each page paints as well: white on a white box, text under a box, text cut off")
-	var exclude hiddenFlag
-	flags.Var(&exclude, "exclude-hidden", "leave hidden text out of markdown and text; with =reasons, only text hidden for those ("+allReasons()+")")
+	var exclude displayFlag
+	flags.Var(&exclude, "exclude-display", "leave out of markdown and text what the file declares not shown or drawn with no ink; with =reasons, only for those ("+allReasons()+")")
 	quiet := flags.Bool("quiet", false, "do not report the warnings of files that were read")
 	showVersion := flags.Bool("version", false, "print the version and exit")
 	flags.Usage = func() {
@@ -171,7 +170,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
-	opts := &gofastcore.Options{Workers: *workers, Password: *password, DeepHidden: *deep}
+	opts := &gofastcore.Options{Workers: *workers, Password: *password}
 	switch *format {
 	case "json", "markdown", "text":
 	default:
@@ -273,12 +272,12 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 			if several {
 				fmt.Fprintf(out, "<!-- %s -->\n\n", path)
 			}
-			err = doc.WriteMarkdown(out, &gofastcore.RenderOptions{ExcludeHidden: exclude.reasons})
+			err = doc.WriteMarkdown(out, &gofastcore.RenderOptions{ExcludeDisplay: exclude.reasons})
 		case "text":
 			if several {
 				fmt.Fprintf(out, "==> %s <==\n", path)
 			}
-			err = doc.WriteText(out, &gofastcore.RenderOptions{ExcludeHidden: exclude.reasons})
+			err = doc.WriteText(out, &gofastcore.RenderOptions{ExcludeDisplay: exclude.reasons})
 		}
 		if err != nil {
 			failed(path, err)

@@ -9,6 +9,7 @@ import (
 
 	gofastcore "github.com/AOShei/go-fast-core"
 	"github.com/AOShei/go-fast-pdf/internal/charset"
+	"github.com/AOShei/go-fast-pdf/internal/extract"
 	"github.com/AOShei/go-fast-pdf/internal/file"
 	"github.com/AOShei/go-fast-pdf/internal/layout"
 	"github.com/AOShei/go-fast-pdf/internal/syntax"
@@ -109,13 +110,11 @@ func pageNotes(r *reader, p *file.Page, shown []bool, m [6]float64, width, heigh
 			}
 			b := &x.block
 			b.Origin = gofastcore.OriginNative
-			var off bool
-			b.Loc.BBox, off = rectOnPage(f, a.Get("Rect"), m, width, height)
-			if off {
-				b.Hidden |= gofastcore.HiddenOffPage
-			}
-			if flags, _ := f.Resolve(a.Get("F")).Integer(); flags&(annotHidden|annotNoView) != 0 {
-				b.Hidden |= gofastcore.HiddenInvisible
+			b.Loc.BBox = rectOnPage(f, a.Get("Rect"), m)
+			// The annotation's flags say it is not shown (Hidden,
+			// NoView), or it is in optional content that is off.
+			if flags, _ := f.Resolve(a.Get("F")).Integer(); flags&(annotHidden|annotNoView) != 0 || extract.ContentOff(f, a.Get("OC")) {
+				b.Display |= gofastcore.DisplayHidden
 			}
 			extras = append(extras, x)
 		}
@@ -298,25 +297,22 @@ func fieldValue(f *file.File, widget syntax.Value, text func(syntax.Value) (stri
 }
 
 // rectOnPage is a rectangle of the page's own coordinates as the box it
-// has on the page as it is displayed. off reports that none of it is on
-// the page.
-func rectOnPage(f *file.File, v syntax.Value, m [6]float64, width, height float64) (r gofastcore.Rect, off bool) {
+// has on the page as it is displayed.
+func rectOnPage(f *file.File, v syntax.Value, m [6]float64) (r gofastcore.Rect) {
 	elems := f.Resolve(v).Elems()
 	if len(elems) != 4 {
-		return r, false
+		return r
 	}
 	var c [4]float64
 	for i := range c {
 		c[i] = f.Resolve(elems[i]).Number()
 		if c[i] != c[i] || c[i] > 1e9 || c[i] < -1e9 {
-			return gofastcore.Rect{}, false
+			return gofastcore.Rect{}
 		}
 	}
 	x0, y0 := m[0]*c[0]+m[2]*c[1]+m[4], m[1]*c[0]+m[3]*c[1]+m[5]
 	x1, y1 := m[0]*c[2]+m[2]*c[3]+m[4], m[1]*c[2]+m[3]*c[3]+m[5]
-	r = gofastcore.Rect{X0: min(x0, x1), Y0: min(y0, y1), X1: max(x0, x1), Y1: max(y0, y1)}
-	off = width > 0 && height > 0 && (r.X1 < 0 || r.Y1 < 0 || r.X0 > width || r.Y0 > height)
-	return r, off
+	return gofastcore.Rect{X0: min(x0, x1), Y0: min(y0, y1), X1: max(x0, x1), Y1: max(y0, y1)}
 }
 
 // addNotes puts the blocks that do not come from the page's content

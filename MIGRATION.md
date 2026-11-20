@@ -55,8 +55,9 @@ changed, beyond that:
 - Ligatures are written as their letters (`ﬁ` is `fi`).
 - A character the file gives no meaning for is U+FFFD and is reported (`text.unmapped_glyphs`). The text
   is always valid UTF-8.
-- Text that cannot be seen is flagged in `Block.Hidden`. It is still in the output: pass
-  `RenderOptions.ExcludeHidden` to leave it out of rendered text.
+- Text that the file declares not shown (`hidden`) or drawn with no ink (`no_ink`) has the reason in
+  `Block.Display`. It is still in the output: pass `RenderOptions.ExcludeDisplay` to leave it out of
+  rendered text.
 - A tab stands between two pieces of a line that are far apart (a label and its value, the cells of a
   row).
 

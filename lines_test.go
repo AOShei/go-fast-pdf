@@ -55,7 +55,7 @@ func lettersOf(s string) string {
 func TestLinesBelongToTheirBlocks(t *testing.T) {
 	lines, words := 0, 0
 	for name, data := range equivalenceDocs(t) {
-		for _, opts := range []gofastcore.Options{{}, {Images: gofastcore.ImagesMeta, DeepHidden: true}} {
+		for _, opts := range []gofastcore.Options{{}, {Images: gofastcore.ImagesMeta, Spans: true}} {
 			f, err := gofastpdf.OpenBytes(data, &opts)
 			if err != nil {
 				t.Fatal(err)
@@ -72,8 +72,8 @@ func TestLinesBelongToTheirBlocks(t *testing.T) {
 					}
 					last = l.Block
 					block := &part.Blocks[l.Block]
-					if l.Hidden != block.Hidden {
-						t.Errorf("%s: line %q is %q and its block %q", where, l.Text, l.Hidden, block.Hidden)
+					if l.Display != block.Display {
+						t.Errorf("%s: line %q is %q and its block %q", where, l.Text, l.Display, block.Display)
 					}
 					perBlock[l.Block] += lettersOf(l.Text)
 					var texts []string
@@ -183,7 +183,7 @@ func TestWordBoxes(t *testing.T) {
 	// cannot be read is no line.
 	d = synthDoc{Pages: []synthPage{{Content: visibleLines + "BT /F1 12 Tf 3 Tr 72 500 Td (secret words) Tj ET"}}}
 	lines, _ = linesOf(t, d.bytes(), nil, 1)
-	if n := len(lines); n != 4 || lines[3].Hidden != gofastcore.HiddenInvisible || lines[3].Text != "secret words" || lines[0].Hidden != 0 || lines[0].Font != "Helvetica" {
+	if n := len(lines); n != 4 || lines[3].Display != gofastcore.DisplayNoInk || lines[3].Text != "secret words" || lines[0].Display != 0 || lines[0].Font != "Helvetica" {
 		t.Errorf("hidden: %+v", lines)
 	}
 	if lines, part := linesOf(t, damagedMiddlePage(), nil, 2); len(lines) != 0 || !part.Has(gofastcore.WarnPartFailed) {

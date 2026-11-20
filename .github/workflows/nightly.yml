@@ -12,7 +12,7 @@ jobs:
   # The public corpus against its baseline, and the soak test: every
   # file of the corpus and the files fetched for the soak test alone,
   # each in a process of its own under a time limit and a memory
-  # ceiling, with the default options and with DeepHidden.
+  # ceiling, with the default options and with spans.
   corpus:
     runs-on: ubuntu-latest
     timeout-minutes: 180

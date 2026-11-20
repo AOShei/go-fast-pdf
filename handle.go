@@ -51,8 +51,8 @@ type File struct {
 	desc described
 
 	// What the pages read through this handle have shown so far.
-	incomplete, active, external atomic.Bool
-	closed                       atomic.Bool
+	active, external atomic.Bool
+	closed           atomic.Bool
 }
 
 // ErrClosed is returned by the methods of a File that has been closed.
@@ -214,32 +214,6 @@ func (f *File) Outline() []gofastcore.OutlineItem {
 	return append([]gofastcore.OutlineItem(nil), f.describe().outline...)
 }
 
-// HiddenChecked returns the hidden reasons that were checked completely
-// on the pages read so far, as Document.HiddenChecked says it of a
-// whole document.
-//
-// The value is final only when every part has been produced. The six
-// reasons of the default checks are always in it. With
-// Options.DeepHidden, clipped is too; low_contrast and occluded are
-// until a page is read that paints more shapes than are followed, and
-// not from then on. A caller who stops early may rely on the six, and on
-// the three others for every part received that does not have the
-// pdf.deep_hidden_incomplete warning.
-func (f *File) HiddenChecked() gofastcore.Hidden {
-	return f.checked(f.incomplete.Load())
-}
-
-func (f *File) checked(incomplete bool) gofastcore.Hidden {
-	h := hiddenChecked
-	if f.opts.DeepHidden && !f.e.noHiddenChecks {
-		h |= gofastcore.HiddenClipped
-		if !incomplete {
-			h |= gofastcore.HiddenLowContrast | gofastcore.HiddenOccluded
-		}
-	}
-	return h
-}
-
 // Warnings returns what concerns the file as a whole, as the warnings
 // of a Document do: that it was read through repair, that it holds
 // scripts, that it points outside itself. What is known without reading
@@ -249,10 +223,6 @@ func (f *File) checked(incomplete bool) gofastcore.Hidden {
 func (f *File) Warnings() []gofastcore.Warning {
 	d := f.describe()
 	ws := f.warnings(d.active || f.active.Load(), d.external || f.external.Load())
-	if d.invisible {
-		ws = append(ws, gofastcore.Warning{Code: gofastcore.WarnTextHidden, Severity: gofastcore.SeverityWarning,
-			Message: "the document information or the outline has invisible characters"})
-	}
 	if d.outlineCut {
 		ws = append(ws, gofastcore.Warning{Code: gofastcore.WarnLimitExceeded, Severity: gofastcore.SeverityError,
 			Message: fmt.Sprintf("the titles of the outline are more than the limit on text of %d bytes; the outline ends after %d entries", f.textLimit, len(d.outline))})
@@ -280,7 +250,39 @@ func (f *File) warnings(active, external bool) []gofastcore.Warning {
 	if external {
 		add(gofastcore.SeverityWarning, gofastcore.WarnInputExternalReference, "the document refers to files or addresses outside itself other than by links; nothing was fetched")
 	}
+	// Data after the end of the file is told where its text is, in the
+	// stored part, and here when there is no such part to tell it.
+	if w, ok := f.trailingData(); ok && !f.storedComes() {
+		ws = append(ws, w)
+	}
 	return ws
+}
+
+// trailingData returns the warning that data follows the last %%EOF of
+// the file, if it does.
+func (f *File) trailingData() (gofastcore.Warning, bool) {
+	n := f.describe().afterEnd
+	if n == 0 {
+		return gofastcore.Warning{}, false
+	}
+	return gofastcore.Warning{Code: gofastcore.WarnInputTrailingData, Severity: gofastcore.SeverityInfo,
+		Message: fmt.Sprintf("%d bytes follow the last %%%%EOF of the file", n)}, true
+}
+
+// storedComes reports whether the document has a stored part with the
+// text of the data after its end: the whole file is read, and that data
+// is text.
+func (f *File) storedComes() bool {
+	d := f.describe()
+	if f.opts.Parts != (gofastcore.PartRange{}) || f.tooMany {
+		return false
+	}
+	for i := range d.stored {
+		if d.stored[i].Attrs[gofastcore.AttrStored] == gofastcore.StoredAfterEnd {
+			return true
+		}
+	}
+	return false
 }
 
 // state is what putting parts together in page order carries from one
@@ -382,7 +384,7 @@ func (st *state) stored() (part gofastcore.Part, ok, whole bool) {
 	if len(d.stored) == 0 || f.opts.Parts != (gofastcore.PartRange{}) || f.tooMany {
 		return part, false, true
 	}
-	part = gofastcore.Part{Kind: gofastcore.PartStored, Number: len(f.pages) + 1, Hidden: gofastcore.HiddenInvisible}
+	part = gofastcore.Part{Kind: gofastcore.PartStored, Number: len(f.pages) + 1}
 	// A copy: the part is the caller's to change, and what was read is
 	// read once for the file.
 	part.Blocks = make([]gofastcore.Block, len(d.stored))
@@ -398,8 +400,11 @@ func (st *state) stored() (part gofastcore.Part, ok, whole bool) {
 		part.Warn(gofastcore.SeverityError, gofastcore.WarnLimitExceeded,
 			fmt.Sprintf("the file stores more than %d bytes of text that it shows on no page; the rest is not read", maxStoredBytes))
 	}
+	if w, ok := f.trailingData(); ok && f.storedComes() {
+		part.Warnings = append(part.Warnings, w)
+	}
 	whole = st.charge(&part)
-	part.MarkHidden()
+	part.Finish()
 	return part, true, whole
 }
 
@@ -447,9 +452,6 @@ func (st *state) finish(out *pageOut) {
 
 // note keeps what a page that was read says about the file.
 func (f *File) note(out *pageOut) {
-	if out.deepIncomplete {
-		f.incomplete.Store(true)
-	}
 	if out.active {
 		f.active.Store(true)
 	}
@@ -730,7 +732,7 @@ func (f *File) Document(ctx context.Context) (*gofastcore.Document, error) {
 	ctx, st := f.begin(ctx)
 	defer st.end()
 	var attachments []attachment
-	active, external, incomplete, spent := false, false, false, false
+	active, external, spent := false, false, false
 	last, cut := 0, 0
 	// Each page is compared with the pages around it before it is put
 	// in the document (furniture.go).
@@ -751,7 +753,7 @@ func (f *File) Document(ctx context.Context) (*gofastcore.Document, error) {
 		st.finish(out)
 		f.note(out)
 		last = out.part.Number
-		active, external, incomplete = active || out.active, external || out.external, incomplete || out.deepIncomplete
+		active, external = active || out.active, external || out.external
 		attachments = append(attachments, out.attachments...)
 		return win.push(out, emit)
 	})
@@ -805,14 +807,5 @@ func (f *File) Document(ctx context.Context) (*gofastcore.Document, error) {
 			fmt.Sprintf("the limit on text of %d bytes was reached; some attached files were not read", st.textLimit))
 	}
 
-	// The reasons that were checked completely. Without DeepHidden, low
-	// contrast, covering and clipping are checked in part and are not
-	// listed. With it they are, unless a page has more shapes than are
-	// followed: then the first two were not checked on all of that page,
-	// and are not listed for the document.
-	doc.HiddenChecked = f.checked(incomplete)
-	if invisibleInMetadata(doc) {
-		doc.Warn(gofastcore.SeverityWarning, gofastcore.WarnTextHidden, "the document information or the outline has invisible characters")
-	}
 	return doc, nil
 }

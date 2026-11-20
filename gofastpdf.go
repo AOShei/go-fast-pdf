@@ -219,7 +219,7 @@ func (e *Extractor) page(f *file.File, p *file.Page, opts *gofastcore.Options, w
 	}
 	// The tables of a tagged PDF that the page's content is in.
 	tables := w.structure.pageTables(tags)
-	res := extract.Page(f, p, extract.Options{Words: w.lines, Stop: w.stop, Use: func(c *extract.Content) {
+	res := extract.Page(f, p, extract.Options{Words: w.lines, Rules: true, Stop: w.stop, Use: func(c *extract.Content) {
 		// Made here, where nothing outside holds it: it stays off the heap.
 		lopts := layout.Options{
 			Images: opts.Images != gofastcore.ImagesNone, Lines: w.lines,

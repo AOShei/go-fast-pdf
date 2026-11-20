@@ -459,11 +459,19 @@ func FuzzExtract(f *testing.F) {
 				}
 			}
 
-			// With the places of the spaces recorded the runs and their
-			// text are what they are without, and every break is a space
-			// of the text, in the order of the text, at a place that is a
-			// number.
-			words := Page(file, &pages[i], Options{Words: true, MaxDecodedBytes: 4 << 20, Use: func(c *Content) {
+			// With the places of the spaces and the rules recorded the
+			// runs and their text are what they are without, every break
+			// is a space of the text, in the order of the text, at a
+			// place that is a number, and every rule is a thin box.
+			words := Page(file, &pages[i], Options{Words: true, Rules: true, MaxDecodedBytes: 4 << 20, Use: func(c *Content) {
+				for _, r := range c.Rules {
+					if !(r[2] >= r[0] && r[3] >= r[1]) || min(r[2]-r[0], r[3]-r[1]) > MaxRuleWidth || math.IsInf(r[2]-r[0]+r[3]-r[1], 0) {
+						t.Fatalf("page %d: a rule %v", i+1, r)
+					}
+				}
+				if len(c.Rules) > maxRules {
+					t.Fatalf("page %d: %d rules", i+1, len(c.Rules))
+				}
 				if res.Err == nil && (len(c.Runs) != len(res.Runs) || !bytes.Equal(c.Text, res.RunText)) {
 					t.Fatalf("page %d: with words %d runs and %q, without %d and %q", i+1, len(c.Runs), c.Text, len(res.Runs), res.RunText)
 				}

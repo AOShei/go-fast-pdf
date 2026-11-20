@@ -75,6 +75,8 @@ Bounds that are fixed:
 | Saved graphics states, open marked-content sequences | 4,096 each |
 | Text of one page | 16 MiB, in 524,288 pieces |
 | Images listed on one page | 100,000 |
+| Rules of tables recorded on one page | 65,536; 16,384 for one path. Past 131,072 path operators, or 32,768 segments along an axis, a page's paths are not followed further |
+| Work of finding the grids of rules on one page | 4,194,304 comparisons; 16,384 cells for one grid |
 | Pixels of an image whose data is handed on | 268,435,456 |
 | Fonts kept for one file | 1,024 |
 | Outline items | 131,072, 64 levels deep |

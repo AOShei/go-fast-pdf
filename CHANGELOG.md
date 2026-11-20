@@ -78,6 +78,11 @@ files made to exhaust it, and is several times faster. The tag follows that of g
   in from Adobe's resources (about 1.2 MB), giving CIDs, their widths, and through each collection's map
   their characters; a CID TrueType font takes its characters from its program's cmap. Public corpus:
   F1 of the CJK files 0.79 to 0.93.
+- **Glyph names and characters from embedded font programs**: a simple font without ToUnicode or a
+  named encoding takes the encoding of its CFF program (custom charsets and encodings, with
+  supplements) or the cmap of its symbolic TrueType program; names in /Differences are looked up in the
+  TrueType 'post' table. Ligatures, braces and accented letters that were guessed wrong or unmapped now
+  read right on six files of the public corpus.
 - **Text written from right to left** (Hebrew, Arabic) in the order it is read, whatever order the
   page draws it in, by the Unicode bidirectional algorithm on lines put together from where their glyphs
   stand; numbers and Latin words within them read from left to right, ligatures keep their letters in

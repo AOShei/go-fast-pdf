@@ -99,7 +99,7 @@ func TestLinesBelongToTheirBlocks(t *testing.T) {
 				for i := range part.Blocks {
 					// The marker of an item or a heading is on its first line.
 					if b := &part.Blocks[i]; (b.Kind == gofastcore.KindParagraph || b.Kind == gofastcore.KindListItem) && perBlock[i] != lettersOf(b.Marker+b.Text) ||
-						b.Table != nil && perBlock[i] != lettersOf(cellsText(b.Table)) {
+						b.Table != nil && sortedLetters(perBlock[i]) != sortedLetters(lettersOf(cellsText(b.Table))) {
 						t.Errorf("%s: block %d is %.60q and its lines have the letters %.60q", where, i, b.Text, perBlock[i])
 					}
 				}

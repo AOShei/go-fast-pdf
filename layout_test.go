@@ -221,9 +221,11 @@ func TestTabs(t *testing.T) {
 		want    []string
 	}{
 		{"a label and its value", row(700, "Name:", "Jane Doe"), []string{"Name:\tJane Doe"}},
+		// Three rows of three cells are a table found by their alignment
+		// (aligned_test.go), with the cells the tabs would give.
 		{"rows of a table",
 			row(700, "Item", "Price", "Stock") + row(688, "Bread", "2.50", "12") + row(676, "Milk", "1.20", "40"),
-			[]string{"Item\tPrice\tStock\nBread\t2.50\t12\nMilk\t1.20\t40"}},
+			[]string{"table:Item\tPrice\tStock\nBread\t2.50\t12\nMilk\t1.20\t40"}},
 		{"rows, then a paragraph",
 			row(700, "Bread", "2.50") + row(688, "Milk", "1.20") + draw(10, stack(72, 676, 12, paraA...)...),
 			[]string{"Bread\t2.50\nMilk\t1.20", joined(paraA)}},
@@ -240,7 +242,20 @@ func TestTabs(t *testing.T) {
 			[]string{"Name:\tJane Doe"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := blockTexts(t, tc.content); !reflect.DeepEqual(got, tc.want) {
+			d := synthDoc{Font: fontCourier, Pages: []synthPage{{Content: tc.content}}}
+			var got []string
+			for _, b := range mustExtract(t, d.bytes(), nil).Parts[0].Blocks {
+				if b.Kind != gofastcore.KindTable {
+					got = append(got, b.Text)
+					continue
+				}
+				var rows []string
+				for _, r := range b.Table.Rows {
+					rows = append(rows, strings.Join(r, "\t"))
+				}
+				got = append(got, "table:"+strings.Join(rows, "\n"))
+			}
+			if !reflect.DeepEqual(got, tc.want) {
 				t.Errorf("blocks %q\nwant   %q", got, tc.want)
 			}
 		})

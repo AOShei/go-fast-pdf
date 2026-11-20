@@ -67,7 +67,9 @@ type Options struct {
 	// with its cells' text in Result.CellText (tables.go).
 	Cell      func(mcid int32) int32
 	CellTable []int32
-	Tables    int
+	Tables    int // NoTables leaves out the tables found by how their text lines up
+	// (aligned.go).
+	NoTables bool
 }
 
 // Result is the page as blocks.
@@ -190,6 +192,14 @@ type builder struct {
 	// The words of a block and their atoms, for its spans.
 	atomBuf   []atom
 	placedBuf []placed
+	// What the search for tables by alignment works in (aligned.go).
+	tOrder []int32
+	tV     []float64
+	tRows  []trow
+	tSegs  []seg
+	tGrid  []tgrow
+	tCells []tcell
+	tWords []int
 
 	controls int
 	rtl      bool
@@ -280,13 +290,17 @@ func Build(page Page, c *extract.Content, opts Options) Result {
 	for _, i := range final {
 		bl := &b.blocks[i]
 		kind := gofastcore.KindParagraph
-		if bl.table > 0 {
+		switch {
+		case bl.table > 0:
 			kind = gofastcore.KindTable
 			res.Tables = append(res.Tables, bl.table-1)
+		case bl.grid != nil:
+			kind = gofastcore.KindTable
 		}
 		res.Blocks = append(res.Blocks, gofastcore.Block{
 			Kind:    kind,
 			Text:    bl.text,
+			Table:   bl.grid,
 			Origin:  gofastcore.OriginInferred,
 			Display: bl.display,
 			Loc:     gofastcore.Location{BBox: rect(bl.x0, bl.y0, bl.x1, bl.y1)},
@@ -433,6 +447,11 @@ func (b *builder) trim() {
 	clear(b.placedBuf[:cap(b.placedBuf)])
 	if cap(b.atomBuf) > keep || cap(b.placedBuf) > keep {
 		b.atomBuf, b.placedBuf = nil, nil
+	}
+	// The cells hold their text.
+	clear(b.tCells[:cap(b.tCells)])
+	if cap(b.tSegs) > keep || cap(b.tCells) > keep {
+		b.tOrder, b.tV, b.tRows, b.tSegs, b.tGrid, b.tCells, b.tWords = nil, nil, nil, nil, nil, nil, nil
 	}
 	clear(b.blocks[:cap(b.blocks)])
 	if cap(b.blocks) > keep {

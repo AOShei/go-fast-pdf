@@ -411,11 +411,20 @@ func linesAgainstPart(lines []gofastpdf.Line, part *gofastcore.Part) string {
 			continue // the value of a form field is not set in lines of the page
 		}
 		if (b.Kind == gofastcore.KindParagraph || b.Kind == gofastcore.KindHeading || b.Kind == gofastcore.KindListItem || b.Kind.Furniture()) && perBlock[i] != letters(b.Marker+b.Text) ||
-			b.Table != nil && perBlock[i] != letters(cellsText(b.Table)) {
+			b.Table != nil && sortedLetters(perBlock[i]) != sortedLetters(letters(cellsText(b.Table))) {
 			return fmt.Sprintf("block %d is %.30q and its lines have the letters %.30q", i, b.Text, perBlock[i])
 		}
 	}
 	return ""
+}
+
+// sortedLetters is the letters of s in order: the lines of a table and
+// its cells have the same letters, but a cell of several lines puts the
+// text of its second line before the next cell's.
+func sortedLetters(s string) string {
+	r := []rune(s)
+	sort.Slice(r, func(i, j int) bool { return r[i] < r[j] })
+	return string(r)
 }
 
 // cellsText is the text of the cells of a table, row by row.

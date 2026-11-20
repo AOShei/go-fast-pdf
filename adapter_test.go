@@ -269,10 +269,11 @@ func checkContract(doc *gofastcore.Document, opts *gofastcore.Options) error {
 					return fmt.Errorf("%s: a list item of level %d, marker %q and text %q", where, b.Level, b.Marker, b.Text)
 				}
 			case gofastcore.KindTable:
-				// A table of a tagged PDF: the structure tree says it is
-				// one, and its cells are the text.
+				// A table of a tagged PDF, which the structure tree says
+				// is one, or found by how its text lines up. Its cells
+				// are the text.
 				text = true
-				if b.Origin != gofastcore.OriginNative || b.Table == nil || b.Text != "" || b.Display != 0 {
+				if b.Table == nil || b.Text != "" || b.Display != 0 {
 					return fmt.Errorf("%s: a table with origin %s, text %q and display %q", where, b.Origin, b.Text, b.Display)
 				}
 				continue

@@ -75,9 +75,28 @@
 // and the block on a later page is Continued. A table whose text the
 // page does not bear out, a row reaching into the next or cells that do
 // not follow each other across the page, is taken for a tree made badly:
-// its text is laid out as if the tree had no table there. Other tables
-// are not recognised yet: their text is in paragraph blocks, a row a
-// line with its cells apart by tabs.
+// its text is laid out as if the tree had no table there.
+//
+// Elsewhere a table is found by how its text lines up, and its block has
+// OriginInferred. Its rows are lines on one baseline; its columns are
+// the white space that runs down between their cells, at the same place
+// in every row; a cell that reaches over that space spans columns, as a
+// merge. A region is a table only when it has two columns or more and
+// three rows or more, most rows have text in several columns, the cells
+// are short and lined up in their columns, and it is none of these:
+// columns of prose, a list with bullets or numbers, a table of contents,
+// code with its comments, names set in columns to be read down each,
+// labels on a picture, or one label set again beside itself (the time
+// scale of a schedule). A line set under a row closer than the rows are
+// to each other continues that row's cells. The header rows are the
+// first rows when they are all in bold and the rows under them are not,
+// but for a fifth of their cells: bold used for emphasis here and there
+// makes no header. Tables of the same columns set side by side, lists of
+// different lengths each with a name and a value, are a table each, read
+// down. Only text without a display reason, in no cell of a tagged
+// table, is looked at. A table set without white space between its
+// columns, or only with drawn lines, is not found: its text is in
+// paragraph blocks, a row a line with its cells apart by tabs.
 //
 // A paragraph that starts with the marker of a list item is a block of
 // kind list_item: a bullet, a dash, or a number or letter that counts

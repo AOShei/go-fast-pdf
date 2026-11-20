@@ -21,7 +21,7 @@ import (
 // laid out: each cell takes the first column of its row that no cell
 // above it still covers.
 //
-// The visible text of each cell is laid out by itself, and the table is
+// The text of each cell, without a display reason, is laid out by itself, and the table is
 // one block of kind table with OriginNative, among the other blocks by
 // where it is on the page (internal/layout/tables.go). A table over
 // several pages is a block on each, with the rows that have content on
@@ -397,8 +397,8 @@ func (pt *pageTables) fill(blocks []gofastcore.Block, lay *layout.Result) {
 	j := 0
 	for k := range blocks {
 		b := &blocks[k]
-		if b.Kind != gofastcore.KindTable || j >= len(lay.Tables) {
-			continue
+		if b.Kind != gofastcore.KindTable || b.Table != nil || j >= len(lay.Tables) {
+			continue // a table found by alignment has its grid
 		}
 		t := lay.Tables[j]
 		j++

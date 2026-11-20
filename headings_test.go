@@ -138,6 +138,9 @@ func TestHeadingsFromTheOutline(t *testing.T) {
 		if got := headingsOf(doc); len(got) != 1 || got[0] != `1 L6 "Level 7" native level=7` {
 			t.Errorf("%q; outline %+v", got, doc.Outline)
 		}
+		if !doc.Parts[0].Has(gofastcore.WarnHeadingLevelClamped) {
+			t.Errorf("no %s on the part: %+v", gofastcore.WarnHeadingLevelClamped, doc.Parts[0].Warnings)
+		}
 	})
 
 	t.Run("a page read by itself", func(t *testing.T) {

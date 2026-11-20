@@ -28,20 +28,23 @@ func FuzzOpen(f *testing.F) {
 	// Scripts, a metadata packet, entries of the file's own making, fields
 	// on no page.
 	f.Add(storedDoc().bytes())
+	// Named destinations, and a structure tree with identifiers.
+	f.Add(anchorsDoc().bytes())
+	f.Add(taggedDoc().bytes())
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// An error is fine. A document that breaks the contract of the
 		// shared model is not, and neither is one that depends on the
 		// number of workers. Every other input is read with the checks
-		// of DeepHidden.
+		// of DeepHidden, and with spans.
 		deep := len(data)%2 == 1
-		one, err := extractBytes(data, extractOpts{Images: true, Deep: deep})
+		one, err := extractBytes(data, extractOpts{Images: true, Deep: deep, Spans: deep})
 		if errors.Is(err, errContract) {
 			t.Fatal(err)
 		}
 		if err != nil {
 			return
 		}
-		many, err := extractBytes(data, extractOpts{Images: true, Workers: 4, Deep: deep})
+		many, err := extractBytes(data, extractOpts{Images: true, Workers: 4, Deep: deep, Spans: deep})
 		if err != nil {
 			t.Fatalf("with 4 workers: %v", err)
 		}

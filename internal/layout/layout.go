@@ -111,6 +111,10 @@ type Style struct {
 	// Heading is the level that Options.Heading gives every run of the
 	// block, 0 when it gives none or not the same to all.
 	Heading uint8
+	// Marked is one more than the marked-content identifier (MCID) of
+	// the first run of the block, on a page that Options.Heading is set
+	// for; 0 for none.
+	Marked int32
 }
 
 // Line is one line of a text block.
@@ -328,6 +332,9 @@ func (b *builder) styleOf(i int32) Style {
 		}
 	}
 	if h := b.opts.Heading; h != nil {
+		if li := b.blocks[i].line; li >= 0 && b.lines[li].hi > b.lines[li].lo {
+			s.Marked = b.c.Runs[b.pieces[b.lidx[b.lines[li].lo]].run].MCID + 1
+		}
 		level, all := uint8(0), true
 		for li := b.blocks[i].line; li >= 0 && all; li = b.lines[li].next {
 			ln := &b.lines[li]

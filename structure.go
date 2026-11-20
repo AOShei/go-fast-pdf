@@ -18,19 +18,26 @@ import (
 // element it belongs to. Each element has its parent in /P, and a type
 // in /S, which /RoleMap may map to a standard type.
 //
-// Of all this, two things are read, for the content of each page as it
-// is read: the headings, H1 to H6 and H (whose level is the number of
-// sections, Sect, around it), and the alternative description of a
-// figure. A block of text whose every run is under one heading is that
-// heading, with OriginNative; an image drawn under a figure has its
-// description as its text. A page that has a heading of the tree has
-// none by type.
+// Of all this, three things are read, for the content of each page as
+// it is read: the headings, H1 to H6 and H (whose level is the number of
+// sections, Sect, around it), the alternative description of a figure,
+// and the identifiers of elements, /ID. A block of text whose every run
+// is under one heading is that heading, with OriginNative; an image
+// drawn under a figure has its description as its text. A page that has
+// a heading of the tree has none by type. An element with an identifier
+// gives it to the block that its content begins, as Loc.Anchor: the
+// block whose first run is the first item of the element, or of the
+// first of its kids, and so on down (anchors.go). Identifiers are looked
+// for only in a tree that lists them, in /IDTree, as the format requires
+// of a tree that has them.
 
 // structure is what is read of a document's structure tree once.
 type structure struct {
 	f          *file.File
 	parentTree syntax.Value
 	roles      map[string]string
+	// ids is set when the tree lists identifiers of elements.
+	ids bool
 }
 
 // maxStructHops bounds the parents followed up from an element, and
@@ -52,6 +59,7 @@ func newStructure(f *file.File, catalog syntax.Value) *structure {
 	if !f.Resolve(s.parentTree).IsDict() {
 		return nil
 	}
+	s.ids = !f.Resolve(root.Get("IDTree")).IsNull()
 	if rm := f.Resolve(root.Get("RoleMap")); rm.IsDict() {
 		s.roles = map[string]string{}
 		for i := 0; i < rm.Entries() && i < 4096; i++ {
@@ -95,6 +103,9 @@ type tag struct {
 	heading uint8
 	// alt is the description of the figure the content is part of.
 	alt string
+	// id is the identifier of the innermost element that the content
+	// begins.
+	id string
 }
 
 // pageTags returns, by MCID, what the structure tree says of the content
@@ -118,11 +129,15 @@ func (s *structure) pageTags(p *file.Page) []tag {
 	for mcid, ref := range elems {
 		r := w.reach(ref, 0)
 		t := tag{alt: r.alt}
+		if s.ids {
+			t.id = w.firstID(ref, mcid, p.Obj)
+		}
 		switch {
 		case r.heading > 0:
 			t.heading = r.heading
 		case r.h:
-			t.heading = uint8(min(max(r.hSections, 1), 6))
+			// No deeper than the parents followed: maxStructHops.
+			t.heading = uint8(max(r.hSections, 1))
 		}
 		if t != (tag{}) {
 			if out == nil {
@@ -184,6 +199,59 @@ func (w *walker) reach(ref syntax.Value, depth int) reach {
 		w.memo[n] = r
 	}
 	return r
+}
+
+// firstID returns the identifier of the innermost element that the
+// content with an MCID on a page begins, from ref, the element the
+// content is in: that element if the content is its first item, the
+// element above it if that one is its first kid as well, and so on up.
+// "" for none.
+func (w *walker) firstID(ref syntax.Value, mcid int, page int64) string {
+	f := w.s.f
+	var child int64 // the element below, 0 at the content
+	for hops := 0; hops < maxStructHops; hops++ {
+		el := f.Resolve(ref)
+		if !el.IsDict() || f.Resolve(el.Get("Type")).IsName("StructTreeRoot") || !w.begins(el, child, mcid, page) {
+			return ""
+		}
+		if id := text(f, el.Get("ID")); id != "" && len(id) <= maxAnchorBytes {
+			return id
+		}
+		if child = file.RefNumber(ref); child == 0 {
+			return "" // an element that is not an object is no parent's kid by number
+		}
+		ref = el.Get("P")
+	}
+	return ""
+}
+
+// begins reports whether the first item of an element is the element
+// numbered child, or, for child 0, the content with an MCID on a page.
+func (w *walker) begins(el syntax.Value, child int64, mcid int, page int64) bool {
+	f := w.s.f
+	k := el.Get("K")
+	if list := f.Resolve(k); list.Kind == syntax.Array {
+		if len(list.List) == 0 {
+			return false
+		}
+		k = list.List[0]
+	}
+	if child != 0 {
+		return file.RefNumber(k) == child
+	}
+	item, pg := f.Resolve(k), el.Get("Pg")
+	if item.IsDict() {
+		// A marked-content reference, which can name a page of its own.
+		if !f.Resolve(item.Get("Type")).IsName("MCR") {
+			return false
+		}
+		if p := item.Get("Pg"); !p.IsNull() {
+			pg = p
+		}
+		item = f.Resolve(item.Get("MCID"))
+	}
+	n, ok := item.Integer()
+	return ok && n == int64(mcid) && page != 0 && file.RefNumber(pg) == page
 }
 
 // findNumber looks one key up in a number tree: each node says which

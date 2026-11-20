@@ -254,6 +254,9 @@ func (e *Extractor) page(f *file.File, p *file.Page, opts *gofastcore.Options, w
 				if mc := c.Images[i].MCID; mc >= 0 && int(mc) < len(tags) && tags[mc].alt != "" {
 					lay.Blocks[k].Text = tags[mc].alt
 				}
+				if tags != nil {
+					lay.Styles[k].Marked = c.Images[i].MCID + 1
+				}
 				out.images = append(out.images, imageRef{block: int32(k), obj: c.Images[i].Obj, inline: c.Images[i].Inline})
 			}
 		}
@@ -266,8 +269,24 @@ func (e *Extractor) page(f *file.File, p *file.Page, opts *gofastcore.Options, w
 	// The headings that the structure tree names.
 	for k := range part.Blocks {
 		if b := &part.Blocks[k]; k < len(lay.Styles) && lay.Styles[k].Heading > 0 && b.Kind == gofastcore.KindParagraph && b.Hidden == 0 {
-			setHeading(b, int(lay.Styles[k].Heading))
+			setHeading(part, k, int(lay.Styles[k].Heading))
 			b.Origin = gofastcore.OriginNative
+		}
+	}
+	// The identifiers of the elements of the tree, each on the first block
+	// that its content begins (anchors.go).
+	if tags != nil {
+		var used map[string]bool
+		for k := range min(len(part.Blocks), len(lay.Styles)) {
+			mc := lay.Styles[k].Marked - 1
+			if mc < 0 || int(mc) >= len(tags) || tags[mc].id == "" || used[tags[mc].id] {
+				continue
+			}
+			if used == nil {
+				used = map[string]bool{}
+			}
+			used[tags[mc].id] = true
+			part.Blocks[k].Loc.Anchor = tags[mc].id
 		}
 	}
 

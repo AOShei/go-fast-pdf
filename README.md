@@ -193,6 +193,8 @@ Settings that only PDF has are fields of `gofastpdf.Extractor`. The
 - **List items** - bulleted and numbered, with their markers and how deep they are nested
 - **Bold, italic and links** - with `Options.Spans`: spans by the fonts of the words, and links to web
   addresses or to pages of the document (`#page=N`)
+- **Anchors** - the identifiers of the elements of a tagged PDF, and with `Options.Spans` the names of
+  its destinations, on the blocks they name (`Loc.Anchor`)
 - **Hidden text** - flagged with its reason, never dropped: see below
 - **Encryption** - RC4, AES-128 and AES-256, with user and owner passwords, and files encrypted for a
   certificate, with the private key (`Options.Keys`)

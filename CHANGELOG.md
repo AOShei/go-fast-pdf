@@ -27,6 +27,8 @@ files made to exhaust it, and is several times faster. The tag follows that of g
 - **Descriptions of figures**: an image of a tagged PDF has the alternative text (`/Alt`) of its figure.
 - **List items**, bulleted and numbered, with their markers and nesting.
 - **Bold, italic and links** as spans, with `Options.Spans`.
+- **Anchors**: a block that a named destination (with `Options.Spans`) or an element of a tagged PDF
+  names has that name in `Loc.Anchor`.
 - **Hidden text is flagged.** Nine reasons: invisible, the text layer of a scan, tiny, off the page,
   transparent, invisible characters, low contrast, covered, clipped. `Options.DeepHidden` checks the last
   three against the shapes a page paints. `Document.HiddenChecked` says which reasons were checked in

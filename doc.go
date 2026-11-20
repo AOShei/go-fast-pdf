@@ -83,7 +83,10 @@
 // heading with OriginNative, and a page with such a heading has no
 // other heading by type. A block that an entry of the
 // outline names, on the page the entry points at, is a heading at the
-// entry's level with OriginNative: the file says it is one. Otherwise a
+// entry's level with OriginNative: the file says it is one. A level
+// deeper than six, which an outline or nested H elements can give, is
+// 6, with the real level in Attrs["level"] and the warning
+// structure.heading_level_clamped on the part. Otherwise a
 // short block is a heading when it is set at least 15 percent larger
 // than the text of the document, or bold on one line where the text is
 // not bold; its level is from its size, 1 for a title set about twice
@@ -134,6 +137,21 @@
 // whose flags keep it from being shown has its text, displayed or
 // written, flagged as invisible, and one whose rectangle is off the
 // page as off_page.
+//
+// # Anchors
+//
+// Loc.Anchor is a name the file gives a block. A named destination,
+// which links of the document and links to it from outside use
+// (#nameddest=), names a place on a page; the block that begins there,
+// a little below the place and not to its left, has the name, with
+// Options.Spans. A destination that names a page, a place inside a
+// block, a place no block begins near, or a running header or footer
+// names no block. Finding every named destination means reading an
+// object for each, as long as some pages take in a file with many,
+// which is why it comes with the links. In a tagged PDF, an element of
+// the structure tree with an identifier (/ID) gives it to the first
+// block of its content, whatever the options; where both name a block,
+// the destination wins. A name longer than 512 bytes is left out.
 //
 // # What a file stores and shows nowhere
 //
@@ -265,7 +283,8 @@
 //     is placed by its share of the characters of its run, and a word
 //     that the joining of lines changed may have no span. Spans take a
 //     tenth more time on pages of text, up to a third on short
-//     documents.
+//     documents. With Spans, the names of the destinations of the
+//     document are also anchors: see "Anchors".
 //
 // # Text
 //

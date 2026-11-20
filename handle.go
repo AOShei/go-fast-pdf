@@ -458,6 +458,18 @@ func (f *File) note(out *pageOut) {
 	}
 }
 
+// namedDests returns the destinations whose names become anchors: with
+// Options.Spans, which gives the links that point at them; nil without.
+// Reading every named destination of a file takes as long as some pages
+// of it, and without the links the page and the box of a block say
+// where it is (anchors.go).
+func (f *File) namedDests() *destinations {
+	if !f.opts.Spans {
+		return nil
+	}
+	return f.describe().dests
+}
+
 // each reads the selected pages and calls fn with each in page order,
 // until fn returns false. Several pages are read at a time, and no more
 // than a few are held that fn has not had yet. It returns the error of
@@ -581,7 +593,7 @@ func (f *File) Parts(ctx context.Context) iter.Seq2[gofastcore.Part, error] {
 		last, stopped := 0, false
 		// Each page is compared with the pages around it before it is
 		// handed on (furniture.go).
-		win := furnitureWindow{titles: titlesByPage(f.describe().outline)}
+		win := furnitureWindow{titles: titlesByPage(f.describe().outline), dests: f.namedDests()}
 		emit := func(out *pageOut) bool {
 			// What the handle says of the file follows the parts it has
 			// handed out, not the pages that wait to be compared.
@@ -691,6 +703,7 @@ func (p *Page) read(w want) (pageOut, error) {
 	s.add(&out.part, out.styles)
 	lists(&out.part, out.styles)
 	headings(&out.part, out.styles, &s, titlesByPage(f.describe().outline)[out.part.Number])
+	nameAnchors(&out.part, f.namedDests().named(out.part.Number))
 	st.charge(&out.part)
 	f.note(&out)
 	return out, nil
@@ -721,7 +734,7 @@ func (f *File) Document(ctx context.Context) (*gofastcore.Document, error) {
 	last, cut := 0, 0
 	// Each page is compared with the pages around it before it is put
 	// in the document (furniture.go).
-	win := furnitureWindow{titles: titlesByPage(f.describe().outline)}
+	win := furnitureWindow{titles: titlesByPage(f.describe().outline), dests: f.namedDests()}
 	emit := func(out *pageOut) bool {
 		whole := st.charge(&out.part)
 		if !whole {

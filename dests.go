@@ -22,6 +22,10 @@ type destinations struct {
 	tree, dict syntax.Value
 	mu         sync.Mutex
 	all, old   map[string]syntax.Value
+	// byPart holds the named destinations by the part they have a place
+	// on, read once (anchors.go).
+	namedOnce sync.Once
+	byPart    map[int][]named
 }
 
 func newDestinations(f *file.File, catalog syntax.Value, pages []file.Page) *destinations {
@@ -79,13 +83,29 @@ func (d *destinations) lookup(name string) syntax.Value {
 // in displayed points; 0 for no part. The destination is the item's
 // /Dest, or the /D of a GoTo action in its /A.
 func (d *destinations) target(item syntax.Value) (part int, y float64) {
-	f, pages := d.f, d.pages
-	dest := f.Resolve(item.Get("Dest"))
+	dest := d.f.Resolve(item.Get("Dest"))
 	if dest.IsNull() {
-		if a := f.Resolve(item.Get("A")); a.Get("S").IsName("GoTo") {
-			dest = f.Resolve(a.Get("D"))
+		if a := d.f.Resolve(item.Get("A")); a.Get("S").IsName("GoTo") {
+			dest = d.f.Resolve(a.Get("D"))
 		}
 	}
+	at := d.place(dest)
+	return at.part, at.y
+}
+
+// spot is where a destination points: a part, and on its page, in
+// displayed points, the left and the top of the view where the
+// destination gives them (top is false where it gives neither).
+type spot struct {
+	part int
+	x, y float64
+	top  bool
+}
+
+// place returns where a destination points: an explicit one, an array,
+// or a name to look up.
+func (d *destinations) place(dest syntax.Value) spot {
+	f, pages := d.f, d.pages
 	for hops := 0; hops < 4; hops++ {
 		switch dest.Kind {
 		case syntax.Name, syntax.String:
@@ -98,7 +118,7 @@ func (d *destinations) target(item syntax.Value) (part int, y float64) {
 		break
 	}
 	if dest.Kind != syntax.Array || len(dest.List) == 0 {
-		return 0, 0
+		return spot{}
 	}
 	index := -1
 	if n := file.RefNumber(dest.List[0]); n != 0 {
@@ -109,7 +129,7 @@ func (d *destinations) target(item syntax.Value) (part int, y float64) {
 		index = int(n) // a page index, as some programs write it
 	}
 	if index < 0 {
-		return 0, 0
+		return spot{}
 	}
 	// The top of the view, where the destination gives one.
 	p := &pages[index]
@@ -138,9 +158,10 @@ func (d *destinations) target(item syntax.Value) (part int, y float64) {
 		}
 	}
 	if !hasTop || p.Err != nil {
-		return p.Number, 0
+		return spot{part: p.Number}
 	}
-	m, _, h := p.Display()
-	y = m[1]*left + m[3]*top + m[5]
-	return p.Number, min(max(y, 0), h)
+	m, w, h := p.Display()
+	x := m[0]*left + m[2]*top + m[4]
+	y := m[1]*left + m[3]*top + m[5]
+	return spot{part: p.Number, x: min(max(x, 0), w), y: min(max(y, 0), h), top: true}
 }

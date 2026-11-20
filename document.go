@@ -169,12 +169,26 @@ func text(f *file.File, v syntax.Value) string {
 		return ""
 	}
 	data := v.Data
+	if plainASCII(data) {
+		return string(data) // as the encoding and the cleaning would leave it
+	}
 	if !(len(data) >= 2 && (data[0] == 0xFE && data[1] == 0xFF || data[0] == 0xFF && data[1] == 0xFE)) {
 		// Zero bytes at the end are what a C program leaves there. In
 		// UTF-16 they are found after decoding.
 		data = bytes.TrimRight(data, "\x00")
 	}
 	return cleanString(charset.TextString(data))
+}
+
+// plainASCII reports whether a string of the file is printable ASCII,
+// which PDFDocEncoding gives as ASCII and cleaning leaves alone.
+func plainASCII(data []byte) bool {
+	for _, c := range data {
+		if c < 0x20 || c > 0x7E {
+			return false
+		}
+	}
+	return true
 }
 
 // cleanString makes a string from outside the pages fit the shared

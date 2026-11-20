@@ -187,6 +187,8 @@ type furnitureWindow struct {
 	// the outline by the page they point at.
 	sizes  sizes
 	titles map[int][]title
+	// dests gives the named destinations of a page, for its anchors.
+	dests *destinations
 
 	sizesRoom   [16]sizeCount
 	pendingRoom [2 * (furnitureReach + 1)]pageOut
@@ -295,6 +297,9 @@ func (w *furnitureWindow) next(emit func(*pageOut) bool) bool {
 	}
 
 	headings(part, out.styles, &w.sizes, w.titles[part.Number])
+	// The names of places on the page, once its headers and footers are
+	// known: a name does not go on those.
+	nameAnchors(part, w.dests.named(part.Number))
 
 	if len(w.behind) == furnitureReach {
 		copy(w.behind, w.behind[1:])

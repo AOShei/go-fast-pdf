@@ -176,7 +176,7 @@ func headings(part *gofastcore.Part, styles []layout.Style, s *sizes, titles []t
 			folded := fold(b.Text)
 			for k, o := range titles {
 				if folded == o.folded {
-					setHeading(b, o.level)
+					setHeading(part, i, o.level)
 					b.Origin = gofastcore.OriginNative
 					titles = append(titles[:k], titles[k+1:]...) // one block for an entry
 					named = true
@@ -212,7 +212,7 @@ func headings(part *gofastcore.Part, styles []layout.Style, s *sizes, titles []t
 		return
 	}
 	for _, h := range byType {
-		setHeading(&part.Blocks[h.block], h.level)
+		setHeading(part, h.block, h.level)
 	}
 }
 
@@ -232,9 +232,12 @@ func tagged(styles []layout.Style) bool {
 // the page is taken for a map or a diagram, whose labels are set large.
 const headingMaxPerPage = 8
 
-// setHeading makes a block a heading at a level of the outline, which
-// can be deeper than the six levels of the shared model.
-func setHeading(b *gofastcore.Block, level int) {
+// setHeading makes block i of a part a heading at a level, which can be
+// deeper than the six levels of the shared model: an outline or a
+// structure tree can be. A deeper one is level 6 with its real level in
+// Attrs, and the part says so.
+func setHeading(part *gofastcore.Part, i, level int) {
+	b := &part.Blocks[i]
 	b.Kind, b.Ordered = gofastcore.KindHeading, false // a marker it has stays
 	if level > 6 {
 		if b.Attrs == nil {
@@ -242,6 +245,9 @@ func setHeading(b *gofastcore.Block, level int) {
 		}
 		b.Attrs[gofastcore.AttrLevel] = strconv.Itoa(level)
 		level = 6
+		if !part.Has(gofastcore.WarnHeadingLevelClamped) {
+			part.Warn(gofastcore.SeverityInfo, gofastcore.WarnHeadingLevelClamped, "headings deeper than level 6 are at level 6, with their level in the attribute level")
+		}
 	}
 	b.Level = uint8(max(level, 1))
 }

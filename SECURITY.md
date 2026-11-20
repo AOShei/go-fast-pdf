@@ -35,8 +35,10 @@ It does **not**
 - judge whether text can be seen, or whether it is harmful. It reports what the file declares (text in a
   layer that is off, an annotation that is not shown, text drawn with no ink) and nothing else: colour,
   size, position and what covers the text are not looked at. Detecting threats is outside the library.
-- decode images. With `ImagesData`, JPEG and JPEG 2000 data is handed on as it is in the file. Whatever
-  decodes it next is given untrusted bytes.
+- decode JPEG or JPEG 2000. With `ImagesData` their data is handed on as it is in the file, and whatever
+  decodes it next is given untrusted bytes. Samples and CCITT fax data are decoded here, into PNG,
+  within `MaxDecodedBytes`; the one JPEG decoded is a soft mask's, after its header is checked to be of
+  the mask's size.
 - extract attached files itself. They go to the `Child` extractor that the caller supplies, at most
   `Limits.MaxDepth` levels deep.
 
@@ -77,7 +79,8 @@ Bounds that are fixed:
 | Images listed on one page | 100,000 |
 | Rules of tables recorded on one page | 65,536; 16,384 for one path. Past 131,072 path operators, or 32,768 segments along an axis, a page's paths are not followed further |
 | Work of finding the grids of rules on one page | 4,194,304 comparisons; 16,384 cells for one grid |
-| Pixels of an image whose data is handed on | 268,435,456 |
+| Pixels of an image whose data is handed on | 268,435,456; its pixels, at one byte each for gray or a table of colours and four with a mask or in colour, count against `MaxDecodedBytes` |
+| Width of a row of CCITT fax data | 1,048,576 pixels |
 | Fonts kept for one file | 1,024 |
 | Outline items | 131,072, 64 levels deep |
 | Attached files | 4,096; the name and the stated type of each are held to 1,024 bytes |

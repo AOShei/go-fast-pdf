@@ -302,9 +302,26 @@ func TestImages(t *testing.T) {
 				}
 			}
 		}
+		// Samples of 1 bit, and CMYK, come out as PNG too: alternate
+		// white and black, and black.
+		if got, err := png.Decode(bytes.NewReader(byID["obj-4"][0].Data)); err != nil {
+			t.Errorf("1-bit samples: %v", err)
+		} else {
+			for x := 0; x < 8; x++ {
+				if g, _, _, _ := got.At(x, 0).RGBA(); uint8(g>>8) != uint8(255*(1-x%2)) {
+					t.Errorf("1-bit pixel %d is %d", x, g>>8)
+				}
+			}
+		}
+		if got, err := png.Decode(bytes.NewReader(byID["obj-5"][0].Data)); err != nil {
+			t.Errorf("CMYK samples: %v", err)
+		} else if r, g, b, a := got.At(0, 0).RGBA(); r|g|b != 0 || a != 0xFFFF {
+			t.Errorf("CMYK black is %d %d %d %d", r>>8, g>>8, b>>8, a>>8)
+		}
 		// What cannot be delivered is a block with its size and no
-		// data, and the page says so.
-		for _, id := range []string{"obj-4", "obj-5", "obj-6", "obj-7", "inline-3-1"} {
+		// data, and the page says so: samples too short, damaged fax
+		// data, an image in the content stream.
+		for _, id := range []string{"obj-6", "obj-7", "inline-3-1"} {
 			imgs := byID[id]
 			if len(imgs) != 1 || imgs[0].Data != nil || imgs[0].Width == 0 || imgs[0].Height == 0 {
 				t.Errorf("%s: %+v", id, imgs)

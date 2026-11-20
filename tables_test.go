@@ -26,7 +26,7 @@ func tablesOf(part gofastcore.Part) string {
 				fmt.Fprintf(&sb, "  | %s |\n", strings.Join(row, " | "))
 			}
 		case b.Display != 0:
-			fmt.Fprintf(&sb, "%s hidden %q\n", b.Kind, b.Text)
+			fmt.Fprintf(&sb, "%s %s %q\n", b.Kind, b.Display, b.Text)
 		default:
 			fmt.Fprintf(&sb, "%s %q\n", b.Kind, b.Text)
 		}
@@ -72,7 +72,7 @@ table native continued=false header=1 merges=[{2 0 1 2}]
   | Name | Value |
   | alpha | 1 |
   | spanning both |  |
-paragraph hidden "secret"
+paragraph no_ink "secret"
 paragraph "Text after the table."
 `
 	doc := mustExtract(t, tableDoc().bytes(), nil)

@@ -47,6 +47,10 @@ type blk struct {
 	// is; members are the blocks of its cells, in order of cell.
 	cell, table int32
 	members     []int32
+	// grid is the table that a block of kind table found by alignment
+	// is, and tlines its lines, in b.lines.
+	grid   *gofastcore.Table
+	tlines []int32
 }
 
 // paragraphs joins the lines b.lines[first:] into paragraphs and

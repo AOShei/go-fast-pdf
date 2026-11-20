@@ -27,6 +27,10 @@ files made to exhaust it, and is several times faster. The tag follows that of g
 - **Descriptions of figures**: an image of a tagged PDF has the alternative text (`/Alt`) of its figure.
 - **Tables of tagged PDFs** as table blocks, with header rows, merged cells, and a table over several
   pages continued on each.
+- **Tables in files without tags**, found by how their text lines up in columns (`OriginInferred`): cells
+  of several lines, cells over several columns, header rows in bold, tables set side by side as a table
+  each. Columns of prose, lists, tables of contents, code and labels repeated side by side are not taken
+  for tables.
 - **List items**, bulleted and numbered, with their markers and nesting.
 - **Bold, italic and links** as spans, with `Options.Spans`.
 - **Anchors**: a block that a named destination (with `Options.Spans`) or an element of a tagged PDF

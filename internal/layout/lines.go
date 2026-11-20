@@ -93,7 +93,24 @@ func (b *builder) layoutGroup(idx []int32) {
 			b.lineText(&b.lines[i])
 		}
 		b.stats.Lines += len(b.lines) - lo
+		// Tables found by alignment take their lines first, in the text
+		// without a display reason that is in no cell of a tagged table (aligned.go).
+		var taken []line
+		var tables []int32
+		if display == 0 && b.pieces[idx[0]].cell == 0 && !b.opts.NoTables {
+			taken, tables = b.findTables(lo)
+		}
 		b.paragraphs(lo, display)
+		if len(taken) > 0 {
+			// Their lines go after those of the paragraphs.
+			base := int32(len(b.lines))
+			b.lines = append(b.lines, taken...)
+			for _, k := range tables {
+				for n := range b.blocks[k].tlines {
+					b.blocks[k].tlines[n] += base
+				}
+			}
+		}
 		lo = len(b.lines)
 		b.lines = append(b.lines, rest...)
 	}

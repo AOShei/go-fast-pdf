@@ -30,30 +30,44 @@ type atom struct {
 // the order of res.Blocks.
 func (b *builder) linesOf(res *Result, final []int32) {
 	var atoms []atom
+	var list []int32
 	for k, bi := range final {
-		// The lines of a table are those of its cells.
-		own := [1]int32{bi}
-		parts := own[:]
-		if b.blocks[bi].table > 0 {
-			parts = b.blocks[bi].members
-		}
-		for _, pi := range parts {
-			for li := b.blocks[pi].line; li >= 0; li = b.lines[li].next {
-				ln := &b.lines[li]
-				raw := b.text[ln.tlo:ln.thi]
-				out := Line{Block: k, Text: b.clean(raw), BBox: rect(ln.x0, ln.y0, ln.x1, ln.y1), Size: ln.size}
-				if ln.main != nil {
-					out.Font = fontName(ln.main.BaseFont)
-				}
-				if ln.hi <= ln.lo {
-					continue
-				}
-				atoms = b.atoms(atoms[:0], ln)
-				out.Words = b.words(raw, atoms, ln)
-				res.Lines = append(res.Lines, out)
+		list = b.blockLines(list[:0], bi)
+		for _, li := range list {
+			ln := &b.lines[li]
+			raw := b.text[ln.tlo:ln.thi]
+			out := Line{Block: k, Text: b.clean(raw), BBox: rect(ln.x0, ln.y0, ln.x1, ln.y1), Size: ln.size}
+			if ln.main != nil {
+				out.Font = fontName(ln.main.BaseFont)
 			}
+			if ln.hi <= ln.lo {
+				continue
+			}
+			atoms = b.atoms(atoms[:0], ln)
+			out.Words = b.words(raw, atoms, ln)
+			res.Lines = append(res.Lines, out)
 		}
 	}
+}
+
+// blockLines appends the lines of block bi, in b.lines, in their order:
+// those of a paragraph, those of the cells of a tagged table, cell by
+// cell, or those of a table found by alignment, row by row.
+func (b *builder) blockLines(dst []int32, bi int32) []int32 {
+	bl := &b.blocks[bi]
+	switch {
+	case bl.grid != nil:
+		return append(dst, bl.tlines...)
+	case bl.table > 0:
+		for _, m := range bl.members {
+			dst = b.blockLines(dst, m)
+		}
+		return dst
+	}
+	for li := bl.line; li >= 0; li = b.lines[li].next {
+		dst = append(dst, li)
+	}
+	return dst
 }
 
 // fontName returns the name of a font without the tag of a subset, six

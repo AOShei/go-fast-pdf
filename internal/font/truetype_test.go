@@ -86,8 +86,8 @@ func TestTrueTypeText(t *testing.T) {
 	for _, c := range []struct {
 		gidMap, s, want string
 	}{
-		{"/Identity", "\x00\x01\x00\x02\x00\x04\x00\x09", "AB日�"},
-		{"3 0 R", "\x00\x0A\x00\x00", "日�"},
+		{"/Identity", "\x00\x01\x00\x02\x00\x04\x00\x09", "AB日\uFFFD"},
+		{"3 0 R", "\x00\x0A\x00\x00", "日\uFFFD"},
 	} {
 		gids := make([]byte, 22)
 		gids[21] = 4 // CID 10 is glyph 4

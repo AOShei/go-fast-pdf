@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("1 0 obj<<>stream<Description><\x1c>0A</>endstream 2 0 obj<</Type/Catalog/Metadata 1 0 R")

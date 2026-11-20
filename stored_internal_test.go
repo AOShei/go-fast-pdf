@@ -79,3 +79,21 @@ func FuzzXFAData(f *testing.F) {
 		}
 	})
 }
+
+// A name in the packet or in the data of a form is the file's, and is
+// cleaned as text is: found by fuzzing, a property named by a control
+// character.
+func TestNamesAreCleaned(t *testing.T) {
+	props := packetProperties("<rdf:RDF><rdf:Description><\x1c>value</\x1c></rdf:Description></rdf:RDF>")
+	if len(props) != 1 || props[0].name != "\x1c" {
+		t.Fatalf("%+v", props)
+	}
+	blocks, _ := xfaValues("<xfa:datasets><xfa:data><f\x1c><a\x01>v</a\x01></f\x1c></xfa:data></xfa:datasets>", map[string]bool{})
+	for _, b := range blocks {
+		for _, r := range b.Attrs["field"] + b.Text {
+			if r < 0x20 && r != '\n' && r != '\t' {
+				t.Errorf("a control character in %q / %q", b.Attrs["field"], b.Text)
+			}
+		}
+	}
+}

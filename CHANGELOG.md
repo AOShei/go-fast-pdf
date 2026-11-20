@@ -22,7 +22,9 @@ files made to exhaust it, and is several times faster. The tag follows that of g
   and pages drawn out of order are put in the order they are read.
 - **Running headers and footers** are tagged by comparing each page with its neighbours, and a paragraph
   split by a page break is marked as continued.
-- **Headings**, with levels: named by the outline, or found by their size and weight.
+- **Headings**, with levels: named by the structure tree of a tagged PDF or by the outline, or found by
+  their size and weight.
+- **Descriptions of figures**: an image of a tagged PDF has the alternative text (`/Alt`) of its figure.
 - **List items**, bulleted and numbered, with their markers and nesting.
 - **Bold, italic and links** as spans, with `Options.Spans`.
 - **Hidden text is flagged.** Nine reasons: invisible, the text layer of a scan, tiny, off the page,

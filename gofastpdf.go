@@ -200,6 +200,8 @@ type want struct {
 	lines bool
 	// dests finds where the links of the page go, with Options.Spans.
 	dests *destinations
+	// structure is the structure tree of a tagged PDF, nil for none.
+	structure *structure
 	// stop, when set, is looked at as the page is read: once it holds
 	// true the page is abandoned, and what is returned for it is to be
 	// thrown away.
@@ -228,15 +230,30 @@ func (e *Extractor) page(f *file.File, p *file.Page, opts *gofastcore.Options, w
 	if opts.Spans {
 		links = pageLinks(f, p, m, width, height, w.dests)
 	}
+	// What the structure tree of a tagged PDF says of the page.
+	tags := w.structure.pageTags(p)
+	var headingOf func(int32) uint8
+	if tags != nil {
+		headingOf = func(mcid int32) uint8 {
+			if mcid >= 0 && int(mcid) < len(tags) {
+				return tags[mcid].heading
+			}
+			return 0
+		}
+	}
 	res := extract.Page(f, p, extract.Options{Shapes: opts.DeepHidden, MaxShapes: e.MaxShapes, Words: w.lines, Stop: w.stop, Use: func(c *extract.Content) {
 		lay = layout.Build(layout.Page{M: m, Width: width, Height: height}, c, layout.Options{
 			Images: opts.Images != gofastcore.ImagesNone, NoHiddenChecks: e.noHiddenChecks,
 			Deep: opts.DeepHidden, MaxDeepSteps: e.maxDeepSteps, Lines: w.lines,
-			Spans: opts.Spans, Links: links,
+			Spans: opts.Spans, Links: links, Heading: headingOf,
 		})
 		images = len(c.Images)
 		for k, i := range lay.Images {
 			if i >= 0 {
+				// The description of the figure the image is part of.
+				if mc := c.Images[i].MCID; mc >= 0 && int(mc) < len(tags) && tags[mc].alt != "" {
+					lay.Blocks[k].Text = tags[mc].alt
+				}
 				out.images = append(out.images, imageRef{block: int32(k), obj: c.Images[i].Obj, inline: c.Images[i].Inline})
 			}
 		}
@@ -246,6 +263,13 @@ func (e *Extractor) page(f *file.File, p *file.Page, opts *gofastcore.Options, w
 	out.actualDiffers, out.actualLonger, out.longGlyph = res.ActualDiffers, res.ActualLonger, res.LongGlyphText
 	part.Blocks = lay.Blocks
 	part.Warnings = append(part.Warnings, res.Warnings...)
+	// The headings that the structure tree names.
+	for k := range part.Blocks {
+		if b := &part.Blocks[k]; k < len(lay.Styles) && lay.Styles[k].Heading > 0 && b.Kind == gofastcore.KindParagraph && b.Hidden == 0 {
+			setHeading(b, int(lay.Styles[k].Heading))
+			b.Origin = gofastcore.OriginNative
+		}
+	}
 
 	// What the page says outside its content: the text of its
 	// annotations and the values of its form fields.

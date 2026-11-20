@@ -186,9 +186,9 @@ func TestImages(t *testing.T) {
 		unit := Quad{0, 0, 1, 0, 1, 1, 0, 1}
 		want := []Image{
 			{Name: "/Im1", Obj: 1, Rect: [4]float64{72, 500, 200, 100}, Quad: Quad{72, 500, 272, 500, 272, 600, 72, 600},
-				Width: 640, Height: 480, ColorSpace: "/DeviceRGB", Seq: 0, Opaque: true},
-			{Inline: true, Rect: [4]float64{0, 0, 1, 1}, Quad: unit, Width: 4, Height: 2, ColorSpace: "/RGB", Seq: 1, Opaque: true},
-			{Name: "/Im1", Obj: 1, Rect: [4]float64{0, 0, 1, 1}, Quad: unit, Width: 640, Height: 480, ColorSpace: "/DeviceRGB", Seq: 2, Opaque: true},
+				Width: 640, Height: 480, ColorSpace: "/DeviceRGB", Seq: 0, Opaque: true, MCID: -1},
+			{Inline: true, Rect: [4]float64{0, 0, 1, 1}, Quad: unit, Width: 4, Height: 2, ColorSpace: "/RGB", Seq: 1, Opaque: true, MCID: -1},
+			{Name: "/Im1", Obj: 1, Rect: [4]float64{0, 0, 1, 1}, Quad: unit, Width: 640, Height: 480, ColorSpace: "/DeviceRGB", Seq: 2, Opaque: true, MCID: -1},
 		}
 		if fmt.Sprint(got) != fmt.Sprint(want) {
 			t.Errorf("got  %+v\nwant %+v", got, want)

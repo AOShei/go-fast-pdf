@@ -77,6 +77,10 @@ type Run struct {
 	// ActualText is set when the text is the /ActualText of a marked
 	// content sequence and not the glyphs drawn.
 	ActualText bool
+	// MCID is the marked-content identifier the run is drawn under, of
+	// the page's own content, by which the structure tree of a tagged
+	// PDF refers to it; -1 for none.
+	MCID int32
 	// Glyphs is the number of character codes shown. Unmapped is how
 	// many of them have no text, and Assumed how many have the text of
 	// their code because the font does not say what its glyph is.
@@ -547,6 +551,7 @@ func (in *interp) showCodes(f *font.Font, raw []byte) {
 		FillAlpha: g.fillAlpha, StrokeAlpha: g.strokeAlpha, Blend: g.blend, CutOff: cut,
 		OptionalOff: in.offDepth > 0, Seq: in.seq, Form: in.form,
 		Sep: sep, ActualText: replaced, Glyphs: int32(sh.Glyphs), Unmapped: int32(sh.Unmapped), Assumed: int32(sh.Assumed),
+		MCID: in.mcid,
 	})
 	in.checkTextLimit()
 }
@@ -719,7 +724,7 @@ func (in *interp) measure(f *font.Font) {
 // is the same.
 func (in *interp) continues(last *Run, f *font.Font, cut bool) bool {
 	g, ge := &in.gs, &in.geom
-	return last.Font == f && in.sameVisibility(last, cut) && !last.ActualText &&
+	return last.Font == f && in.sameVisibility(last, cut) && !last.ActualText && last.MCID == in.mcid &&
 		closeTo(last.Size, ge.size) && closeTo(last.SizeX, ge.sizeX) && last.Rise == g.rise*ge.lenY &&
 		last.Dx*ge.dx+last.Dy*ge.dy > 0.9999
 }

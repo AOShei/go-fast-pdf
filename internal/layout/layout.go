@@ -63,6 +63,10 @@ type Options struct {
 	// links of the page, Links.
 	Spans bool
 	Links []Link
+	// Heading, when set, gives the level of the heading of a tagged PDF
+	// that the content under a marked-content identifier is part of, 0
+	// for none (see Style.Heading).
+	Heading func(mcid int32) uint8
 }
 
 // Result is the page as blocks.
@@ -104,6 +108,9 @@ type Style struct {
 	Bold bool
 	// Lines is the number of lines of the block.
 	Lines int
+	// Heading is the level that Options.Heading gives every run of the
+	// block, 0 when it gives none or not the same to all.
+	Heading uint8
 }
 
 // Line is one line of a text block.
@@ -318,6 +325,23 @@ func (b *builder) styleOf(i int32) Style {
 			most = n
 			s.Size = ln.size
 			s.Bold = ln.main != nil && ln.main.Bold
+		}
+	}
+	if h := b.opts.Heading; h != nil {
+		level, all := uint8(0), true
+		for li := b.blocks[i].line; li >= 0 && all; li = b.lines[li].next {
+			ln := &b.lines[li]
+			for k := ln.lo; k < ln.hi; k++ {
+				l := h(b.c.Runs[b.pieces[b.lidx[k]].run].MCID)
+				if l == 0 || level != 0 && l != level {
+					all = false
+					break
+				}
+				level = l
+			}
+		}
+		if all {
+			s.Heading = level
 		}
 	}
 	return s

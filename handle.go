@@ -467,6 +467,7 @@ func (f *File) each(ctx context.Context, w want, fn func(out *pageOut) bool) err
 	if f.opts.Spans {
 		w.dests = f.describe().dests
 	}
+	w.structure = f.describe().structure
 	workers := f.opts.Workers
 	if workers <= 0 {
 		workers = runtime.GOMAXPROCS(0)
@@ -681,6 +682,7 @@ func (p *Page) read(w want) (pageOut, error) {
 	if f.opts.Spans {
 		w.dests = f.describe().dests
 	}
+	w.structure = f.describe().structure
 	out := f.e.page(f.f, p.p, &f.opts, w)
 	st := f.newState()
 	st.finish(&out)

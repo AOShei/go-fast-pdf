@@ -187,7 +187,9 @@ Settings that only PDF has are fields of `gofastpdf.Extractor`. The
   pages drawn out of order are put in reading order
 - **Running headers and footers** - titles, dates and page numbers that the pages repeat in their margins
   are tagged, and the renderers leave them out; a paragraph split by a page break is joined again
-- **Headings** - from the outline where it names them, otherwise by size and weight, with levels
+- **Headings** - from the structure tree of a tagged PDF or the outline where they name them, otherwise by
+  size and weight, with levels
+- **Descriptions of figures** - an image of a tagged PDF has the alternative text its figure gives
 - **List items** - bulleted and numbered, with their markers and how deep they are nested
 - **Bold, italic and links** - with `Options.Spans`: spans by the fonts of the words, and links to web
   addresses or to pages of the document (`#page=N`)
@@ -326,8 +328,9 @@ file can be read from many goroutines, and the result is the same for any number
 - **Scripts written from right to left** - the text is given in the order the page draws it, with a warning
 - **Fonts without any mapping** - glyphs of embedded CFF and TrueType programs that the PDF does not
   describe are read by their codes or reported as unmapped; the legacy CJK encodings are not built in
-- **Images** - CMYK, indexed, 1-bit, CCITT and JBIG2 images are listed without their data. An image block
-  has no text: the alternative text that a tagged PDF may give a figure (`/Alt`) is not read yet
+- **Images** - CMYK, indexed, 1-bit, CCITT and JBIG2 images are listed without their data
+- **Tagged PDF** - of the structure tree, headings and the descriptions of figures are read; lists, tables
+  and the reading order it gives are not yet
 - **No OCR** - a scan without a text layer gives its images and the warning `part.image_only`
 
 ## How it works
@@ -352,8 +355,9 @@ PDF file → objects and cross-references → content interpreter → layout →
 * [x] AES-256 encryption
 * [x] Image data (JPEG, JPEG 2000, 8-bit gray and RGB)
 * [x] Page iterator, lines and words, the command-line tool
-* [ ] Headings, lists, tables, running headers and footers
-* [ ] Tagged PDF: structure, alternative text
+* [x] Headings, lists, running headers and footers; bold, italic and links
+* [ ] Tables
+* [x] Tagged PDF: headings and the descriptions of figures
 * [ ] Text from right to left in reading order
 
 ## License

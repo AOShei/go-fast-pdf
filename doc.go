@@ -77,7 +77,11 @@
 // with a tab after the marker, which is a row of a table. A numbered
 // line set as a heading is a heading and keeps its number as Marker.
 //
-// Headings are blocks of kind heading. A block that an entry of the
+// Headings are blocks of kind heading. In a tagged PDF, a block whose
+// text is all part of one heading of the structure tree (H1 to H6, or H
+// at the depth of the sections around it, through the role map) is that
+// heading with OriginNative, and a page with such a heading has no
+// other heading by type. A block that an entry of the
 // outline names, on the page the entry points at, is a heading at the
 // entry's level with OriginNative: the file says it is one. Otherwise a
 // short block is a heading when it is set at least 15 percent larger
@@ -191,9 +195,9 @@
 //     bits in a gray or RGB colour space as PNG. An image in another
 //     encoding has no data, and its page gets
 //     image.unsupported_encoding. With ImagesNone there are no image
-//     blocks. An image block has no text: the
-//     alternative text that a tagged PDF may give a figure is not read
-//     yet. A block for every image costs under one percent of the time
+//     blocks. In a tagged PDF an image drawn as part of a figure that
+//     the structure tree describes (/Alt) has that description as its
+//     text. A block for every image costs under one percent of the time
 //     on most documents, and up to as much again on a page that is
 //     nearly all images.
 //

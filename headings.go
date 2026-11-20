@@ -208,12 +208,23 @@ func headings(part *gofastcore.Part, styles []layout.Style, s *sizes, titles []t
 			byType = append(byType, found{i, level})
 		}
 	}
-	if len(byType) > max(headingMaxPerPage, text/2) {
+	if len(byType) > max(headingMaxPerPage, text/2) || tagged(styles) {
 		return
 	}
 	for _, h := range byType {
 		setHeading(&part.Blocks[h.block], h.level)
 	}
+}
+
+// tagged reports whether the structure tree of a tagged PDF names a
+// heading of the page: its headings are then those, and none by type.
+func tagged(styles []layout.Style) bool {
+	for i := range styles {
+		if styles[i].Heading > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // headingMaxPerPage is the number of headings by type a page can have

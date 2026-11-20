@@ -41,6 +41,8 @@ type described struct {
 	// dests finds the page that a destination of the outline or of a
 	// link points at.
 	dests *destinations
+	// structure is the structure tree of a tagged PDF, nil for none.
+	structure *structure
 	// label gives the label of the page with an index from 0, nil when
 	// the file has no page labels.
 	label func(index int) string
@@ -96,6 +98,7 @@ func (f *File) describe() *described {
 		// --- page labels and outline ---
 		d.label = pageLabels(in, catalog.Get("PageLabels"))
 		d.dests = newDestinations(in, catalog, f.pages)
+		d.structure = newStructure(in, catalog)
 		if outlines := in.Resolve(catalog.Get("Outlines")); outlines.IsDict() {
 			d.outline, d.outlineCut = outline(in, d.dests, outlines, f.textLimit)
 		}

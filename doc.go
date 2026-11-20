@@ -425,7 +425,15 @@
 // (Adobe-GB1, -CNS1, -Japan1, -Korea1, -KR) gives the text where the
 // file does not. A CIDFont of type 2 whose CIDs are of no collection
 // takes the characters of its glyphs from the cmap of its TrueType
-// program, read the first time a code has no text otherwise. A glyph
+// program, or their names in its 'post' table, read the first time a
+// code has no text otherwise. A simple font without a ToUnicode CMap
+// that names no encoding has its program's: the encoding of a Type 1 or
+// CFF program, as glyph names, unless most of its letters are not their
+// codes' (names scrambled by the program that made them); for a symbolic
+// TrueType program, the glyph its symbol or Macintosh cmap gives each
+// code and that glyph's character, or WinAnsiEncoding when it reaches
+// its glyphs by Unicode only. A name in /Differences that says nothing
+// by itself is looked up in a TrueType program's 'post' table. A glyph
 // of which nothing is known is U+FFFD.
 //
 // A line with letters of a script written from right to left (Hebrew,

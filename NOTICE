@@ -4,8 +4,9 @@ Copyright (c) 2025 Andrew O'Shei. Licensed under the MIT License (see LICENSE).
 This module has no dependencies outside the Go standard library and the
 go-fast modules. It does contain tables generated from data published by
 others. The tables are in internal/charset (files ending in _gen.go),
-made by internal/charset/gen/gen.go, and internal/font/cjk.bin, made by
-internal/font/gen/gen.go; each generator names its sources. The notices
+made by internal/charset/gen/gen.go, and internal/font/cjk.bin,
+cffstrings_gen.go and macnames_gen.go, made by internal/font/gen/gen.go;
+each generator names its sources. The notices
 those sources ask to be kept follow.
 
 The encodings that the PDF specification defines (StandardEncoding,
@@ -127,3 +128,46 @@ PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
 LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
 NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+------------------------------------------------------------------------
+4. Standard strings of the Compact Font Format
+
+Source: Adobe Technical Note #5176, "The Compact Font Format
+Specification", Appendix A, as published in
+https://github.com/adobe-type-tools/font-tech-notes (pdfs/5176.CFF.pdf),
+under the Creative Commons Attribution-NoDerivatives 4.0 International
+licence.
+Used for: internal/font/cffstrings_gen.go: the glyph name each of the
+391 standard string IDs stands for, which reading a CFF font program
+requires. Only that list of names is taken, as data; no text of the
+document is in this module.
+
+------------------------------------------------------------------------
+5. Standard Macintosh glyph order
+
+Source: Lib/fontTools/ttLib/standardGlyphOrder.py of fontTools,
+https://github.com/fonttools/fonttools
+Used for: internal/font/macnames_gen.go (the 258 glyph names a TrueType
+'post' table refers to by number).
+
+MIT License
+
+Copyright (c) 2017 Just van Rossum
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

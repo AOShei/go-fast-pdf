@@ -185,8 +185,8 @@
 //     ("macro", with the name the document gives a script); entries of
 //     the document information other than the standard ones
 //     ("document_variable", as "name: value"); what the metadata packet
-//     says that the document information does not ("custom_xml", as
-//     "property: values"); and the values of fields of the form that
+//     says that Metadata does not ("custom_xml", as "property:
+//     values"); and the values of fields of the form that
 //     are on no page ("form_field", with the field's name).
 //   - The data of an XFA form, which only Adobe's viewer shows: each
 //     value filled in, as "form_field" with the path of its element as
@@ -206,6 +206,14 @@
 // one entry, not split; subject and keywords; the creating program as
 // Application and the producing one as Extra["producer"]; the dates;
 // the language of the catalog; and whether the file was encrypted. The
+// metadata packet (XMP) adds to it. Its lists of authors (dc:creator)
+// and of keywords (dc:subject) are the authors and the keywords, an
+// entry for each item as the file declares it, unless the information
+// was changed after the packet (ModDate later than xmp:MetadataDate);
+// its pdf:Keywords is one entry where it has no list. What the
+// information leaves out is taken from the packet: the title, the
+// subject (dc:description), the programs, the dates and the language.
+// Properties are known by their namespace, whatever their prefix. The
 // bookmarks become Outline, each with the page it points at and how far
 // down that page. Files attached to the document or to a page become
 // Children.

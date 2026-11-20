@@ -53,7 +53,9 @@ files made to exhaust it, and is several times faster. The tag follows that of g
   of the file's own making in the document information, form fields on no page, the filled-in data of an
   XFA form (which only Adobe's viewer shows). A page's scripts are on
   the page; the rest is in a last part of kind `stored`. Nothing is run.
-- **Outline, page labels, document information, attached files** (through `Options.Child`).
+- **Outline, page labels, document information, attached files** (through `Options.Child`). The
+  metadata packet (XMP) gives the lists of authors and keywords, an entry for each item, and fills in what
+  the document information leaves out.
 - **Warnings** for what a file has that a consumer may want to know: active content, references to
   other files, repaired input, fonts without a mapping, text from right to left given in drawing order.
 - **Limits** on input size, decoded size, the text of a document, pages, nesting and more; see

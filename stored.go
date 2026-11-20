@@ -153,8 +153,9 @@ var standardInfo = map[string]bool{
 }
 
 // stored reads what the file holds for itself and shows on no page.
-// scripts are those of the actions of the catalog and of the form.
-func stored(f *file.File, catalog syntax.Value, md *gofastcore.Metadata, scripts []script) (blocks []gofastcore.Block, cut bool) {
+// scripts are those of the actions of the catalog and of the form, and
+// pk the metadata packet, read already for the document information.
+func stored(f *file.File, catalog syntax.Value, md *gofastcore.Metadata, scripts []script, pk packet) (blocks []gofastcore.Block, cut bool) {
 	r := &reader{f: f, room: maxStoredBytes}
 	// What the document information says, and what has been said here
 	// already: a value is given once. Programs write the same title in
@@ -205,12 +206,14 @@ func stored(f *file.File, catalog syntax.Value, md *gofastcore.Metadata, scripts
 
 	// --- the metadata packet: what it says that the document
 	// information does not ---
-	if packet := f.Resolve(catalog.Get("Metadata")); packet.Kind == syntax.Stream {
-		src, ok := r.packet(packet)
-		if !ok {
+	if pk.read {
+		// The packet takes its room here, after the scripts and the
+		// information, as if it were read here.
+		if !pk.whole || 3*pk.size > r.room {
 			return blocks, true
 		}
-		for _, p := range packetProperties(src) {
+		r.room -= pk.size
+		for _, p := range pk.props {
 			var values []string
 			for _, v := range p.values {
 				if v = strings.TrimSpace(cleanString(v)); v != "" && !mechanical(v) && !within(v, said) && !slices.Contains(values, v) {
@@ -520,20 +523,39 @@ func identifier(v string) bool {
 }
 
 // within reports whether a value says nothing that the document
-// information does not: it is found in one of its strings.
+// information does not: it is found in one of its strings, or it is a
+// list, by commas or semicolons, whose every item is (the keywords of a
+// packet as one string, beside the list of them).
 func within(v string, known []string) bool {
-	for _, k := range known {
-		if k != "" && strings.Contains(k, v) {
-			return true
+	in := func(v string) bool {
+		for _, k := range known {
+			if k != "" && strings.Contains(k, v) {
+				return true
+			}
+		}
+		return false
+	}
+	if in(v) {
+		return true
+	}
+	if !strings.ContainsAny(v, ",;") {
+		return false
+	}
+	for item := range strings.FieldsFuncSeq(v, func(r rune) bool { return r == ',' || r == ';' }) {
+		if item = strings.TrimSpace(item); item != "" && !in(item) {
+			return false
 		}
 	}
-	return false
+	return true
 }
 
 // property is one property of the metadata packet with its values.
 type property struct {
 	name   string
 	values []string
+	// ns is the namespace of the name, by the declaration of its prefix
+	// in the packet: "" when there is none.
+	ns string
 }
 
 // Properties of the packet that hold what programs keep for themselves:
@@ -558,12 +580,33 @@ var packetSkipped = map[string]bool{
 func packetProperties(src string) (out []property) {
 	x := &xmlScan{s: src}
 	inDescription := false
+	// The namespaces of the prefixes, as the elements declare them. A
+	// packet declares each prefix once, or the same way each time: one
+	// map for the packet does.
+	spaces := make([][2]string, 0, 8) // prefix and namespace; a packet has a few
+	declare := func(attrs []xmlAttr) {
+		for _, a := range attrs {
+			if prefix(a.name) == "xmlns" && len(spaces) < maxVariables {
+				spaces = append(spaces, [2]string{local(a.name), a.value})
+			}
+		}
+	}
+	space := func(name string) string {
+		p := prefix(name)
+		for i := len(spaces) - 1; i >= 0 && p != ""; i-- {
+			if spaces[i][0] == p {
+				return spaces[i][1] // the last declaration of the prefix
+			}
+		}
+		return ""
+	}
 	for len(out) < maxVariables {
 		t := x.next()
 		switch t.kind {
 		case tokEnd:
 			return out
 		case tokOpen:
+			declare(t.attrs)
 			if local(t.name) == "Description" {
 				inDescription = !t.closed
 				for _, a := range t.attrs {
@@ -571,7 +614,7 @@ func packetProperties(src string) (out []property) {
 						continue
 					}
 					if v := strings.TrimSpace(a.value); v != "" {
-						out = append(out, property{name: a.name, values: []string{v}})
+						out = append(out, property{name: a.name, values: []string{v}, ns: space(a.name)})
 					}
 				}
 				continue
@@ -579,24 +622,52 @@ func packetProperties(src string) (out []property) {
 			if !inDescription || t.closed {
 				continue
 			}
-			// A property: the text in it, however it is nested.
-			p := property{name: t.name}
+			// A property: the text in it, however it is nested, a value
+			// for each element that has text (an item of a list), text
+			// and CDATA side by side being one.
+			p := property{name: t.name, ns: space(t.name)}
 			skip := packetSkipped[local(t.name)]
+			// The text of the element, which is joined only when there
+			// is more than one piece of it.
+			var value string
+			var more strings.Builder
+			pieces := 0
+			flush := func() {
+				if pieces > 1 {
+					value = more.String()
+					more.Reset()
+				}
+				if v := strings.TrimSpace(value); v != "" && !skip && len(p.values) < 256 {
+					p.values = append(p.values, v)
+				}
+				value, pieces = "", 0
+			}
 			for level := 1; level > 0; {
 				in := x.next()
 				switch in.kind {
 				case tokEnd:
 					return out
 				case tokOpen:
+					declare(in.attrs)
+					flush()
 					if !in.closed {
 						level++
 					}
 				case tokClose:
+					flush()
 					level--
 				case tokText:
-					if v := strings.TrimSpace(in.text); v != "" && !skip && len(p.values) < 256 {
-						p.values = append(p.values, v)
+					switch {
+					case skip:
+					case pieces == 0:
+						value = in.text
+					case more.Len() < maxStoredBytes:
+						if pieces == 1 {
+							more.WriteString(value)
+						}
+						more.WriteString(in.text)
 					}
+					pieces++
 				}
 			}
 			if len(p.values) > 0 {

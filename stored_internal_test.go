@@ -3,6 +3,8 @@ package gofastpdf
 import (
 	"testing"
 	"unicode/utf8"
+
+	gofastcore "github.com/AOShei/go-fast-core"
 )
 
 // The scanner of metadata packets against what XML can be: it ends,
@@ -11,8 +13,21 @@ func FuzzPacket(f *testing.F) {
 	f.Add(`<rdf:RDF><rdf:Description a:b="c &amp; d"><x:y><rdf:li>v &#x41;&#66;</rdf:li></x:y></rdf:Description></rdf:RDF>`)
 	f.Add(`<rdf:Description><p:q><![CDATA[x]]></p:q><!-- c --><?pi?><p:r/></rdf:Description>`)
 	f.Add(`<rdf:Description p:a='1' p:b="2"/><rdf:Description><p:c>&#1114112;&#xD800;&bogus;&</p:c>`)
+	f.Add(`<rdf:RDF xmlns:d="http://purl.org/dc/elements/1.1/"><rdf:Description xmlns:x="http://ns.adobe.com/xap/1.0/"><d:creator><rdf:Seq><rdf:li>a &amp; <![CDATA[b]]></rdf:li></rdf:Seq></d:creator><x:CreateDate>2025-10-21T15:09:24+02:00</x:CreateDate></rdf:Description></rdf:RDF>`)
 	f.Fuzz(func(t *testing.T, src string) {
 		props := packetProperties(src)
+		// What the document information takes of it keeps to the rules
+		// of the shared model.
+		var md gofastcore.Metadata
+		fromPacket(&md, packet{read: true, whole: true, props: props})
+		doc := gofastcore.New(Format)
+		doc.Metadata = md
+		part := gofastcore.Part{Kind: gofastcore.PartPage, Number: 1, Width: 612, Height: 792}
+		part.MarkHidden()
+		doc.Parts, doc.HiddenChecked = []gofastcore.Part{part}, gofastcore.HiddenChars
+		if err := doc.Validate(); err != nil {
+			t.Fatalf("%v: %+v", err, md)
+		}
 		if len(props) > maxVariables {
 			t.Fatalf("%d properties", len(props))
 		}

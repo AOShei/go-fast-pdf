@@ -25,7 +25,7 @@ func tablesOf(part gofastcore.Part) string {
 			for _, row := range t.Rows {
 				fmt.Fprintf(&sb, "  | %s |\n", strings.Join(row, " | "))
 			}
-		case b.Hidden != 0:
+		case b.Display != 0:
 			fmt.Fprintf(&sb, "%s hidden %q\n", b.Kind, b.Text)
 		default:
 			fmt.Fprintf(&sb, "%s %q\n", b.Kind, b.Text)

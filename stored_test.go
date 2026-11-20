@@ -63,8 +63,8 @@ func TestStoredContent(t *testing.T) {
 		t.Fatalf("%d parts", len(doc.Parts))
 	}
 	stored := doc.Parts[2]
-	if stored.Kind != gofastcore.PartStored || stored.Number != 3 || stored.Hidden != gofastcore.HiddenInvisible || !stored.Has(gofastcore.WarnTextHidden) {
-		t.Fatalf("the stored part: %s %d hidden %q, warnings %v", stored.Kind, stored.Number, stored.Hidden, stored.Warnings)
+	if stored.Kind != gofastcore.PartStored || stored.Number != 3 || stored.Display != 0 || len(stored.Warnings) != 0 {
+		t.Fatalf("the stored part: %s %d display %q, warnings %v", stored.Kind, stored.Number, stored.Display, stored.Warnings)
 	}
 	var got []string
 	for _, b := range stored.Blocks {
@@ -76,8 +76,8 @@ func TestStoredContent(t *testing.T) {
 			line += " field=" + f
 		}
 		got = append(got, line)
-		if b.Hidden&gofastcore.HiddenInvisible == 0 || b.Origin != gofastcore.OriginNative {
-			t.Errorf("%q: hidden %q, origin %s", b.Text, b.Hidden, b.Origin)
+		if b.Display != 0 || b.Origin != gofastcore.OriginNative {
+			t.Errorf("%q: display %q, origin %s", b.Text, b.Display, b.Origin)
 		}
 	}
 	want := []string{
@@ -118,11 +118,18 @@ func TestStoredContent(t *testing.T) {
 		t.Errorf("scripts on page 1: %q", onPage)
 	}
 
-	t.Run("left out with hidden text", func(t *testing.T) {
+	t.Run("the stored part is rendered only when asked for", func(t *testing.T) {
+		// A page's script is on its page, with no display reason, and is
+		// rendered with it. The stored part is left out unless asked for.
 		var sb strings.Builder
-		doc.WriteText(&sb, &gofastcore.RenderOptions{ExcludeHidden: gofastcore.HiddenAny})
-		if s := sb.String(); strings.Contains(s, "Ignore") || strings.Contains(s, "alert") || strings.Contains(s, "console") || !strings.Contains(s, "committee") {
-			t.Errorf("the text without hidden text: %q", s)
+		doc.WriteText(&sb, nil)
+		if s := sb.String(); strings.Contains(s, "Ignore") || strings.Contains(s, "alert") || !strings.Contains(s, "console") || !strings.Contains(s, "committee") {
+			t.Errorf("the text by default: %q", s)
+		}
+		sb.Reset()
+		doc.WriteText(&sb, &gofastcore.RenderOptions{Stored: true})
+		if s := sb.String(); !strings.Contains(s, "alert") {
+			t.Errorf("the text with the stored part: %q", s)
 		}
 	})
 

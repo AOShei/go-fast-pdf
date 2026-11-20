@@ -9,14 +9,14 @@ import (
 // Tables of a tagged PDF.
 //
 // The structure tree of a tagged PDF can say which content is in which
-// cell of a table (Options.Cell). The visible text of each cell is laid
-// out by itself, as a little page, and each table is one block of kind
-// table, as large as its cells together, put among the other blocks by
-// where it is. What the cells say is in Result.CellText; the grid, which
-// the structure tree gives, is made of it by the caller. Hidden text in
-// a cell is not the table's: it is laid out with the other text hidden
-// for its reasons, as anywhere else, so that a table never shows what a
-// reader does not see.
+// cell of a table (Options.Cell). The text of each cell is laid out by
+// itself, as a little page, and each table is one block of kind table,
+// as large as its cells together, put among the other blocks by where it
+// is. What the cells say is in Result.CellText; the grid, which the
+// structure tree gives, is made of it by the caller. Text in a cell that
+// has a display reason is not the table's: it is laid out with the other
+// text that has its reasons, as anywhere else, so that a block of a
+// table has none.
 
 // tables makes the blocks of the tables from b.blocks[from:to], the
 // blocks of the cells, which are in order of cell. It returns the text,

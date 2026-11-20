@@ -8,7 +8,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"unicode"
 
 	gofastcore "github.com/AOShei/go-fast-core"
 	gofastpdf "github.com/AOShei/go-fast-pdf"
@@ -36,17 +35,16 @@ func FuzzOpen(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// An error is fine. A document that breaks the contract of the
 		// shared model is not, and neither is one that depends on the
-		// number of workers. Every other input is read with the checks
-		// of DeepHidden, and with spans.
-		deep := len(data)%2 == 1
-		one, err := extractBytes(data, extractOpts{Images: true, Deep: deep, Spans: deep})
+		// number of workers. Every other input is read with spans.
+		spans := len(data)%2 == 1
+		one, err := extractBytes(data, extractOpts{Images: true, Spans: spans})
 		if errors.Is(err, errContract) {
 			t.Fatal(err)
 		}
 		if err != nil {
 			return
 		}
-		many, err := extractBytes(data, extractOpts{Images: true, Workers: 4, Deep: deep, Spans: deep})
+		many, err := extractBytes(data, extractOpts{Images: true, Workers: 4, Spans: spans})
 		if err != nil {
 			t.Fatalf("with 4 workers: %v", err)
 		}
@@ -91,7 +89,7 @@ func FuzzPage(f *testing.F) {
 		}
 		data := d.bytes()
 		var docs []*gofastcore.Document
-		for _, opts := range []gofastcore.Options{{Workers: 1}, {Workers: 3, Images: gofastcore.ImagesData}, {DeepHidden: true, Spans: true}} {
+		for _, opts := range []gofastcore.Options{{Workers: 1}, {Workers: 3, Images: gofastcore.ImagesData}, {Spans: true}} {
 			doc, err := gofastpdf.Extract(context.Background(), bytes.NewReader(data), int64(len(data)), &opts)
 			if err != nil {
 				t.Fatalf("Extract: %v", err)
@@ -130,37 +128,11 @@ func FuzzPage(f *testing.F) {
 			t.Fatalf("the lines: %s\n%s", diff, describe(&docs[0].Parts[0]))
 		}
 
-		// The checks of DeepHidden hide text, and show none but text
-		// that was taken for white on white: what is in view with them is
-		// in view without them, or flagged for its contrast alone.
-		// Letters are compared, since where words and lines end depends
-		// on what is in view.
-		seen := map[rune]int{}
-		for _, r := range visibleLetters0(docs[0], gofastcore.HiddenLowContrast) {
-			seen[r]++
-		}
-		for _, r := range visibleLetters0(docs[2], 0) {
-			if seen[r]--; seen[r] < 0 {
-				t.Fatalf("%q is in view with DeepHidden and not without:\n%s\n%s", r, describe(&docs[0].Parts[0]), describe(&docs[2].Parts[0]))
-			}
+		// Spans change no text.
+		if a, b := visibleText0(docs[0]), visibleText0(docs[2]); a != b {
+			t.Fatalf("the text differs with spans:\n%q\n%q", a, b)
 		}
 	})
-}
-
-// visibleLetters0 returns the letters and digits of the first page that
-// are in blocks without a hidden reason other than those of allow.
-func visibleLetters0(doc *gofastcore.Document, allow gofastcore.Hidden) []rune {
-	var out []rune
-	for i := range doc.Parts[0].Blocks {
-		if b := &doc.Parts[0].Blocks[i]; b.Hidden&^allow == 0 {
-			for _, r := range b.Text {
-				if unicode.IsLetter(r) || unicode.IsDigit(r) {
-					out = append(out, r)
-				}
-			}
-		}
-	}
-	return out
 }
 
 // visibleText0 returns the text blocks of the first page.
@@ -168,7 +140,7 @@ func visibleText0(doc *gofastcore.Document) string {
 	var sb strings.Builder
 	for i := range doc.Parts[0].Blocks {
 		if b := &doc.Parts[0].Blocks[i]; b.Kind == gofastcore.KindParagraph {
-			fmt.Fprintf(&sb, "[%s] %s\n", b.Hidden, b.Text)
+			fmt.Fprintf(&sb, "[%s] %s\n", b.Display, b.Text)
 		}
 	}
 	return sb.String()

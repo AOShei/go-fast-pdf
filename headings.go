@@ -159,7 +159,7 @@ func headings(part *gofastcore.Part, styles []layout.Style, s *sizes, titles []t
 	for i := range part.Blocks {
 		b := &part.Blocks[i]
 		// A numbered item can be a numbered heading; a bullet cannot.
-		item := b.Kind == gofastcore.KindListItem && b.Ordered && b.Origin == gofastcore.OriginInferred && b.Hidden == 0
+		item := b.Kind == gofastcore.KindListItem && b.Ordered && b.Origin == gofastcore.OriginInferred && b.Display == 0
 		if !bodyText(b) && !item || b.Continued || len(b.Text) > headingMaxBytes {
 			continue
 		}

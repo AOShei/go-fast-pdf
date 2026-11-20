@@ -112,13 +112,13 @@ func runningLine(text string) bool {
 // bodyText reports whether a block is text that the page sets: a
 // paragraph laid out from the page's content, in view.
 func bodyText(b *gofastcore.Block) bool {
-	return b.Kind == gofastcore.KindParagraph && b.Origin == gofastcore.OriginInferred && b.Hidden == 0 && b.Text != ""
+	return b.Kind == gofastcore.KindParagraph && b.Origin == gofastcore.OriginInferred && b.Display == 0 && b.Text != ""
 }
 
 // flowText reports whether a block is text that runs from page to page:
 // a paragraph or a list item laid out from the page's content, in view.
 func flowText(b *gofastcore.Block) bool {
-	return bodyText(b) || b.Kind == gofastcore.KindListItem && b.Origin == gofastcore.OriginInferred && b.Hidden == 0
+	return bodyText(b) || b.Kind == gofastcore.KindListItem && b.Origin == gofastcore.OriginInferred && b.Display == 0
 }
 
 // comparable is text as it is compared with the text of other pages: in

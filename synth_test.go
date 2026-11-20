@@ -93,7 +93,7 @@ func describe(p *gofastcore.Part) string {
 	for i := range p.Blocks {
 		b := &p.Blocks[i]
 		r := b.Loc.BBox
-		fmt.Fprintf(&sb, "%s [%s] (%.1f %.1f %.1f %.1f) %q\n", b.Kind, b.Hidden, r.X0, r.Y0, r.X1, r.Y1, b.Text)
+		fmt.Fprintf(&sb, "%s [%s] (%.1f %.1f %.1f %.1f) %q\n", b.Kind, b.Display, r.X0, r.Y0, r.X1, r.Y1, b.Text)
 	}
 	return sb.String()
 }
@@ -104,7 +104,7 @@ func visibleBlocks(p *gofastcore.Part) string {
 	q := *p
 	q.Blocks = nil
 	for i := range p.Blocks {
-		if p.Blocks[i].Hidden == 0 && p.Blocks[i].Kind != gofastcore.KindImage {
+		if p.Blocks[i].Display == 0 && p.Blocks[i].Kind != gofastcore.KindImage {
 			q.Blocks = append(q.Blocks, p.Blocks[i])
 		}
 	}
@@ -120,8 +120,8 @@ func texts(p *gofastcore.Part) []string {
 		switch {
 		case b.Kind == gofastcore.KindImage:
 			out = append(out, "<image>")
-		case b.Hidden != 0:
-			out = append(out, b.Hidden.String()+": "+b.Text)
+		case b.Display != 0:
+			out = append(out, b.Display.String()+": "+b.Text)
 		case b.Marker != "":
 			// As the renderers write it.
 			out = append(out, b.Marker+" "+b.Text)

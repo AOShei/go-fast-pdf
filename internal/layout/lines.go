@@ -61,7 +61,7 @@ type line struct {
 }
 
 // layoutGroup lays out the pieces of one group, which share their
-// hidden reasons: lines, then paragraphs. The blocks are appended to
+// display reasons: lines, then paragraphs. The blocks are appended to
 // b.blocks.
 func (b *builder) layoutGroup(idx []int32) {
 	first := len(b.lines)
@@ -77,7 +77,7 @@ func (b *builder) layoutGroup(idx []int32) {
 	if mixed {
 		sort.SliceStable(lines, func(i, j int) bool { return lines[i].class < lines[j].class })
 	}
-	hidden := b.pieces[idx[0]].hidden
+	display := b.pieces[idx[0]].display
 	for lo := first; lo < len(b.lines); {
 		hi := lo + 1
 		for hi < len(b.lines) && b.lines[hi].class == b.lines[lo].class {
@@ -93,7 +93,7 @@ func (b *builder) layoutGroup(idx []int32) {
 			b.lineText(&b.lines[i])
 		}
 		b.stats.Lines += len(b.lines) - lo
-		b.paragraphs(lo, hidden)
+		b.paragraphs(lo, display)
 		lo = len(b.lines)
 		b.lines = append(b.lines, rest...)
 	}

@@ -9,8 +9,6 @@ const (
 const (
 	WarnRTLVisualOrder = "pdf.rtl_visual_order"
 
-	WarnDeepHiddenIncomplete = "pdf.deep_hidden_incomplete"
-
 	WarnGlyphTextAssumed = "pdf.glyph_text_assumed"
 
 	WarnFontMissing = "pdf.font_missing"
@@ -50,8 +48,6 @@ func (f *File) Close() error
 
 func (f *File) Document(ctx context.Context) (*gofastcore.Document, error)
 
-func (f *File) HiddenChecked() gofastcore.Hidden
-
 func (f *File) Metadata() gofastcore.Metadata
 
 func (f *File) NumPages() int
@@ -86,9 +82,6 @@ type Extractor struct {
 	ObjectStreamCacheBytes int64
 
 	ObjectCacheBytes int64
-
-	MaxShapes int
-	// contains filtered or unexported fields
 }
 
 type File struct {
@@ -102,7 +95,7 @@ type Line struct {
 
 	Block int
 
-	Hidden gofastcore.Hidden
+	Display gofastcore.Display
 
 	Font string
 	Size float64

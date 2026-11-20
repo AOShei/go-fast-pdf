@@ -273,21 +273,18 @@ func scorePublicFile(path, refFile string) publicResult {
 		if diff := sameDocument(got.Doc, many.Doc); diff != "" {
 			return publicResult{Status: "invalid", Detail: clipString("1 worker and 8 workers: "+diff, 120)}
 		}
-		// And with the checks of DeepHidden and with spans: a document that
-		// keeps the contract, the same for any number of workers.
-		deep, err := extractFile(path, extractOpts{Deep: true, Spans: true})
+		// And with spans: a document that keeps the contract, the same
+		// for any number of workers.
+		spans, err := extractFile(path, extractOpts{Spans: true})
 		if err != nil {
-			return publicResult{Status: "invalid", Detail: clipString("with DeepHidden: "+err.Error(), 120)}
+			return publicResult{Status: "invalid", Detail: clipString("with spans: "+err.Error(), 120)}
 		}
-		deepMany, err := extractFile(path, extractOpts{Deep: true, Spans: true, Workers: 8})
+		spansMany, err := extractFile(path, extractOpts{Spans: true, Workers: 8})
 		if err != nil {
-			return publicResult{Status: "invalid", Detail: clipString("with DeepHidden and 8 workers: "+err.Error(), 120)}
+			return publicResult{Status: "invalid", Detail: clipString("with spans and 8 workers: "+err.Error(), 120)}
 		}
-		if diff := sameDocument(deep.Doc, deepMany.Doc); diff != "" {
-			return publicResult{Status: "invalid", Detail: clipString("with DeepHidden, 1 worker and 8 workers: "+diff, 120)}
-		}
-		if diff := deepAgainstDefault(got.Doc, deep.Doc); diff != "" {
-			return publicResult{Status: "invalid", Detail: clipString("with DeepHidden: "+diff, 160)}
+		if diff := sameDocument(spans.Doc, spansMany.Doc); diff != "" {
+			return publicResult{Status: "invalid", Detail: clipString("with spans, 1 worker and 8 workers: "+diff, 120)}
 		}
 		// The parts handed out one by one are those of the document, and
 		// the lines of every page are those of its blocks.
@@ -326,54 +323,6 @@ func wordsHash(pages []string) string {
 		h.Write([]byte{'\f'})
 	}
 	return hex.EncodeToString(h.Sum(nil))[:12]
-}
-
-// deepAgainstDefault checks what the checks of DeepHidden may change of
-// a document: they flag text, and take back the flag of text that was
-// taken for white on white. They add no text and lose none.
-//
-// Letters are compared, page by page, since blocks cannot be: hidden
-// text is laid out apart from the rest, and of text that a page prints
-// twice the copy that is kept is the one in view, which may be drawn
-// at another time than the one kept without the checks.
-//
-//   - A letter in view with the checks is in view without them, or
-//     flagged without them for its contrast alone.
-//   - A letter of the page without the checks is on the page with them.
-func deepAgainstDefault(plain, deep *gofastcore.Document) string {
-	if len(plain.Parts) != len(deep.Parts) {
-		return fmt.Sprintf("%d parts, and %d without", len(deep.Parts), len(plain.Parts))
-	}
-	letters := func(p *gofastcore.Part, keep func(gofastcore.Hidden) bool) map[rune]int {
-		m := map[rune]int{}
-		for j := range p.Blocks {
-			if b := &p.Blocks[j]; keep(b.Hidden) {
-				for _, r := range b.Text {
-					if unicode.IsLetter(r) || unicode.IsDigit(r) {
-						m[r]++
-					}
-				}
-			}
-		}
-		return m
-	}
-	any := func(gofastcore.Hidden) bool { return true }
-	for i := range plain.Parts {
-		p, d := &plain.Parts[i], &deep.Parts[i]
-		was := letters(p, func(h gofastcore.Hidden) bool { return h&^gofastcore.HiddenLowContrast == 0 })
-		for r, n := range letters(d, func(h gofastcore.Hidden) bool { return h == 0 }) {
-			if n > was[r] {
-				return fmt.Sprintf("page %d: %q is in view %d times, and %d times without the checks", p.Number, r, n, was[r])
-			}
-		}
-		all := letters(d, any)
-		for r, n := range letters(p, any) {
-			if n > all[r] {
-				return fmt.Sprintf("page %d: %q is on the page %d times, and %d times without the checks", p.Number, r, all[r], n)
-			}
-		}
-	}
-	return ""
 }
 
 // handleAgainstDocument reads a file through the native API and
@@ -439,8 +388,8 @@ func linesAgainstPart(lines []gofastpdf.Line, part *gofastcore.Part) string {
 			return fmt.Sprintf("a line of block %d after one of block %d, of %d blocks", l.Block, last, len(part.Blocks))
 		}
 		last = l.Block
-		if l.Hidden != part.Blocks[l.Block].Hidden {
-			return fmt.Sprintf("a line is %q and its block %q", l.Hidden, part.Blocks[l.Block].Hidden)
+		if l.Display != part.Blocks[l.Block].Display {
+			return fmt.Sprintf("a line is %q and its block %q", l.Display, part.Blocks[l.Block].Display)
 		}
 		perBlock[l.Block] += letters(l.Text)
 		var words []string

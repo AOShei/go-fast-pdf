@@ -54,13 +54,13 @@ func equivalenceDocs(t *testing.T) map[string][]byte {
 	}
 	docs["a page that cannot be read"] = damagedMiddlePage()
 	docs["a blank page"] = synthDoc{Pages: []synthPage{{Content: visibleLines}, {Content: ""}, {Content: visibleLines}}}.bytes()
-	var hidden []synthPage
-	for _, c := range deepCases {
+	var declared []synthPage
+	for _, c := range displayCases {
 		if len(c.objects) == 0 && c.catalog == "" && c.extra == "" {
-			hidden = append(hidden, synthPage{Content: c.before + visibleLines + c.after, Resources: c.resources, Fonts: c.fonts})
+			declared = append(declared, synthPage{Content: c.before + visibleLines + c.after, Resources: c.resources, Fonts: c.fonts})
 		}
 	}
-	docs["hidden text"] = synthDoc{Pages: hidden}.bytes()
+	docs["text with display reasons"] = synthDoc{Pages: declared}.bytes()
 	docs["images"] = synthDoc{
 		Objects: []string{grayImage},
 		Pages: []synthPage{
@@ -113,7 +113,7 @@ func TestThreeWaysToTheSameParts(t *testing.T) {
 	ctx := context.Background()
 	for name, data := range equivalenceDocs(t) {
 		for _, opts := range []gofastcore.Options{
-			{}, {Workers: 1}, {Images: gofastcore.ImagesMeta, Workers: 3}, {DeepHidden: true}, {Spans: true, Workers: 2},
+			{}, {Workers: 1}, {Images: gofastcore.ImagesMeta, Workers: 3}, {Spans: true, Workers: 2},
 			{Parts: gofastcore.PartRange{First: 2}, Workers: 2},
 		} {
 			f, err := gofastpdf.OpenBytes(data, &opts)
@@ -169,9 +169,6 @@ func TestThreeWaysToTheSameParts(t *testing.T) {
 			}
 
 			// What the handle says of the file is what the document says.
-			if got := f.HiddenChecked(); got != doc.HiddenChecked {
-				t.Errorf("%s: HiddenChecked %s, the document's %s", where, got, doc.HiddenChecked)
-			}
 			if !reflect.DeepEqual(f.Metadata(), doc.Metadata) || fmt.Sprint(f.Outline()) != fmt.Sprint(doc.Outline) {
 				t.Errorf("%s: metadata or outline differ from the document's", where)
 			}
@@ -188,7 +185,7 @@ func TestThreeWaysToTheSameParts(t *testing.T) {
 			// A document assembled by a caller from the parts handed out.
 			for _, parts := range [][]gofastcore.Part{iterated, single} {
 				own := gofastcore.New(gofastpdf.Format)
-				own.Parts, own.HiddenChecked = parts, f.HiddenChecked()
+				own.Parts = parts
 				own.Metadata, own.Outline, own.Warnings = f.Metadata(), f.Outline(), f.Warnings()
 				if err := own.Validate(); err != nil {
 					t.Errorf("%s: a document made of the parts handed out: %v", where, err)
@@ -278,60 +275,6 @@ func TestImageDataOfOnePage(t *testing.T) {
 	}
 }
 
-// TestHiddenCheckedWhileIterating: what was checked is final only when
-// every part has been produced. Here the last page paints more shapes
-// than are followed.
-func TestHiddenCheckedWhileIterating(t *testing.T) {
-	last := string(pageContent(t, manyShapes(100, "", "")))
-	data := synthDoc{Pages: []synthPage{{Content: visibleLines}, {Content: visibleLines}, {Content: last}}}.bytes()
-	deep := &gofastcore.Options{DeepHidden: true, Workers: 1}
-	all := defaultChecked | deepChecked
-	cut := defaultChecked | gofastcore.HiddenClipped
-
-	f, err := gofastpdf.BoundedExtractor(50, 0).OpenBytes(data, deep)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := f.HiddenChecked(); got != all {
-		t.Errorf("before reading: %s", got)
-	}
-	n := 0
-	for part, err := range f.Parts(context.Background()) {
-		if err != nil {
-			t.Fatal(err)
-		}
-		n++
-		incomplete := part.Has(gofastpdf.WarnDeepHiddenIncomplete)
-		want := all
-		if incomplete {
-			want = cut
-		}
-		if incomplete != (n == 3) || f.HiddenChecked() != want {
-			t.Errorf("at page %d: incomplete %v, checked %s", n, incomplete, f.HiddenChecked())
-		}
-	}
-	if got := f.HiddenChecked(); n != 3 || got != cut {
-		t.Errorf("after %d parts: %s", n, got)
-	}
-
-	// The same through one page at a time, and without DeepHidden.
-	f, _ = gofastpdf.BoundedExtractor(50, 0).OpenBytes(data, deep)
-	for n := 1; n <= 3; n++ {
-		page, _ := f.Page(n)
-		if _, err := page.Part(); err != nil {
-			t.Fatal(err)
-		}
-		if want := map[bool]gofastcore.Hidden{false: all, true: cut}[n == 3]; f.HiddenChecked() != want {
-			t.Errorf("after page %d by itself: %s", n, f.HiddenChecked())
-		}
-	}
-	f, _ = gofastpdf.BoundedExtractor(50, 0).OpenBytes(data, nil)
-	collect(t, f)
-	if got := f.HiddenChecked(); got != defaultChecked {
-		t.Errorf("without DeepHidden: %s", got)
-	}
-}
-
 // TestPartsForAnyNumberOfWorkers: the iterator hands out the same
 // parts in the same order however many pages are read at a time.
 func TestPartsForAnyNumberOfWorkers(t *testing.T) {
@@ -349,8 +292,8 @@ func TestPartsForAnyNumberOfWorkers(t *testing.T) {
 	data := synthDoc{Pages: pages}.bytes()
 	var first []gofastcore.Part
 	for _, workers := range []int{1, 2, 8, 64} {
-		for _, deep := range []bool{false, true} {
-			f, err := gofastpdf.OpenBytes(data, &gofastcore.Options{Workers: workers, DeepHidden: deep})
+		for _, spans := range []bool{false, true} {
+			f, err := gofastpdf.OpenBytes(data, &gofastcore.Options{Workers: workers, Spans: spans})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -366,9 +309,9 @@ func TestPartsForAnyNumberOfWorkers(t *testing.T) {
 			if first == nil {
 				first = parts
 			}
-			// The deep checks find nothing more on these pages.
+			// Spans add nothing on these pages: no link, one font.
 			if !reflect.DeepEqual(parts, first) {
-				t.Errorf("%d workers, DeepHidden %v: the parts differ from those of one worker", workers, deep)
+				t.Errorf("%d workers, spans %v: the parts differ from those of one worker", workers, spans)
 			}
 		}
 	}
@@ -499,8 +442,8 @@ func TestCancellation(t *testing.T) {
 			}
 			return nil
 		},
-		"Document with DeepHidden": func(ctx context.Context) error {
-			f, err := gofastpdf.OpenBytes(slow, &gofastcore.Options{DeepHidden: true})
+		"Document with spans": func(ctx context.Context) error {
+			f, err := gofastpdf.OpenBytes(slow, &gofastcore.Options{Spans: true})
 			if err != nil {
 				return err
 			}
@@ -694,19 +637,10 @@ func TestExtractorSettings(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		opts := &gofastcore.Options{Workers: 8, Images: gofastcore.ImagesMeta, DeepHidden: true}
+		opts := &gofastcore.Options{Workers: 8, Images: gofastcore.ImagesMeta, Spans: true}
 		if a, b := read(&gofastpdf.Extractor{}, data, opts), read(&gofastpdf.Extractor{ObjectCacheBytes: 1}, data, opts); sameDocument(a, b) != "" {
 			t.Errorf("%s: the document differs when no parsed object is kept: %s", name, sameDocument(a, b))
 		}
-	}
-	// MaxShapes is the bound of the deep checks.
-	shapes := manyShapes(100, "", "")
-	deep := &gofastcore.Options{DeepHidden: true}
-	if doc := read(&gofastpdf.Extractor{MaxShapes: 50}, shapes, deep); !doc.Parts[0].Has(gofastpdf.WarnDeepHiddenIncomplete) {
-		t.Error("MaxShapes 50: the page of 100 shapes is complete")
-	}
-	if doc := read(&gofastpdf.Extractor{MaxShapes: 500}, shapes, deep); doc.Parts[0].Has(gofastpdf.WarnDeepHiddenIncomplete) {
-		t.Error("MaxShapes 500: the page of 100 shapes is incomplete")
 	}
 }
 
@@ -727,4 +661,14 @@ func TestNoReader(t *testing.T) {
 	if _, err := e.Extract(context.Background(), nil, 100, &gofastcore.Options{Workers: 4}); !errors.Is(err, gofastcore.ErrMalformed) {
 		t.Errorf("as an extractor of the shared model: %v", err)
 	}
+}
+
+// damagedMiddlePage is a document of three pages whose second page is
+// not a page at all.
+func damagedMiddlePage() []byte {
+	b := pdftest.Doc(pdftest.DocOptions{}, pdftest.PageSpec{Content: visibleLines}, pdftest.PageSpec{Content: visibleLines}, pdftest.PageSpec{Content: visibleLines})
+	// Objects: 1 catalog, 2 page tree, 3 font, then content and page for
+	// each page. The second page is object 7.
+	b.Set(7, "(not a page)")
+	return b.Bytes()
 }

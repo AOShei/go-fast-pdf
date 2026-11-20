@@ -1,6 +1,7 @@
 package gofastpdf
 
 import (
+	"bytes"
 	"slices"
 	"strconv"
 	"strings"
@@ -15,13 +16,14 @@ import (
 // What a file holds and shows nowhere.
 //
 // A PDF can carry scripts, a packet of metadata in XML, entries of its
-// own making in the document information, and fields of a form that no
-// page shows. Nobody who opens the file sees any of it, which makes it a
-// place to put text for a program that reads the extracted document.
-// The shared model's rule is that such data is read as data, never run
-// or followed, bounded, and flagged as invisible with Attrs["stored"]
-// saying what it is. What belongs to a page stands on its page; what
-// belongs to the file is in one part of kind stored, after the pages.
+// own making in the document information, fields of a form that no page
+// shows, and data after its end. Nobody who opens the file sees any of
+// it, and a program that reads the extracted document reads it all the
+// same. The shared model's rule is that such data is read as data, never
+// run or followed, bounded, and marked with what it is in
+// Attrs["stored"], with no display reason: where it is says that. What
+// belongs to a page stands on its page; what belongs to the file is in
+// one part of kind stored, after the pages.
 
 const (
 	// maxStoredBytes bounds the text of the stored part, as the text of
@@ -135,7 +137,7 @@ func scriptBlocks(r *reader, scripts []script, seen map[string]bool) (blocks []g
 			continue
 		}
 		seen[src] = true
-		b := gofastcore.Block{Kind: gofastcore.KindCode, Text: src, Origin: gofastcore.OriginNative, Hidden: gofastcore.HiddenInvisible}
+		b := gofastcore.Block{Kind: gofastcore.KindCode, Text: src, Origin: gofastcore.OriginNative}
 		b.Attrs = map[string]string{gofastcore.AttrStored: gofastcore.StoredMacro, gofastcore.AttrLanguage: "javascript"}
 		if s.name != "" {
 			b.Attrs[gofastcore.AttrName] = clipName(s.name)
@@ -169,7 +171,7 @@ func stored(f *file.File, catalog syntax.Value, md *gofastcore.Metadata, scripts
 		name = clipName(strings.TrimSpace(cleanString(name)))
 		text := charset.Letters(strings.TrimSpace(name + ": " + value))
 		blocks = append(blocks, gofastcore.Block{Kind: gofastcore.KindParagraph, Text: text, Origin: gofastcore.OriginNative,
-			Hidden: gofastcore.HiddenInvisible, Attrs: map[string]string{gofastcore.AttrStored: kind}})
+			Attrs: map[string]string{gofastcore.AttrStored: kind}})
 		said = append(said, value)
 	}
 
@@ -284,7 +286,7 @@ func stored(f *file.File, catalog syntax.Value, md *gofastcore.Metadata, scripts
 				continue
 			}
 			b := x.block
-			b.Origin, b.Hidden = gofastcore.OriginNative, gofastcore.HiddenInvisible
+			b.Origin = gofastcore.OriginNative
 			b.Attrs[gofastcore.AttrStored] = gofastcore.StoredFormField
 			if !field.Has("Parent") {
 				b.Attrs[gofastcore.AttrField] = clipName(name)
@@ -296,7 +298,64 @@ func stored(f *file.File, catalog syntax.Value, md *gofastcore.Metadata, scripts
 	// --- the data of an XFA form ---
 	data, cut := xfaData(r, f.Resolve(catalog.Get("AcroForm")).Get("XFA"), fieldNames)
 	blocks = append(blocks, data...)
-	return blocks, cut
+	if cut {
+		return blocks, true
+	}
+
+	// --- what follows the end of the file ---
+	if text, _, ok := afterEnd(f.AfterEnd()); text != "" {
+		if 3*len(text) > r.room || !ok {
+			return blocks, true
+		}
+		r.room -= len(text)
+		blocks = append(blocks, gofastcore.Block{Kind: gofastcore.KindParagraph, Text: text, Origin: gofastcore.OriginNative,
+			Attrs: map[string]string{gofastcore.AttrStored: gofastcore.StoredAfterEnd}})
+	}
+	return blocks, false
+}
+
+// afterEnd reads the bytes that follow the last %%EOF of a file. Spaces,
+// line ends and zero bytes are what a file is padded with, and are no
+// data. Of anything else, n is how many bytes follow the end, and text
+// is what they say when they are text: UTF-8, or else Latin-1 with no
+// control character but tabs and line ends. Bytes of another kind (an
+// appended file, a signature) are not text: text is empty, and only
+// their number is told. ok is false when the text is longer than the
+// stored part may hold.
+func afterEnd(tail []byte) (text string, n int, ok bool) {
+	data := bytes.Trim(tail, " \t\r\n\f\x00")
+	if len(data) == 0 {
+		return "", 0, true
+	}
+	n = len(tail)
+	if len(data) > maxStoredBytes {
+		return "", n, false
+	}
+	control := func(r rune) bool { return r < 0x20 && r != '\t' && r != '\n' && r != '\r' || r >= 0x7F && r < 0xA0 }
+	switch {
+	case utf8.Valid(data) && !bytes.ContainsFunc(data, control):
+		text = string(data)
+	case latin1Text(data):
+		runes := make([]rune, len(data))
+		for i, c := range data {
+			runes[i] = rune(c)
+		}
+		text = string(runes)
+	default:
+		return "", n, true
+	}
+	return strings.TrimSpace(cleanString(text)), n, true
+}
+
+// latin1Text reports whether bytes read as Latin-1 are text: no control
+// character but tabs and line ends.
+func latin1Text(data []byte) bool {
+	for _, c := range data {
+		if c < 0x20 && c != '\t' && c != '\n' && c != '\r' || c >= 0x7F && c < 0xA0 {
+			return false
+		}
+	}
+	return true
 }
 
 // xfaName is the name of a field of the form as the data of an XFA form
@@ -458,7 +517,7 @@ func xfaValues(src string, named map[string]bool) (blocks []gofastcore.Block, cu
 				continue
 			}
 			blocks = append(blocks, gofastcore.Block{Kind: gofastcore.KindParagraph, Text: text, Origin: gofastcore.OriginNative,
-				Hidden: gofastcore.HiddenInvisible, Attrs: map[string]string{
+				Attrs: map[string]string{
 					gofastcore.AttrStored: gofastcore.StoredFormField, gofastcore.AttrField: clipName(cleanString(field))}})
 		}
 	}

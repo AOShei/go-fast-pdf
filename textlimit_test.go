@@ -233,14 +233,13 @@ func budgetedChild(calls *[]string, decode int64) func(context.Context, string, 
 			return nil, err
 		}
 		d := gofastcore.New("txt")
-		d.HiddenChecked = gofastcore.HiddenChars
 		part := gofastcore.Part{Kind: gofastcore.PartBody, Number: 1}
 		if text.Take(cost + len(buf)) {
 			part.Blocks = []gofastcore.Block{{Kind: gofastcore.KindParagraph, Text: strings.TrimSpace(string(buf))}}
 		} else {
 			part.Warn(gofastcore.SeverityError, gofastcore.WarnLimitExceeded, "cut")
 		}
-		part.MarkHidden()
+		part.Finish()
 		d.Parts = append(d.Parts, part)
 		return d, nil
 	}

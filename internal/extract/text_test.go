@@ -347,11 +347,11 @@ func TestSaveAndRestore(t *testing.T) {
 	}
 	in, out := res.Runs[0], res.Runs[1]
 	if in.Font.BaseFont != "Courier" || !approx(in.Size, 60) || !approx(in.SizeX, 30) || in.Mode != 3 ||
-		in.Fill != (Color{0, 255, 0, true}) || in.Stroke != (Color{0, 0, 255, true}) || !approx(in.X0, 100) || !approx(in.Rise, 10) {
+		!approx(in.X0, 100) || !approx(in.Rise, 10) {
 		t.Errorf("inside: %+v", in)
 	}
 	if out.Font.BaseFont != "Helvetica" || !approx(out.Size, 12) || !approx(out.SizeX, 12) || out.Mode != 0 ||
-		out.Fill != (Color{255, 0, 0, true}) || out.Stroke != black || !approx(out.X0, 72) || out.Rise != 0 {
+		!approx(out.X0, 72) || out.Rise != 0 {
 		t.Errorf("outside: %+v", out)
 	}
 
@@ -403,16 +403,6 @@ func TestFormXObjects(t *testing.T) {
 		if r := res.Runs[2]; !approx(r.X0, 65) || !approx(r.Y0, 125) || !approx(r.Size, 10) {
 			t.Errorf("inner: %+v", r)
 		}
-		// The boxes of the forms, as they lie on the page.
-		if len(res.Forms) != 2 || res.Runs[0].Form != -1 || res.Runs[1].Form != 0 || res.Runs[2].Form != 1 || res.Runs[3].Form != -1 {
-			t.Fatalf("forms %v, runs in %d %d %d %d", res.Forms, res.Runs[0].Form, res.Runs[1].Form, res.Runs[2].Form, res.Runs[3].Form)
-		}
-		if q := res.Forms[0]; !approx(q[0], 50) || !approx(q[1], 100) || !approx(q[4], 250) || !approx(q[5], 200) {
-			t.Errorf("box of the outer form: %v", q)
-		}
-		if q := res.Forms[1]; !approx(q[0], 60) || !approx(q[1], 120) || !approx(q[4], 160) || !approx(q[5], 170) {
-			t.Errorf("box of the inner form: %v", q)
-		}
 	})
 	t.Run("a form without resources uses the page's", func(t *testing.T) {
 		d := doc{
@@ -455,12 +445,8 @@ func TestFormXObjects(t *testing.T) {
 		if res.texts() != "never|out|end" {
 			t.Fatalf("%s", res.texts())
 		}
-		if r := res.Runs[1]; !approx(r.Size, 12) || r.Fill != (Color{255, 0, 0, true}) || r.Mode != 0 || r.ActualText || !approx(r.X0, 72) {
+		if r := res.Runs[1]; !approx(r.Size, 12) || r.Mode != 0 || r.ActualText || !approx(r.X0, 72) {
 			t.Errorf("after the form: %+v", r)
-		}
-		// The page's own Q still finds the page's q.
-		if r := res.Runs[2]; r.Fill != black {
-			t.Errorf("after Q: %+v", r)
 		}
 	})
 	t.Run("drawn twice", func(t *testing.T) {
@@ -564,71 +550,6 @@ func TestSizeOfSmallText(t *testing.T) {
 	}
 	if r := runs(t, "BT /F1 0 Tf 72 720 Td (nothing) Tj ET").Runs[0]; r.Size != 0 || r.SizeX != 0 {
 		t.Errorf("size 0: %v by %v", r.Size, r.SizeX)
-	}
-}
-
-func TestColour(t *testing.T) {
-	white, red := Color{255, 255, 255, true}, Color{255, 0, 0, true}
-	gray := Color{128, 128, 128, true}
-	unknown := Color{}
-	d := doc{
-		objects: []string{
-			pdftest.Stream("/N 1", "profile"), pdftest.Stream("/N 3", "profile"), pdftest.Stream("/N 4", "profile"), pdftest.Stream("/N 7", "profile"),
-		},
-		resources: "/ColorSpace << /Gray /DeviceGray /RGB /DeviceRGB /CMYK /DeviceCMYK " +
-			"/CalG [/CalGray << /WhitePoint [1 1 1] >>] /CalR [/CalRGB << /WhitePoint [1 1 1] >>] " +
-			"/Icc1 [/ICCBased 1 0 R] /Icc3 [/ICCBased 2 0 R] /Icc4 [/ICCBased 3 0 R] /Icc7 [/ICCBased 4 0 R] " +
-			"/Sep [/Separation /Spot /DeviceCMYK << >>] /Idx [/Indexed /DeviceRGB 1 <000000FFFFFF>] /Lab [/Lab << >>] /Bad 12 /Empty [] >> ",
-	}
-	for _, tc := range []struct {
-		name, ops    string
-		fill, stroke Color
-	}{
-		{"the initial colour", "", black, black},
-		{"g", "1 g", white, black},
-		{"G", "1 G", black, white},
-		{"half gray", "0.5 g 0.5 G", gray, gray},
-		{"rg", "1 0 0 rg", red, black},
-		{"RG", "1 0 0 RG", black, red},
-		{"k", "0 0 0 0 k", white, black},
-		{"K", "0 1 1 0 K", black, red},
-		{"k black", "0 0 0 1 k", black, black},
-		{"out of range", "7 g -3 G", white, black},
-		{"cs DeviceGray", "/DeviceGray cs 1 sc", white, black},
-		{"cs DeviceRGB", "/DeviceRGB cs 1 0 0 sc", red, black},
-		{"cs DeviceCMYK", "/DeviceCMYK cs 0 1 1 0 scn", red, black},
-		{"CS", "/DeviceRGB CS 1 0 0 SC /DeviceGray CS 1 SCN", black, white},
-		{"named device spaces", "/Gray cs 1 sc /RGB CS 1 0 0 SC", white, red},
-		{"named CMYK", "/CMYK cs 0 0 0 0 sc", white, black},
-		{"CalGray", "/CalG cs 1 sc", white, black},
-		{"CalRGB", "/CalR cs 1 0 0 sc", red, black},
-		{"ICCBased, one component", "/Icc1 cs 1 sc", white, black},
-		{"ICCBased, three", "/Icc3 cs 1 0 0 sc", red, black},
-		{"ICCBased, four", "/Icc4 cs 0 1 1 0 sc", red, black},
-		// Setting a space sets its first colour, which is black.
-		{"a space resets the colour", "1 0 0 rg /DeviceGray cs", black, black},
-		// Spaces whose colours are not converted.
-		{"ICCBased, seven", "/Icc7 cs 1 0 0 0 0 0 0 sc", unknown, black},
-		{"Separation", "/Sep cs 1 scn", unknown, black},
-		{"Indexed", "/Idx cs 1 sc", unknown, black},
-		{"Lab", "/Lab cs 50 0 0 sc", unknown, black},
-		{"Pattern", "/Pattern cs /P1 scn", unknown, black},
-		{"Pattern, stroke", "/Pattern CS /P1 SCN", black, unknown},
-		{"no such space", "/Nope cs 1 sc", unknown, black},
-		{"not a space", "/Bad cs 1 sc /Empty CS 1 SC", unknown, unknown},
-		// A device colour after an unknown one is known again.
-		{"known again", "/Sep cs 1 scn 1 0 0 rg", red, black},
-		{"components that are not numbers", "/DeviceRGB cs 1 /x 0 sc", unknown, black},
-		{"too few components", "/DeviceRGB cs 1 0 0 sc 1 sc", red, black},
-	} {
-		d.content = tc.ops + " BT /F1 12 Tf 72 720 Td (text) Tj ET"
-		if r := d.run(t).Runs[0]; r.Fill != tc.fill || r.Stroke != tc.stroke {
-			t.Errorf("%s: fill %+v, stroke %+v; want %+v and %+v", tc.name, r.Fill, r.Stroke, tc.fill, tc.stroke)
-		}
-	}
-	// A change of colour ends a run.
-	if res := runs(t, "BT /F1 12 Tf 72 720 Td (black) Tj 1 g (white) Tj ET"); res.texts() != "black|white" {
-		t.Errorf("%s", res.texts())
 	}
 }
 
@@ -747,33 +668,6 @@ func TestOptionalContent(t *testing.T) {
 	})
 }
 
-func TestPaintOrder(t *testing.T) {
-	// What was painted before each run, text not counted.
-	d := doc{
-		objects:   []string{pdftest.Stream("/Type /XObject /Subtype /Image /Width 1 /Height 1 /ColorSpace /DeviceGray /BitsPerComponent 8", "\x00")},
-		resources: "/XObject << /Im 1 0 R >> /Shading << /Sh << /ShadingType 1 >> >>",
-		content: "BT /F1 12 Tf 72 720 Td (first) Tj ET " +
-			"0 0 10 10 re n BT /F1 12 Tf 72 700 Td (no paint yet) Tj ET " +
-			"0 0 10 10 re f BT /F1 12 Tf 72 680 Td (after a fill) Tj ET " +
-			"0 0 m 5 5 l S q 9 0 0 9 0 0 cm /Im Do Q BT /F1 12 Tf 72 660 Td (after a stroke and an image) Tj ET " +
-			"BI /W 1 /H 1 /CS /G /BPC 8 ID \x00 EI /Sh sh 0 0 1 1 re B* BT /F1 12 Tf 72 640 Td (after three more) Tj ET",
-	}
-	res := d.run(t)
-	var got []string
-	for i, r := range res.Runs {
-		got = append(got, fmt.Sprintf("%s=%d/%v", res.text(i), r.Seq, r.PaintedBefore()))
-	}
-	want := "first=0/false,no paint yet=0/false,after a fill=1/true,after a stroke and an image=3/true,after three more=6/true"
-	if strings.Join(got, ",") != want {
-		t.Errorf("\n got %s\nwant %s", strings.Join(got, ","), want)
-	}
-	// A run does not reach across something painted between two strings.
-	res = runs(t, "BT /F1 12 Tf 72 720 Td (under) Tj ET 0 0 600 800 re f BT /F1 12 Tf 104 720 Td (over) Tj ET")
-	if res.texts() != "under|over" || res.Runs[0].Seq != 0 || res.Runs[1].Seq != 1 {
-		t.Errorf("%s", res.texts())
-	}
-}
-
 func TestRunsJoinOnlyInTheSameState(t *testing.T) {
 	// Strings that follow each other in one state are one run, however
 	// the content splits them.
@@ -781,15 +675,14 @@ func TestRunsJoinOnlyInTheSameState(t *testing.T) {
 	if res.texts() != "To be or not" || res.Runs[0].Glyphs != 10 {
 		t.Errorf("%s (%d glyphs)", res.texts(), res.Runs[0].Glyphs)
 	}
-	// Anything a reader of the runs can see ends a run.
+	// A change of size or of what the file declares about how the text
+	// is shown ends a run.
 	for name, change := range map[string]string{
 		"size":    "/F1 9 Tf",
 		"mode":    "3 Tr",
-		"colour":  "0.5 g",
 		"opacity": "/Half gs",
 		"rise":    "3 Ts",
 		"scaling": "80 Tz",
-		"paint":   "ET 0 0 1 1 re f BT /F1 12 Tf 87.34 720 Td",
 	} {
 		d := doc{resources: "/ExtGState << /Half << /ca 0.5 >> >>",
 			content: "BT /F1 12 Tf 72 720 Td (one) Tj " + change + " (two) Tj ET"}

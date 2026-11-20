@@ -31,10 +31,12 @@ files made to exhaust it, and is several times faster. The tag follows that of g
 - **Bold, italic and links** as spans, with `Options.Spans`.
 - **Anchors**: a block that a named destination (with `Options.Spans`) or an element of a tagged PDF
   names has that name in `Loc.Anchor`.
-- **Hidden text is flagged.** Nine reasons: invisible, the text layer of a scan, tiny, off the page,
-  transparent, invisible characters, low contrast, covered, clipped. `Options.DeepHidden` checks the last
-  three against the shapes a page paints. `Document.HiddenChecked` says which reasons were checked in
-  full.
+- **What the file declares about how text is shown**, in `Block.Display`: `hidden` for optional content
+  that is off and for annotations whose flags say they are not shown, `no_ink` for text drawn in render
+  mode 3 or 7 or with an opacity of 0. Nothing is judged: not colour, size, position or what covers the
+  text. Characters are kept as the file gives them.
+- **Data after the last `%%EOF`** is reported with `input.trailing_data`, and its text, where it is text,
+  is in the stored part with `Attrs["stored"]` = `after_end`.
 - **Reading a page at a time**: `Open`, `File.Parts`, `File.Page`. A file of any number of pages is read
   in bounded memory.
 - **Lines and words**: `Page.Lines`, with the font and size of each line and the box of each word.
@@ -47,9 +49,8 @@ files made to exhaust it, and is several times faster. The tag follows that of g
 - **Forms and annotations.** The appearances of annotations are read as part of the page: the values
   that filled form fields show, stamps, notes written on the page. What is written in a comment is a
   `note` block; the value of a field that shows nothing is a block with the field's name; the options of a list or
-  combo box are a `choices` note. Hidden ones are
-  flagged.
-- **What a file stores and shows nowhere** is extracted and flagged: scripts, the metadata packet, entries
+  combo box are a `choices` note. Those whose flags say they are not shown have the reason `hidden`.
+- **What a file stores and shows nowhere** is extracted: scripts, the metadata packet, entries
   of the file's own making in the document information, form fields on no page, the filled-in data of an
   XFA form (which only Adobe's viewer shows). A page's scripts are on
   the page; the rest is in a last part of kind `stored`. Nothing is run.
@@ -91,7 +92,7 @@ Every defect found in the review of v0.1.1 is closed, each with a test:
 ### Speed
 
 Against v0.1.1, on the same machine (AMD Ryzen 9 9900X), one worker, best of five runs. v0.2.0 does
-more in that time: it reads the text that v0.1.1 dropped, lays it out and checks it for hidden text.
+more in that time: it reads the text that v0.1.1 dropped and lays it out.
 
 | | v0.1.1 | v0.2.0 |
 |---|---:|---:|
@@ -109,30 +110,36 @@ What "ready for production" was taken to mean, and what each point was measured 
 
 | Property | Measured |
 |---|---|
-| Never crashes | 3,186 files and 50,569 pages read, each file in a process of its own, with the default options and with `DeepHidden`: no panic, no stack overflow, no hang. Fuzzing: 14 targets for an hour each on machines of four processors, 56 processor hours and 2.3 billion inputs, with nothing found |
+| Never crashes | 3,186 files and 50,569 pages read, each file in a process of its own, with the default options and with a second set of options: no panic, no stack overflow, no hang. Fuzzing: 14 targets for an hour each on machines of four processors, 56 processor hours and 2.3 billion inputs, with nothing found |
 | Bounded resources | In that run no file took more than 5 s of the 60 s allowed or more than 711 MiB of the 1 GiB allowed, for a process that reads the file twice and checks the results. The limits and fixed bounds are listed in SECURITY.md; cancellation is tested between pages and inside a long page. The text and the number of blocks of a document, with the files attached to it, are bounded by `MaxTextBytes` |
 | Correct text | Word-level F1 against `pdftotext`: at least 0.988 on each of the 27 born-digital Latin files of the fixture corpus (the floor is 0.98), 1.0 on each of the 8 files in other scripts (floor 0.95). Public corpus: mean F1 0.914 and order 0.849 over 1,650 files; 0.983 and 0.907 on the 200 ordinary documents of GovDocs1 |
 | Conforms to the shared model | Every document of the runs above passes `Validate` and the contract checks, and is equal after a round trip through JSON |
 | Honest failure | 21 files that need a password and 15 that are not readable PDFs return the matching error; 27 pages that cannot be read are parts with `part.failed`. No file gives text that is not valid UTF-8 |
-| Flags hidden text | Every reason has fixtures that assert the flag, the warning, and that the visible text is unchanged. The default checks cost 1.1 percent of the instructions over 3,150 files (the bound was 3), and nothing is recorded of shapes without `DeepHidden` |
+| Reports what the file declares | Every declaration has a fixture that asserts its reason and that the other text is unchanged; every former inferred case (white on white, a 1-point font, text off the page, under an image or a shape, outside a clip) has one that asserts no reason; characters that display as nothing survive |
 | Safe for concurrent use | The suite passes under the race detector on linux/amd64, linux/arm64, darwin/arm64 and windows/amd64; one open file is read from many goroutines; the result is the same for 1 and 8 workers on every file of the corpus |
 | Fast | Budgets for allocations per page are tests; the nightly job compares every benchmark with the last release on one runner; the comparison with other libraries is one command |
 | Stable API | The public surface is a snapshot under test; every exported name is documented; ten examples run as tests |
 | Standard library and go-fast modules only | Checked by CI on every change |
 
-Hidden text in the soak run, as blocks flagged (and files with such a block), of 805,532 blocks of text
-in 3,150 files:
+Display reasons in the soak run, as blocks (and files with such a block), of 795,587 blocks of text in
+3,150 files: `hidden` 89 (10), `no_ink` 34,583 (92).
 
-| Reason | Default options | With `DeepHidden` |
-|---|---:|---:|
-| `invisible` | 14,903 (59) | 14,905 (59) |
-| `text_layer` | 20,595 (62) | 20,595 (62) |
-| `tiny` | 12,632 (81) | 12,358 (81) |
-| `off_page` | 2,614 (72) | 2,630 (72) |
-| `transparent` | 6 (2) | 6 (2) |
-| `low_contrast` | 427 (39) | 2,100 (127) |
-| `occluded` | 392 (44) | 1,602 (135) |
-| `clipped` | 20 (3) | 703 (47) |
+### Changed before the release: declared, not judged
+
+The tree of v0.2.0 at first judged whether text could be seen, by nine reasons and an option for deeper
+checks. That was replaced before the release (go-fast-core schema 0.2): the library reports only what
+the file declares, and judges nothing.
+
+- `Block.Hidden`, `Line.Hidden` and the `gofastcore.Hidden` type are `Display`; the JSON key is
+  `display`. The reasons are `hidden` and `no_ink`.
+- Gone, with no replacement: the reasons `tiny`, `low_contrast`, `off_page`, `clipped`, `occluded`,
+  `invisible_chars` and `text_layer` (the text of a scan is `no_ink`); `Options.DeepHidden`,
+  `Extractor.MaxShapes`, `Document.HiddenChecked` and `File.HiddenChecked`; the warnings `text.hidden`
+  and `pdf.deep_hidden_incomplete`; the command's `-deep-hidden`. Its `-exclude-hidden` is
+  `-exclude-display`.
+- The stored part and a page's scripts have no reason; `Attrs["stored"]` says what they are. The
+  renderers leave the stored part out unless `RenderOptions.Stored` asks for it.
+- Text off the page is placed among the other text by where it is, no longer at the end of its page.
 
 ## v0.1.1 and v0.1.0 (2025-12-25)
 

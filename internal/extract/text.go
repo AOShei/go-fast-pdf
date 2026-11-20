@@ -46,30 +46,13 @@ type Run struct {
 	// shading is drawn.
 	Clip        int32
 	ClipPainted bool
-	// Fill and Stroke are the colours, and FillAlpha and StrokeAlpha
-	// the opacities (1 is opaque): those of the graphics state, times
-	// those of the transparency groups the run is drawn in.
-	Fill, Stroke           Color
+	// FillAlpha and StrokeAlpha are the opacities (1 is opaque) that the
+	// graphics state declares (/ca and /CA), times those of the
+	// transparency groups the run is drawn in.
 	FillAlpha, StrokeAlpha float32
-	// Blend is set when the run is painted with a blend mode other than
-	// the normal one or through a soft mask, or is in a transparency
-	// group that is: what a reader sees of it is then not its colour
-	// laid over what is under it.
-	Blend bool
-	// CutOff is set when the run lies wholly outside what the clipping
-	// paths in force leave of the page, as far as they are followed: no
-	// part of it is painted. It is worked out only when shapes are
-	// recorded (Options.Shapes).
-	CutOff bool
 	// OptionalOff is set when the run belongs to optional content that
 	// is switched off in the document's default configuration.
 	OptionalOff bool
-	// Seq is the number of things other than text painted on the page
-	// before the run: paths, images, shadings.
-	Seq int32
-	// Form is the index in Result.Forms of the box of the Form XObject
-	// the run is drawn in, or -1 on the page itself.
-	Form int32
 
 	// Sep is what separates the run from the one before it in the order
 	// of drawing: 0 for nothing, ' ' or '\n'.
@@ -86,10 +69,6 @@ type Run struct {
 	// their code because the font does not say what its glyph is.
 	Glyphs, Unmapped, Assumed int32
 }
-
-// PaintedBefore reports whether anything other than text was painted on
-// the page before the run.
-func (r *Run) PaintedBefore() bool { return r.Seq > 0 }
 
 // Vertical reports whether the run is written from top to bottom.
 func (r *Run) Vertical() bool { return r.Font != nil && r.Font.Vertical }
@@ -437,17 +416,13 @@ func (in *interp) showCodes(f *font.Font, raw []byte) {
 		}
 	}
 	x1, y1 := x0+tx*ge.a+ty*ge.c, y0+tx*ge.b+ty*ge.d
-	// Whether a clipping path cuts the string off altogether. Strings
-	// that it treats differently are not one run.
-	cut := in.opts.Shapes && g.region.Bounded && in.cutOff(x0, y0, x1, y1, f.Vertical)
-
 	p := &in.prev
 	// The same string printed again where it was printed last: the way
 	// bold type and shadows are faked. It is the same text once.
 	// Only a copy that is drawn the same way is left out here: one that a
 	// reader would see differently is for the layout to judge.
 	if n := len(in.runs); !replaced && n > 0 && p.valid && p.serial == ge.serial && p.font == f &&
-		in.runs[n-1].Clip == clip && in.sameVisibility(&in.runs[n-1], cut) && in.printedAgain(x0, y0, start) {
+		in.runs[n-1].Clip == clip && in.sameDisplay(&in.runs[n-1]) && in.printedAgain(x0, y0, start) {
 		in.text = in.text[:start]
 		in.unmapped -= sh.Unmapped
 		in.assumed -= sh.Assumed
@@ -497,7 +472,7 @@ func (in *interp) showCodes(f *font.Font, raw []byte) {
 	// its script is; in any other script it is such a step back, and a
 	// line of two strings that is printed again starts that way.
 	back := sep == ' ' && along < 0 || leftward && !writtenLeftward(in.text[start:])
-	if n := len(in.runs); n > 0 && sep != '\n' && !replaced && !back && !(sep == ' ' && along > ge.size) && in.runs[n-1].Clip == clip && in.continues(&in.runs[n-1], f, cut) {
+	if n := len(in.runs); n > 0 && sep != '\n' && !replaced && !back && !(sep == ' ' && along > ge.size) && in.runs[n-1].Clip == clip && in.continues(&in.runs[n-1], f) {
 		last := &in.runs[n-1]
 		if sep == ' ' && start > 0 && in.text[start-1] != ' ' && len(in.text) > start && in.text[start] != ' ' {
 			in.text = append(in.text, 0)
@@ -547,10 +522,9 @@ func (in *interp) showCodes(f *font.Font, raw []byte) {
 		Off: int32(start), Len: int32(len(in.text) - start),
 		X0: x0, Y0: y0, X1: x1, Y1: y1, LX: x0, LY: y0, Dx: ge.dx, Dy: ge.dy, Nx: ge.nx, Ny: ge.ny,
 		Size: ge.size, SizeX: ge.sizeX, Rise: g.rise * ge.lenY, SpaceWidth: ge.space, Font: f,
-		Mode: g.mode, Clip: clip, Fill: g.fill.color, Stroke: g.stroke.color,
-		FillAlpha: g.fillAlpha, StrokeAlpha: g.strokeAlpha, Blend: g.blend, CutOff: cut,
-		OptionalOff: in.offDepth > 0, Seq: in.seq, Form: in.form,
-		Sep: sep, ActualText: replaced, Glyphs: int32(sh.Glyphs), Unmapped: int32(sh.Unmapped), Assumed: int32(sh.Assumed),
+		Mode: g.mode, Clip: clip, FillAlpha: g.fillAlpha, StrokeAlpha: g.strokeAlpha,
+		OptionalOff: in.offDepth > 0,
+		Sep:         sep, ActualText: replaced, Glyphs: int32(sh.Glyphs), Unmapped: int32(sh.Unmapped), Assumed: int32(sh.Assumed),
 		MCID: in.mcid,
 	})
 	in.checkTextLimit()
@@ -722,39 +696,20 @@ func (in *interp) measure(f *font.Font) {
 // continues reports whether a string shown now, in the font f, can join
 // the run last: everything about it that a reader of the runs can see
 // is the same.
-func (in *interp) continues(last *Run, f *font.Font, cut bool) bool {
+func (in *interp) continues(last *Run, f *font.Font) bool {
 	g, ge := &in.gs, &in.geom
-	return last.Font == f && in.sameVisibility(last, cut) && !last.ActualText && last.MCID == in.mcid &&
+	return last.Font == f && in.sameDisplay(last) && !last.ActualText && last.MCID == in.mcid &&
 		closeTo(last.Size, ge.size) && closeTo(last.SizeX, ge.sizeX) && last.Rise == g.rise*ge.lenY &&
 		last.Dx*ge.dx+last.Dy*ge.dy > 0.9999
 }
 
-// cutOff reports whether a string whose baseline runs from (x0, y0) to
-// (x1, y1) lies wholly outside the clipping region: its box, the
-// baseline with the height of the glyphs above it and their depth below,
-// does not touch the box of the region.
-func (in *interp) cutOff(x0, y0, x1, y1 float64, vertical bool) bool {
-	g, ge := &in.gs, &in.geom
-	r := &g.region
-	if r.Empty() {
-		return true
-	}
-	below, above := extent(ge.size, vertical)
-	rise := g.rise * ge.lenY
-	ax, ay := ge.nx*(rise+above), ge.ny*(rise+above)
-	bx, by := ge.nx*(rise-below), ge.ny*(rise-below)
-	return min(x0+ax, x0+bx, x1+ax, x1+bx) >= r.X1 || max(x0+ax, x0+bx, x1+ax, x1+bx) <= r.X0 ||
-		min(y0+ay, y0+by, y1+ay, y1+by) >= r.Y1 || max(y0+ay, y0+by, y1+ay, y1+by) <= r.Y0
-}
-
-// sameVisibility reports whether a string shown now is drawn as the run
-// last is, in everything that decides whether a reader sees it.
-func (in *interp) sameVisibility(last *Run, cut bool) bool {
+// sameDisplay reports whether a string shown now is drawn as the run
+// last is, in everything the file declares about how it is shown: its
+// render mode, its opacities and its optional content.
+func (in *interp) sameDisplay(last *Run) bool {
 	g := &in.gs
-	return last.Mode == g.mode && last.Fill == g.fill.color && last.Stroke == g.stroke.color &&
-		last.FillAlpha == g.fillAlpha && last.StrokeAlpha == g.strokeAlpha &&
-		last.Blend == g.blend && last.CutOff == cut &&
-		last.OptionalOff == (in.offDepth > 0) && last.Seq == in.seq && last.Form == in.form
+	return last.Mode == g.mode && last.FillAlpha == g.fillAlpha && last.StrokeAlpha == g.strokeAlpha &&
+		last.OptionalOff == (in.offDepth > 0)
 }
 
 func (in *interp) checkTextLimit() {

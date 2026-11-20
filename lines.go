@@ -19,9 +19,9 @@ type Line struct {
 	// Block is the index in Part.Blocks of the paragraph the line is in,
 	// for the part that Page.Part returns for the same page.
 	Block int
-	// Hidden is the set of reasons a reader cannot see the line: those
-	// of its block.
-	Hidden gofastcore.Hidden
+	// Display is what the file declares about how the line is shown:
+	// that of its block.
+	Display gofastcore.Display
 	// Font is the name of the font that most of the line is set in,
 	// without the tag of a subset, and Size the height it is displayed
 	// at, in points.
@@ -58,7 +58,7 @@ func (p *Page) Lines() ([]Line, error) {
 		l := &out.lines[i]
 		lines[i] = Line{Text: l.Text, BBox: l.BBox, Block: l.Block, Font: l.Font, Size: l.Size}
 		if l.Block >= 0 && l.Block < len(out.part.Blocks) {
-			lines[i].Hidden = out.part.Blocks[l.Block].Hidden
+			lines[i].Display = out.part.Blocks[l.Block].Display
 		}
 		lines[i].Words = make([]Word, len(l.Words))
 		for k, w := range l.Words {

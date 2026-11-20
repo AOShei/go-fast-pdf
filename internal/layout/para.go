@@ -37,7 +37,7 @@ const (
 // blk is one block: a paragraph.
 type blk struct {
 	x0, y0, x1, y1 float64
-	hidden         gofastcore.Hidden
+	display        gofastcore.Display
 	key            int32 // its first run in the order drawn
 	size           float64
 	text           string
@@ -57,7 +57,7 @@ type blk struct {
 // than lines are on this page, the same font where they meet, edges
 // that fit one of the ways paragraphs are set, and no room at the end
 // of the upper line for the first word of the lower one.
-func (b *builder) paragraphs(first int, hidden gofastcore.Hidden) {
+func (b *builder) paragraphs(first int, display gofastcore.Display) {
 	lines := b.lines[first:]
 	n := len(lines)
 	if n == 0 {
@@ -199,7 +199,7 @@ func (b *builder) paragraphs(first int, hidden gofastcore.Hidden) {
 		if !lines[li].start {
 			continue
 		}
-		bl := blk{hidden: hidden, key: lines[li].key, size: lines[li].size, line: int32(first) + li}
+		bl := blk{display: display, key: lines[li].key, size: lines[li].size, line: int32(first) + li}
 		bl.x0, bl.y0, bl.x1, bl.y1 = lines[li].x0, lines[li].y0, lines[li].x1, lines[li].y1
 		b.out = b.out[:0]
 		var prev *line

@@ -51,9 +51,6 @@ type described struct {
 	active, external bool
 	// attachments are the files attached to the document.
 	attachments []attachment
-	// invisible is set when the document information or the outline has
-	// invisible characters.
-	invisible bool
 	// outlineCut is set when the titles of the outline are more than
 	// the limit on text, and the outline ends where the limit was
 	// reached.
@@ -63,6 +60,9 @@ type described struct {
 	// more of it than is kept.
 	stored    []gofastcore.Block
 	storedCut bool
+	// afterEnd is the number of bytes that follow the last %%EOF of the
+	// file, padding aside: 0 when nothing does.
+	afterEnd int
 }
 
 // describe reads what the document says about itself: its information,
@@ -128,8 +128,8 @@ func (f *File) describe() *described {
 
 		// --- what the file holds and shows nowhere ---
 		d.stored, d.storedCut = stored(in, catalog, md, facts.scripts, pk)
+		_, d.afterEnd, _ = afterEnd(in.AfterEnd())
 
-		d.invisible = invisibleInMetadata(&gofastcore.Document{Metadata: d.meta, Outline: d.outline})
 	})
 	return &f.desc
 }
@@ -710,29 +710,4 @@ func scanFields(f *file.File, fields syntax.Value, out *pageOut) {
 		scanActions(f, field.Get("AA"), out)
 		stack = append(stack, f.Resolve(field.Get("Kids")).Elems()...)
 	}
-}
-
-// invisibleInMetadata reports whether a string of the document that is
-// not on a page has characters that display as nothing yet can carry a
-// message. Such strings cannot be flagged as blocks are.
-func invisibleInMetadata(doc *gofastcore.Document) bool {
-	md := &doc.Metadata
-	check := []string{md.Title, md.Subject, md.Language, md.Application}
-	check = append(check, md.Authors...)
-	check = append(check, md.Keywords...)
-	for _, v := range md.Extra {
-		check = append(check, v)
-	}
-	for i := range doc.Outline {
-		check = append(check, doc.Outline[i].Title)
-	}
-	for i := range doc.Parts {
-		check = append(check, doc.Parts[i].Name)
-	}
-	for _, s := range check {
-		if gofastcore.InvisibleChars(s) != nil {
-			return true
-		}
-	}
-	return false
 }

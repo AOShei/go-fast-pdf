@@ -170,35 +170,35 @@ func ExampleFile_Document() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Println(len(doc.Parts), "parts, checked for:", doc.HiddenChecked)
+	fmt.Println(len(doc.Parts), "parts")
 	// Output:
-	// 3 parts, checked for: invisible+text_layer+tiny+off_page+transparent+invisible_chars
+	// 3 parts
 }
 
-// Hidden text is extracted and flagged. With DeepHidden, text is also
-// checked against the shapes that a page paints.
-func ExampleFile_HiddenChecked() {
-	f, err := gofastpdf.Open("testdata/fixtures/english.pdf", &gofastcore.Options{DeepHidden: true})
+// What the file declares about how text is shown is on its blocks:
+// hidden for content the file switches off, no_ink for text drawn with
+// no paint. Such text is extracted like any other.
+func ExampleFile_Parts_display() {
+	f, err := gofastpdf.Open("testdata/fixtures/english.pdf", nil)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer f.Close()
 
-	hidden := 0
+	declared := 0
 	for part, err := range f.Parts(context.Background()) {
 		if err != nil {
 			log.Fatal(err)
 		}
 		for _, block := range part.Blocks {
-			if block.Hidden != 0 {
-				hidden++
+			if block.Display != 0 {
+				declared++
 			}
 		}
 	}
-	// Final now that every part has been produced.
-	fmt.Println(hidden, "hidden blocks; checked for:", f.HiddenChecked())
+	fmt.Println(declared, "blocks with a display reason")
 	// Output:
-	// 0 hidden blocks; checked for: invisible+text_layer+tiny+low_contrast+off_page+clipped+occluded+transparent+invisible_chars
+	// 0 blocks with a display reason
 }
 
 // Settings that only PDF has are fields of an Extractor.

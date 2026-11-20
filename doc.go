@@ -35,8 +35,8 @@
 // The parts are the same whichever way they are read, with one
 // difference for image data, which Page.Part describes. What Extract
 // puts in the document as a whole, a File gives by its methods
-// Metadata, Outline, Warnings and HiddenChecked; the last two are final
-// only when every part has been produced, since a page can add to them.
+// Metadata, Outline and Warnings; the last is final only when every part
+// has been produced, since a page can add to it.
 //
 // Reading stops when the context ends, between pages and inside a page
 // whose content is long. Nothing is printed: what goes wrong is an
@@ -44,8 +44,7 @@
 //
 // Settings that only PDF has are the fields of Extractor, whose methods
 // are the functions of this package: the size one stream may decode
-// to, how much of what was parsed is kept, and how many shapes the
-// checks of DeepHidden follow on a page.
+// to, and how much of what was parsed is kept.
 //
 // The command gofastpdf, in cmd/gofastpdf, writes files as JSON,
 // Markdown or text.
@@ -69,8 +68,9 @@
 // OriginNative. Its grid is the tree's: a cell takes the first column
 // its row leaves free, RowSpan and ColSpan make merges, and the leading
 // rows in THead, or all of TH, are HeaderRows. The visible text of each
-// cell is laid out by itself; hidden text in a cell stays out of the
-// table, a block of its own as hidden text is anywhere. A table over
+// cell is laid out by itself; text in a cell that the file declares not
+// shown or drawn with no ink stays out of the table, a block of its own
+// with its reason, as such text is anywhere. A table over
 // several pages is a block on each, with the rows that are on that page,
 // and the block on a later page is Continued. A table whose text the
 // page does not bear out, a row reaching into the next or cells that do
@@ -144,13 +144,14 @@
 //     type choices (gofastcore.NoteChoices), one option per line as it
 //     is displayed, in the order of the file, with the field's name,
 //     after the block of the field's value where there is one. It is
-//     there once for a field however many widgets show it, and is not
-//     flagged for being a list: a reader who opens it sees the options.
+//     there once for a field however many widgets show it, and has no
+//     display reason for being a list: a reader who opens it sees the
+//     options.
 //
 // Both have OriginNative: the file says what they are. An annotation
-// whose flags keep it from being shown has its text, displayed or
-// written, flagged as invisible, and one whose rectangle is off the
-// page as off_page.
+// whose flags say it is not shown (Hidden, NoView), or that is in
+// optional content that is off, has its text, displayed or written,
+// with the reason hidden.
 //
 // # Anchors
 //
@@ -172,9 +173,10 @@
 // A PDF can carry text that nobody who opens it sees: scripts, a packet
 // of metadata in XML, entries of the file's own making in the document
 // information, fields of a form that no page shows. A program that reads
-// the extracted document reads it all the same, so it is extracted,
-// flagged as invisible, and marked with what it is in Attrs["stored"]
-// (gofastcore.AttrStored). Nothing of it is run or followed.
+// the extracted document reads it all the same, so it is extracted and
+// marked with what it is in Attrs["stored"] (gofastcore.AttrStored),
+// with no display reason: where it is says what it is. Nothing of it is
+// run or followed.
 //
 //   - A script that an action of a page or of an annotation on it would
 //     run is a code block on that page, after its other blocks: stored
@@ -194,6 +196,16 @@
 //     also has in an ordinary field, as a static XFA form does, is read
 //     there and not said again. The template of the form, its captions
 //     and its static text, is not read.
+//   - What follows the last %%EOF of the file, padding aside, when it is
+//     text: UTF-8, or Latin-1 without control characters ("after_end").
+//     An update added to a file ends in a %%EOF of its own, so only what
+//     follows the last one counts. The warning input.trailing_data says
+//     how many bytes follow the end, also when they are not text.
+//
+// The stored part, and a page's scripts, have no display reason: they
+// are where they are, which says what they are. The renderers of the
+// shared model leave the stored part out unless RenderOptions.Stored
+// asks for it; a page's scripts are rendered with the page.
 //
 // A value is given once, and values that say nothing in words (a yes or
 // no, a number, a date, an identifier) are left out; anything with
@@ -289,12 +301,6 @@
 //   - Child: the extractor for attached files. Without one they are
 //     listed with their names and sizes, and nothing of them is decoded.
 //
-//   - DeepHidden: also follows the shapes that a page paints and its
-//     clipping paths, and checks text against them: see "Hidden text".
-//     It changes no text. It takes a fifth more time over a mixed set
-//     of documents: a few percent on pages of text, more on pages with
-//     many shapes. The checks that always run take one percent.
-//
 //   - Spans: gives the text blocks spans of bold and italic, by the
 //     fonts of their words, and of links. A link is a link annotation of
 //     the page: the words it covers, each word as a whole, go to the
@@ -335,100 +341,40 @@
 // written from right to left is given as the page draws it, and its
 // page has pdf.rtl_visual_order.
 //
-// # Hidden text
+// # What the file declares
 //
-// Text that a reader of the file cannot see is extracted like any other
-// and flagged with the reason in Block.Hidden; a part that has such a
-// block has the text.hidden warning. Nothing is left out: the caller
-// decides, for instance with RenderOptions.ExcludeHidden. Hidden text
-// is laid out apart from the visible text, so the visible blocks are
-// what they would be if it were not in the file.
+// Text is extracted whether or not a reader sees it. Where the file
+// itself declares, by one switch or one value, that text is not shown
+// or is drawn with no ink, the text's block (Block.Display) has the
+// reason; following the file's own inheritance, through forms, groups
+// and membership dictionaries, is reading the declaration. Nothing else
+// gives a reason. The caller decides what to do with the text, for
+// instance with RenderOptions.ExcludeDisplay.
 //
-// These checks always run:
+//	hidden   content in optional content (a layer) that is off in the
+//	         document's default configuration (/OFF, /BaseState /OFF,
+//	         or a membership dictionary whose policy its layers make
+//	         off); the text of an annotation whose flags are Hidden or
+//	         NoView, and the value of such a form field
+//	no_ink   text in render mode 3, neither filled nor stroked, or 7,
+//	         clip only, when nothing is painted through it; text whose
+//	         opacity is 0 for what its mode paints (/ca for the fill,
+//	         /CA for the stroke), by its graphics state or that of the
+//	         transparency group it is drawn in
 //
-//	invisible     text in render mode 3, or in mode 7 with nothing
-//	              painted through it; content of a layer that is off
-//	text_layer    text that is not painted, or is painted and then
-//	              covered, within an image that covers at least half of
-//	              the page: the text of a scan. It is the only reason
-//	              such text gets, and its warning is at info
-//	tiny          text displayed smaller than 2 points
-//	off_page      text that lies wholly outside the visible page
-//	transparent   text whose every painted part has opacity 0, by itself
-//	              or as part of a transparency group
-//	occluded      text under an opaque image that is drawn after it
-//	clipped       text outside the box of the form it is drawn in
-//	low_contrast  text that cannot be told from white, when nothing was
-//	              painted on the page before it
+// The searchable text of a scanned page is text in render mode 3 over
+// the picture of the page: it is no_ink, and leaving out no_ink leaves
+// out a scan's text.
 //
-// With Options.DeepHidden the shapes that the page paints are followed
-// as well, and three of the reasons are checked against them:
-//
-//	low_contrast  text that cannot be told from the rectangle it stands
-//	              on, or from the white page where nothing is under it
-//	occluded      text under an opaque rectangle that is painted after
-//	              it, such as a box drawn over text to blank it out
-//	clipped       text outside what the clipping paths in force leave
-//	              of the page
-//
-// What these checks know of a shape is its box, and of one kind of
-// shape all: an upright rectangle filled with a colour, under a clip
-// that is a rectangle too. Any other path, a stroke, a shading, a
-// pattern, an image and anything painted through a soft mask is a
-// region in which something is painted that is not followed. So:
-//
-//   - The background of text is the last thing painted before it that
-//     touches it. Its contrast is judged when that is one opaque
-//     rectangle of a known colour that holds it, or nothing at all. On
-//     any other background, a photograph or a shading or a banner with
-//     round corners, it is not judged.
-//   - Nor is it judged when a region painted after the text touches it:
-//     a page can draw white text first and the dark ground afterwards,
-//     around the letters. This takes back a low_contrast that the check
-//     without shapes gives such text.
-//   - Text is covered by a rectangle that lets nothing show through:
-//     not by one painted with an opacity below 1, with a blend mode or
-//     with overprinting.
-//   - A clipping path that is no rectangle is taken as its box, which
-//     is larger: text inside the box and outside the path is not found.
-//     An image painted through such a path is not taken to cover what
-//     is under it, with DeepHidden or without.
-//
-// Text is covered, and stands on a background, with the band of its
-// small letters: from the baseline to somewhat over half the font size
-// above it. Text cannot be told from its background when the shared
-// measure of contrast says so (gofastcore.LowContrast): the two are
-// close in brightness, and close in red and in green, so that green text
-// on a red box of the same brightness, which is in plain view, is not
-// flagged. Text painted with an opacity is judged as
-// the colour that shows, and text painted with a blend mode or through
-// a soft mask is not judged.
-//
-// Document.HiddenChecked lists the reasons that were checked as fully
-// as this package can. Without DeepHidden those are invisible,
-// text_layer, tiny, off_page, transparent and invisible_chars; the last
-// three reasons of the first table are checked in part and are not
-// listed: they are flagged where the check finds them, and their
-// absence says nothing. With DeepHidden all nine are listed. A page
-// that paints more shapes than are followed (65,536, which is the field
-// Extractor.MaxShapes, or fewer where they take much work to compare)
-// gets pdf.deep_hidden_incomplete: its text is complete, what was found
-// stands, and low_contrast and occluded are then left off the list for
-// the whole document. The number is a first choice: a drawing of many
-// small paths reaches it, and following more costs up to 25 MiB on such
-// a page at four times the number. It may be raised in a later version.
-//
-// A flag is evidence that text is hidden. No flag is not evidence that
-// a document is safe. Not detected at all: a font whose glyphs draw
-// nothing or something other than what its mapping says; text inside
-// images; text hidden by a soft mask, a blend mode or a pattern; text
-// that is partly visible; text covered by other text or by a shape that
-// is no upright rectangle. The
-// document information, the outline and the names of attached files
-// are never displayed on a page and are extracted by design; a consumer
-// that feeds them to a model should treat them as it treats any text
-// from the file. What else the file stores and shows nowhere is flagged:
-// see the section above.
+// Not judged: colour against what is under the text, its size, where it
+// is on the page or outside it, what is painted over it, clipping
+// paths, soft masks and blend modes, how much of the page an image
+// covers. Text with a reason is laid out apart from the rest, so that
+// the other blocks are what they would be without it. The absence of a
+// reason says nothing about whether text can be seen. Characters are
+// kept as the file gives them, zero-width characters, tag characters
+// and bidirectional controls included. Judging text by what it may do
+// to a reader or a program is outside this package.
 //
 // # Warnings
 //
@@ -451,6 +397,12 @@
 //	                          another file, sends a form or loads data,
 //	                          a launch that names a file. A link to an
 //	                          address is an ordinary link and is not one
+//	input.trailing_data       bytes other than padding follow the last
+//	                          %%EOF of the file; the message says how
+//	                          many. Their text, where they are text, is
+//	                          in the stored part (Attrs["stored"] is
+//	                          after_end), which then has the warning;
+//	                          otherwise the document has it
 //
 // Scripts and actions are looked for on the pages that are extracted
 // and in the catalog and the form fields; no script is read.
@@ -476,9 +428,6 @@
 //	pdf.xref_entry_unreadable       data, or an entry of it, is unusable
 //	pdf.string_undecryptable        a string of an encrypted file could
 //	                                not be decrypted
-//	pdf.deep_hidden_incomplete      Options.DeepHidden was set and the
-//	                                page paints more shapes than are
-//	                                followed
 //
 // # Errors
 //

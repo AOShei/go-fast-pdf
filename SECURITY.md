@@ -13,7 +13,7 @@ The library
 
 - **runs nothing that a file contains.** JavaScript, actions and launch commands are not run, evaluated or
   followed. Their presence is reported as the warning `input.active_content`, and the text of a script is
-  extracted as a code block flagged `invisible`, so that a consumer can see it and keep it from a model.
+  extracted as a code block whose `Attrs["stored"]` is `macro`, so that a consumer can see what it is.
 - **reads the metadata packet and the data of an XFA form as text and nothing more.** It is XML: tags, attributes, text and the five
   entities of XML are read. No schema, no entity of the file's making, nothing fetched.
 - **fetches nothing and opens no other file.** A file that refers to data outside itself gets
@@ -32,8 +32,9 @@ It does **not**
 - judge what the text says. Extracted text is data from an untrusted file, and so are the document
   information, the outline, page labels and the names of attached files, which no page displays. A
   consumer that gives them to a language model should treat all of them as it treats the text.
-- prove that a document has no hidden text. The checks flag what they find; the README and the package
-  documentation list what they do not look for.
+- judge whether text can be seen, or whether it is harmful. It reports what the file declares (text in a
+  layer that is off, an annotation that is not shown, text drawn with no ink) and nothing else: colour,
+  size, position and what covers the text are not looked at. Detecting threats is outside the library.
 - decode images. With `ImagesData`, JPEG and JPEG 2000 data is handed on as it is in the file. Whatever
   decodes it next is given untrusted bytes.
 - extract attached files itself. They go to the `Child` extractor that the caller supplies, at most
@@ -62,7 +63,6 @@ Limits of `gofastpdf.Extractor`:
 | `MaxStreamBytes` | 64 MiB | A stream that decodes to more is cut there; its page gets `limit.exceeded` |
 | `ObjectStreamCacheBytes` | 64 MiB | Decoded object streams beyond it are decoded again when needed |
 | `ObjectCacheBytes` | 4 MiB | Parsed objects beyond it are let go and parsed again when needed |
-| `MaxShapes` | 65,536 | With `DeepHidden`: the page gets `pdf.deep_hidden_incomplete` |
 
 Bounds that are fixed:
 
@@ -82,7 +82,6 @@ Bounds that are fixed:
 | Annotations looked at on one page, form fields in a file | 16,384 and 65,536 |
 | Text written in the annotations, held as values by the fields, and in the scripts of one page | 16 MiB |
 | Text of what the file stores and shows on no page (the stored part) | 16 MiB; 4,096 scripts, 1,024 entries of the document information and properties of the metadata packet |
-| Work of the `DeepHidden` checks on one page | 33,554,432 comparisons |
 | Warnings kept for one file | 100 |
 
 A limit that cuts something is reported: as an error where there is no document, as `limit.exceeded` or

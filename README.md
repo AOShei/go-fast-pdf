@@ -188,6 +188,7 @@ Settings that only PDF has are fields of `gofastpdf.Extractor`. The
 - **Running headers and footers** - titles, dates and page numbers that the pages repeat in their margins
   are tagged, and the renderers leave them out; a paragraph split by a page break is joined again
 - **Headings** - from the outline where it names them, otherwise by size and weight, with levels
+- **List items** - bulleted and numbered, with their markers and how deep they are nested
 - **Hidden text** - flagged with its reason, never dropped: see below
 - **Encryption** - RC4, AES-128 and AES-256, with user and owner passwords, and files encrypted for a
   certificate, with the private key (`Options.Keys`)
@@ -317,8 +318,9 @@ file can be read from many goroutines, and the result is the same for any number
 
 ## Limitations
 
-- **Structure** - lists and tables are not recognised yet; their text is in paragraphs. Headings are found
-  by the outline and by type; a heading set like the text around it is not found
+- **Structure** - tables are not recognised yet; their text is in paragraphs. Headings are found by the
+  outline and by type; a heading set like the text around it is not found. List items are found by their
+  markers; a list set without markers is paragraphs
 - **Scripts written from right to left** - the text is given in the order the page draws it, with a warning
 - **Fonts without any mapping** - glyphs of embedded CFF and TrueType programs that the PDF does not
   describe are read by their codes or reported as unmapped; the legacy CJK encodings are not built in

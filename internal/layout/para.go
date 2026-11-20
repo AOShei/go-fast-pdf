@@ -128,9 +128,24 @@ func (b *builder) paragraphs(first int, hidden gofastcore.Hidden) {
 		}
 	}
 
+	// Which lines start a list item.
+	for li := range lines {
+		ln := &lines[li]
+		raw := b.text[ln.tlo:ln.thi]
+		ln.item, ln.gap = false, false
+		if !mayStartItem(raw) {
+			continue
+		}
+		_, _, _, _, ok := splitMarker(raw)
+		// A tab after the marker would make it a row: what tab the line
+		// has is the space after its marker.
+		ln.item, ln.gap = ok, ok && ln.tab
+	}
+
 	// Decide, from top to bottom, which of these pairs are one
 	// paragraph. Two lines under one line are two columns under a
-	// heading: neither continues it.
+	// heading: neither continues it. A line that starts a list item
+	// starts a paragraph.
 	for _, li := range order {
 		ln := &lines[li]
 		ln.pred, ln.start = -1, true
@@ -160,7 +175,7 @@ func (b *builder) paragraphs(first int, hidden gofastcore.Hidden) {
 			right = max(right, next.u1)
 			last = next
 		}
-		if continues(up, ln, before, leading, right) {
+		if !ln.item && continues(rowTab(up), rowTab(ln), before, leading, right) {
 			ln.pred, ln.start = p, false
 		}
 	}
@@ -197,6 +212,17 @@ func (b *builder) paragraphs(first int, hidden gofastcore.Hidden) {
 			b.blocks = append(b.blocks, bl)
 		}
 	}
+}
+
+// rowTab returns a line as the rule on rows sees it: the gap after the
+// marker of a list item is no tab of a row.
+func rowTab(ln *line) *line {
+	if !ln.gap {
+		return ln
+	}
+	c := *ln
+	c.tab = false
+	return &c
 }
 
 // under reports whether the line ln, which is below up, lies under it:
@@ -321,7 +347,7 @@ func (b *builder) joinLine(prev, ln *line) {
 	out := b.out
 	switch n := len(out); {
 	case n == 0:
-	case prev != nil && (prev.tab || ln.tab):
+	case prev != nil && (prev.tab && !prev.gap || ln.tab && !ln.gap):
 		// Rows stay rows.
 		out = append(out, '\n')
 	case n >= 2 && out[n-2] == 0xC2 && out[n-1] == 0xAD:

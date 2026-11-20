@@ -16,6 +16,7 @@ import (
 
 	gofastcore "github.com/AOShei/go-fast-core"
 	gofastpdf "github.com/AOShei/go-fast-pdf"
+	"github.com/AOShei/go-fast-pdf/internal/layout"
 	"github.com/AOShei/go-fast-pdf/internal/pdftest"
 )
 
@@ -84,9 +85,17 @@ func alone(p gofastcore.Part) gofastcore.Part {
 	p.Blocks = append(make([]gofastcore.Block, 0, len(p.Blocks)), p.Blocks...)
 	for i := range p.Blocks {
 		b := &p.Blocks[i]
-		if b.Kind.Furniture() || b.Kind == gofastcore.KindHeading {
-			// Headings too: a page by itself has its own size of text.
+		if b.Kind.Furniture() || b.Kind == gofastcore.KindHeading || b.Kind == gofastcore.KindListItem {
+			// Headings too: a page by itself has its own size of text. And
+			// list items, which follow from what is a header and what is a
+			// heading: their text as one, with the marker in front.
 			b.Kind, b.Level, b.Origin = gofastcore.KindParagraph, 0, gofastcore.OriginInferred
+			if b.Marker != "" {
+				b.Text, b.Marker = b.Marker+" "+b.Text, ""
+			} else if marker, rest, _, ok := layout.ListMarker(b.Text); ok {
+				b.Text = marker + " " + rest
+			}
+			b.Ordered = false
 			if b.Attrs != nil {
 				b.Attrs = maps.Clone(b.Attrs)
 				delete(b.Attrs, gofastcore.AttrLevel)

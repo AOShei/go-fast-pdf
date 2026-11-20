@@ -47,14 +47,14 @@ type extractOpts struct {
 	Password string
 	Images   bool
 	Workers  int // 0 or 1: sequential
-	// Deep asks for the checks of DeepHidden.
-	Deep bool
+	// Deep asks for the checks of DeepHidden, and Spans for spans.
+	Deep, Spans bool
 	// Unchecked skips the contract checks, for benchmarks.
 	Unchecked bool
 }
 
 func (o extractOpts) options() *gofastcore.Options {
-	opts := &gofastcore.Options{Password: o.Password, Workers: max(o.Workers, 1), DeepHidden: o.Deep}
+	opts := &gofastcore.Options{Password: o.Password, Workers: max(o.Workers, 1), DeepHidden: o.Deep, Spans: o.Spans}
 	// Said in so many words: an option left out means a block for every
 	// image.
 	opts.Images = gofastcore.ImagesNone
@@ -295,7 +295,7 @@ func checkContract(doc *gofastcore.Document, opts *gofastcore.Options) error {
 			if native := field || b.Kind == gofastcore.KindNote; native != (b.Origin == gofastcore.OriginNative) || !native && b.Origin != gofastcore.OriginInferred {
 				return fmt.Errorf("%s: a %s block with origin %s (the value of a form field: %v)", where, b.Kind, b.Origin, field)
 			}
-			if len(b.Spans) > 0 && b.Hidden&gofastcore.HiddenChars == 0 {
+			if len(b.Spans) > 0 && b.Hidden&gofastcore.HiddenChars == 0 && !opts.Spans {
 				return fmt.Errorf("%s: spans on a block without invisible characters", where)
 			}
 			// A block is on its page unless it is flagged as off it.

@@ -3,6 +3,8 @@ package layout
 import (
 	"sort"
 	"strings"
+
+	gofastcore "github.com/AOShei/go-fast-core"
 )
 
 // The lines of a page with their words, for a caller that wants more
@@ -21,6 +23,7 @@ import (
 type atom struct {
 	n              int
 	x0, y0, x1, y1 float64
+	style          gofastcore.Style // bold and italic, from the font of its run
 }
 
 // linesOf fills in res.Lines for the text blocks final, which are in
@@ -84,7 +87,16 @@ func (b *builder) atoms(dst []atom, ln *line) []atom {
 			return p.sx + (p.ex-p.sx)*f, p.sy + (p.ey-p.sy)*f
 		}
 		g := sort.Search(len(breaks), func(i int) bool { return breaks[i].Off >= r.Off })
-		cur := atom{x0: p.sx, y0: p.sy}
+		var style gofastcore.Style
+		if r.Font != nil {
+			if r.Font.Bold {
+				style |= gofastcore.StyleBold
+			}
+			if r.Font.Italic {
+				style |= gofastcore.StyleItalic
+			}
+		}
+		cur := atom{x0: p.sx, y0: p.sy, style: style}
 		for i := 0; i < len(t); i++ {
 			if !isLineSpace(t[i]) {
 				cur.n++
@@ -107,7 +119,7 @@ func (b *builder) atoms(dst []atom, ln *line) []atom {
 				cur.x1, cur.y1 = sx, sy
 				dst = append(dst, cur)
 			}
-			cur = atom{x0: ex, y0: ey}
+			cur = atom{x0: ex, y0: ey, style: style}
 		}
 		if cur.n > 0 {
 			cur.x1, cur.y1 = p.ex, p.ey
@@ -117,13 +129,13 @@ func (b *builder) atoms(dst []atom, ln *line) []atom {
 	return dst
 }
 
-// words splits the text of a line at its spaces and tabs and gives each
-// word the place of the atoms it is made of. The text of a line is the
-// text of its pieces with spaces put in and taken out, so the words use
-// up the atoms in their order.
-func (b *builder) words(text []byte, atoms []atom, ln *line) []Word {
+// eachWord splits the text of a line at its spaces and tabs and gives
+// each word, text[i:j], the place of the atoms it is made of, and the
+// style of the first. The text of a line is the text of its pieces with
+// spaces put in and taken out, so the words use up the atoms in their
+// order.
+func (b *builder) eachWord(text []byte, atoms []atom, ln *line, fn func(i, j int, box gofastcore.Rect, style gofastcore.Style)) {
 	first := &b.pieces[b.lidx[ln.lo]]
-	var out []Word
 	a, used := 0, 0 // the atom being used, and how many of its bytes are
 	for i := 0; i < len(text); {
 		if text[i] == ' ' || text[i] == '\t' {
@@ -134,13 +146,11 @@ func (b *builder) words(text []byte, atoms []atom, ln *line) []Word {
 		for j < len(text) && text[j] != ' ' && text[j] != '\t' {
 			j++
 		}
-		w := Word{Text: b.clean(text[i:j])}
 		need := j - i
-		i = j
 		if a >= len(atoms) {
 			// More text than the pieces have: no place to give.
-			w.BBox = rect(ln.x0, ln.y0, ln.x1, ln.y1)
-			out = append(out, w)
+			fn(i, j, rect(ln.x0, ln.y0, ln.x1, ln.y1), 0)
+			i = j
 			continue
 		}
 		// From where in the first atom the word begins to where in the
@@ -151,6 +161,7 @@ func (b *builder) words(text []byte, atoms []atom, ln *line) []Word {
 		}
 		sx, sy := at(a, used)
 		ex, ey := sx, sy
+		style := atoms[a].style
 		for need > 0 && a < len(atoms) {
 			take := min(need, atoms[a].n-used)
 			need -= take
@@ -164,12 +175,31 @@ func (b *builder) words(text []byte, atoms []atom, ln *line) []Word {
 		// glyphs above it and their depth below.
 		ax, ay := first.nx*first.up, first.ny*first.up
 		bx, by := first.nx*first.down, first.ny*first.down
-		w.BBox = rect(
+		fn(i, j, rect(
 			min(sx+ax, sx+bx, ex+ax, ex+bx), min(sy+ay, sy+by, ey+ay, ey+by),
-			max(sx+ax, sx+bx, ex+ax, ex+bx), max(sy+ay, sy+by, ey+ay, ey+by))
-		if strings.TrimSpace(w.Text) != "" {
-			out = append(out, w)
+			max(sx+ax, sx+bx, ex+ax, ex+bx), max(sy+ay, sy+by, ey+ay, ey+by)), style)
+		i = j
+	}
+}
+
+// words returns the words of a line.
+func (b *builder) words(text []byte, atoms []atom, ln *line) []Word {
+	var out []Word
+	b.eachWord(text, atoms, ln, func(i, j int, box gofastcore.Rect, style gofastcore.Style) {
+		if w := b.clean(text[i:j]); strings.TrimSpace(w) != "" {
+			out = append(out, Word{Text: w, BBox: box, Style: style})
+		}
+	})
+	return out
+}
+
+// printableASCII reports whether t is all printable ASCII, which
+// cleaning leaves as it is.
+func printableASCII(t []byte) bool {
+	for _, c := range t {
+		if c < 0x20 || c >= 0x7F {
+			return false
 		}
 	}
-	return out
+	return true
 }

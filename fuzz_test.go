@@ -86,7 +86,7 @@ func FuzzPage(f *testing.F) {
 		}
 		data := d.bytes()
 		var docs []*gofastcore.Document
-		for _, opts := range []gofastcore.Options{{Workers: 1}, {Workers: 3, Images: gofastcore.ImagesData}, {DeepHidden: true}} {
+		for _, opts := range []gofastcore.Options{{Workers: 1}, {Workers: 3, Images: gofastcore.ImagesData}, {DeepHidden: true, Spans: true}} {
 			doc, err := gofastpdf.Extract(context.Background(), bytes.NewReader(data), int64(len(data)), &opts)
 			if err != nil {
 				t.Fatalf("Extract: %v", err)

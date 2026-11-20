@@ -64,6 +64,9 @@ type Font struct {
 	// font's: its descriptor says so (a weight of 600 or more, or the
 	// flag that forces bold), or its name does.
 	Bold bool
+	// Italic is set for a font whose letters slant: its name says so, or
+	// its descriptor does (an italic angle, or the flag of italic fonts).
+	Italic bool
 
 	// A simple font: the text and the advance of each of its 256 codes.
 	// An empty text is a code with no mapping, unless the code is blank:
@@ -303,6 +306,39 @@ func bold(f *file.File, dict syntax.Value, name string) bool {
 	return flags&forceBold != 0
 }
 
+// italic reports whether a font is italic: by its name, or by the
+// italic angle or the flags of its descriptor (that of its descendant,
+// for a composite font).
+func italic(f *file.File, dict syntax.Value, name string) bool {
+	// Times-Italic, Helvetica-Oblique, Arial-ItalicMT, MinionPro-It,
+	// MinionPro-BoldIt, CMTI10 and CMSL10 (TeX's italic and slanted).
+	if containsFold(name, "italic") || containsFold(name, "oblique") || strings.HasSuffix(name, "It") || strings.Contains(name, "-It") {
+		return true
+	}
+	if i := strings.IndexByte(name, '+'); i >= 0 {
+		name = name[i+1:]
+	}
+	if strings.HasPrefix(name, "CMTI") || strings.HasPrefix(name, "CMSL") || strings.HasPrefix(name, "CMMI") {
+		return true
+	}
+	descriptor := f.Resolve(dict.Get("FontDescriptor"))
+	if !descriptor.IsDict() {
+		if kids := f.Resolve(dict.Get("DescendantFonts")).Elems(); len(kids) > 0 {
+			descriptor = f.Resolve(f.Resolve(kids[0]).Get("FontDescriptor"))
+		}
+	}
+	if !descriptor.IsDict() {
+		return false
+	}
+	// A slant of a degree or two is how some upright fonts are drawn.
+	if angle, ok := f.Resolve(descriptor.Get("ItalicAngle")).Float(); ok && (angle <= -4 || angle >= 4) {
+		return true
+	}
+	const italicFlag = 1 << 6
+	flags, _ := f.Resolve(descriptor.Get("Flags")).Integer()
+	return flags&italicFlag != 0
+}
+
 // containsFold reports whether s contains the lower-case ASCII word w,
 // in any case, without making a copy of s.
 func containsFold(s, w string) bool {
@@ -360,6 +396,7 @@ func parse(f *file.File, dict syntax.Value) *Font {
 	}
 
 	font.Bold = bold(f, dict, font.BaseFont)
+	font.Italic = italic(f, dict, font.BaseFont)
 	if f.Resolve(dict.Get("Subtype")).IsName("Type0") {
 		font.parseComposite(f, dict, toUni)
 		if font.toUni != nil {

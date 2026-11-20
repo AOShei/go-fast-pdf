@@ -59,6 +59,10 @@ type Options struct {
 	// Result.Lines. The words are placed exactly when the content was
 	// read with extract.Options.Words.
 	Lines bool
+	// Spans gives the text blocks spans of bold and italic, and of the
+	// links of the page, Links.
+	Spans bool
+	Links []Link
 }
 
 // Result is the page as blocks.
@@ -120,6 +124,9 @@ type Line struct {
 type Word struct {
 	Text string
 	BBox gofastcore.Rect
+	// Style is bold and italic as the font of the word's first letter
+	// is.
+	Style gofastcore.Style
 }
 
 // Stats counts what the layout did. It is for measurement.
@@ -175,6 +182,9 @@ type builder struct {
 	grid, regions *grid
 	out           []byte
 	stats         Stats
+	// The words of a block and their atoms, for its spans.
+	atomBuf   []atom
+	placedBuf []placed
 
 	controls   int
 	rtl        bool
@@ -267,6 +277,9 @@ func Build(page Page, c *extract.Content, opts Options) Result {
 	}
 	if opts.Lines {
 		b.linesOf(&res, final)
+	}
+	if opts.Spans {
+		b.spansOf(&res, final)
 	}
 	if opts.Images && len(c.Images) > 0 {
 		b.placeImages(&res)
@@ -382,7 +395,12 @@ func (b *builder) trim() {
 	if b.regions != nil && cap(b.regions.nodes) > keep {
 		b.regions.nodes = nil
 	}
-	// The blocks hold strings: they are not kept alive by the pool.
+	// The words of spans hold the targets of links, and the blocks their
+	// text: they are not kept alive by the pool.
+	clear(b.placedBuf[:cap(b.placedBuf)])
+	if cap(b.atomBuf) > keep || cap(b.placedBuf) > keep {
+		b.atomBuf, b.placedBuf = nil, nil
+	}
 	clear(b.blocks[:cap(b.blocks)])
 	if cap(b.blocks) > keep {
 		b.blocks, b.bidx = nil, nil

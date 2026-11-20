@@ -198,6 +198,8 @@ type imageRef struct {
 type want struct {
 	// lines asks for the lines of the page with their words.
 	lines bool
+	// dests finds where the links of the page go, with Options.Spans.
+	dests *destinations
 	// stop, when set, is looked at as the page is read: once it holds
 	// true the page is abandoned, and what is returned for it is to be
 	// thrown away.
@@ -220,10 +222,17 @@ func (e *Extractor) page(f *file.File, p *file.Page, opts *gofastcore.Options, w
 
 	var lay layout.Result
 	images := 0
+	// Spans are made from the words of the lines, placed by their share
+	// of their run: near enough to tell which words a link covers.
+	var links []layout.Link
+	if opts.Spans {
+		links = pageLinks(f, p, m, width, height, w.dests)
+	}
 	res := extract.Page(f, p, extract.Options{Shapes: opts.DeepHidden, MaxShapes: e.MaxShapes, Words: w.lines, Stop: w.stop, Use: func(c *extract.Content) {
 		lay = layout.Build(layout.Page{M: m, Width: width, Height: height}, c, layout.Options{
 			Images: opts.Images != gofastcore.ImagesNone, NoHiddenChecks: e.noHiddenChecks,
 			Deep: opts.DeepHidden, MaxDeepSteps: e.maxDeepSteps, Lines: w.lines,
+			Spans: opts.Spans, Links: links,
 		})
 		images = len(c.Images)
 		for k, i := range lay.Images {

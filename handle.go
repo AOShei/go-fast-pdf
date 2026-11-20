@@ -416,7 +416,7 @@ func (st *state) charge(part *gofastcore.Part) bool {
 	}
 	kept := 0
 	for ok && kept < len(part.Blocks) {
-		if ok = st.text.Take(gofastcore.BlockCost + len(part.Blocks[kept].Text)); ok {
+		if ok = st.text.Take(blockBytes(&part.Blocks[kept])); ok {
 			kept++
 		}
 	}
@@ -464,6 +464,9 @@ func (f *File) note(out *pageOut) {
 // ctx if that ended it.
 func (f *File) each(ctx context.Context, w want, fn func(out *pageOut) bool) error {
 	pages := f.pages[f.lo:f.hi]
+	if f.opts.Spans {
+		w.dests = f.describe().dests
+	}
 	workers := f.opts.Workers
 	if workers <= 0 {
 		workers = runtime.GOMAXPROCS(0)
@@ -674,6 +677,9 @@ func (p *Page) read(w want) (pageOut, error) {
 	f := p.f
 	if f.closed.Load() {
 		return pageOut{}, ErrClosed
+	}
+	if f.opts.Spans {
+		w.dests = f.describe().dests
 	}
 	out := f.e.page(f.f, p.p, &f.opts, w)
 	st := f.newState()

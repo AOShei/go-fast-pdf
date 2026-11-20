@@ -60,6 +60,10 @@ type Font struct {
 	// LongestText is the length in bytes of the longest text that one
 	// character code of the font stands for.
 	LongestText int
+	// rtl says whether a code of the font can stand for a letter of a
+	// script written from right to left: 0 before it is known, 1 for no,
+	// 2 for yes (MayRightToLeft).
+	rtl atomic.Uint32
 	// Bold is set for a font whose strokes are heavier than a regular
 	// font's: its descriptor says so (a weight of 600 or more, or the
 	// flag that forces bold), or its name does.
@@ -411,6 +415,114 @@ func parse(f *file.File, dict syntax.Value) *Font {
 		font.index()
 	}
 	return font
+}
+
+// The scripts written from right to left: Hebrew, Arabic and the others
+// of U+0590 to U+08FF, their presentation forms, and those beyond the
+// Basic Multilingual Plane.
+var rightToLeftRanges = [][2]rune{{0x0590, 0x08FF}, {0xFB1D, 0xFDFF}, {0xFE70, 0xFEFC}, {0x10800, 0x10FFF}, {0x1E800, 0x1EFFF}}
+
+// MayRightToLeft reports whether a code of the font can stand for a
+// letter of a script written from right to left: text in a font without
+// one is not looked at for such letters. It is worked out at the first
+// asking, which is for a font that has shown text of more bytes than
+// codes.
+func (f *Font) MayRightToLeft() bool {
+	switch f.rtl.Load() {
+	case 1:
+		return false
+	case 2:
+		return true
+	}
+	may := f.unicode != 0
+	if c := f.toUni; c != nil && !may {
+		// The texts of the entries, all at once; then the ranges whose
+		// last character grows with the code.
+		may = HasRightToLeft(c.text)
+		for i := range c.entries {
+			e := &c.entries[i]
+			if may {
+				break
+			}
+			if e.kind != kindIncr || e.tlen == 0 || int(e.val)+int(e.tlen) > len(c.text) {
+				continue
+			}
+			t := c.text[e.val : e.val+uint32(e.tlen)]
+			r := rune(t[len(t)-1])
+			if r >= 0x80 {
+				r, _ = utf8.DecodeLastRune(t)
+			}
+			may = rangeRightToLeft(r, r+rune(min(e.hi-e.lo, 1<<21)))
+		}
+	}
+	if !f.Composite {
+		for _, t := range f.text {
+			if may = may || HasRightToLeft(t); may {
+				break
+			}
+		}
+	}
+	f.rtl.Store(1 + uint32(btoi(may)))
+	return may
+}
+
+func btoi(v bool) int {
+	if v {
+		return 1
+	}
+	return 0
+}
+
+// HasRightToLeft reports whether t has a letter of a script written from
+// right to left (rightToLeftRanges). Those letters are a few ranges of
+// UTF-8 sequences, told by their first two or three bytes: text is
+// shown by the thousand strings, and nothing is decoded.
+func HasRightToLeft[T string | []byte](t T) bool {
+	for i := 0; i < len(t); i++ {
+		c := t[i]
+		if c < 0xD6 {
+			continue
+		}
+		var b, b2 byte
+		if i+1 < len(t) {
+			b = t[i+1]
+		}
+		if i+2 < len(t) {
+			b2 = t[i+2]
+		}
+		switch {
+		case c == 0xD6: // U+0590 to U+05BF
+			if b >= 0x90 {
+				return true
+			}
+		case c <= 0xDF: // U+05C0 to U+07FF
+			return true
+		case c == 0xE0: // U+0800 to U+08FF
+			if b >= 0xA0 && b <= 0xA3 {
+				return true
+			}
+		case c == 0xEF: // U+FB1D to U+FDFF, U+FE70 to U+FEFC
+			if b == 0xAC && b2 >= 0x9D || b >= 0xAD && b <= 0xB7 || b == 0xB9 && b2 >= 0xB0 || b == 0xBA || b == 0xBB && b2 <= 0xBC {
+				return true
+			}
+		case c == 0xF0: // U+10800 to U+10FFF, U+1E800 to U+1EFFF
+			if (b == 0x90 || b == 0x9E) && b2 >= 0xA0 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// rangeRightToLeft reports whether the characters lo to hi meet such a
+// script.
+func rangeRightToLeft(lo, hi rune) bool {
+	for _, g := range rightToLeftRanges {
+		if lo <= g[1] && hi >= g[0] {
+			return true
+		}
+	}
+	return false
 }
 
 // index fills the table of one-byte texts from the texts of the codes.

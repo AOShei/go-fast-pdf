@@ -95,6 +95,23 @@ func isLineSpace(c byte) bool {
 // atoms appends the stretches of text without a space that the pieces
 // of a line have, in the order of the line.
 func (b *builder) atoms(dst []atom, ln *line) []atom {
+	if ln.bidi {
+		// The units, in the order they are read: one read from right to
+		// left runs from its right end.
+		b.bidiUnits(ln)
+		for i := range b.units {
+			u := &b.units[i]
+			if u.put != 0 || u.hi-u.lo == 1 && isLineSpace(b.c.Text[u.lo]) {
+				continue
+			}
+			a := atom{n: int(u.hi - u.lo), x0: u.x0, y0: u.y0, x1: u.x1, y1: u.y1, style: u.style}
+			if u.level%2 == 1 {
+				a.x0, a.y0, a.x1, a.y1 = u.x1, u.y1, u.x0, u.y0
+			}
+			dst = append(dst, a)
+		}
+		return dst
+	}
 	breaks := b.c.Breaks
 	for k := ln.lo; k < ln.hi; k++ {
 		p := &b.pieces[b.lidx[k]]

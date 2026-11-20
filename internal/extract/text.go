@@ -4,6 +4,8 @@ import (
 	gofastcore "github.com/AOShei/go-fast-core"
 	"github.com/AOShei/go-fast-pdf/internal/content"
 	"github.com/AOShei/go-fast-pdf/internal/font"
+	"slices"
+	"sort"
 	"unicode/utf8"
 )
 
@@ -20,6 +22,9 @@ type Run struct {
 	// LX, LY is where the last string of the run starts. What separates
 	// the run from the next one depends on it (see Separator).
 	LX, LY float64
+	// RX, RY is where the first string ends of a run of text drawn from
+	// right to left (Back).
+	RX, RY float64
 	// Dx, Dy is the direction of writing, a unit vector. Nx, Ny is the
 	// unit vector across the line, towards the top of the glyphs.
 	Dx, Dy, Nx, Ny float64
@@ -68,6 +73,11 @@ type Run struct {
 	// many of them have no text, and Assumed how many have the text of
 	// their code because the font does not say what its glyph is.
 	Glyphs, Unmapped, Assumed int32
+	// Back is set for a run of text written from right to left whose
+	// strings were drawn one after the other leftwards: it reads from
+	// RX, RY to LX, LY. RTL is set when the run has a letter of a script
+	// written from right to left.
+	Back, RTL bool
 }
 
 // Vertical reports whether the run is written from top to bottom.
@@ -108,6 +118,11 @@ type Gap struct {
 	Off int32
 	// Width is how far apart the strings are, along the line.
 	Width float32
+}
+
+// Cluster is a stretch of Content.Text that one glyph stands for.
+type Cluster struct {
+	Off, Len int32
 }
 
 // Separator says what lies between two runs when next is drawn after
@@ -254,9 +269,11 @@ func (p *lineEnd) separator(x0, y0, x1, y1, dx, dy, size float64) byte {
 	// At or before the start of the last string. Text written from
 	// right to left does that with every string: then this one ends
 	// where the last one began, give or take the kerning of the smaller
-	// of the two.
+	// of the two, and starts before it by its own width or more than
+	// the slack, which a narrow letter (yod, a full stop) is not.
 	before := (p.sx-x1)*p.dx + (p.sy-y1)*p.dy
-	if fromStart < -slack && before <= gap && before >= -rightToLeftSlack*min(p.em(), size) {
+	width := (x1-x0)*p.dx + (y1-y0)*p.dy
+	if fromStart < -min(slack, 0.5*width) && before <= gap && before >= -rightToLeftSlack*min(p.em(), size) {
 		p.leftward = true
 		return 0
 	}
@@ -336,7 +353,12 @@ func (in *interp) showCodes(f *font.Font, raw []byte) {
 	// for their advance only: the first string shown stands for the
 	// replacement text and the others for nothing.
 	start := len(in.text)
+	clustersFrom := len(in.clusters)
 	var sh font.Shown
+	// rtl is set for a string with letters written from right to left,
+	// which take more bytes than glyphs: text of one byte a glyph is not
+	// looked at.
+	rtl := false
 	replaced, first := in.inActual > 0, false
 	if f.LongestText > longGlyphBytes {
 		in.res.LongGlyphText++
@@ -368,6 +390,16 @@ func (in *interp) showCodes(f *font.Font, raw []byte) {
 		if in.opts.Words {
 			in.markSpaces(f, raw)
 		}
+		// Glyphs of text written from right to left that stand for more
+		// than one character: rare, and looked for only where the text
+		// has more characters than codes and is in such a script.
+		if len(in.text)-start > sh.Glyphs && f.MayRightToLeft() && font.HasRightToLeft(in.text[start:]) {
+			rtl = true
+			in.markClusters(f, raw, start)
+		}
+	}
+	if first {
+		rtl = font.HasRightToLeft(in.text[start:])
 	}
 	// The spaces of this string, when words are asked for. Nothing of
 	// this is done otherwise: strings are shown by the thousand.
@@ -424,6 +456,7 @@ func (in *interp) showCodes(f *font.Font, raw []byte) {
 	if n := len(in.runs); !replaced && n > 0 && p.valid && p.serial == ge.serial && p.font == f &&
 		in.runs[n-1].Clip == clip && in.sameDisplay(&in.runs[n-1]) && in.printedAgain(x0, y0, start) {
 		in.text = in.text[:start]
+		in.clusters = in.clusters[:clustersFrom]
 		in.unmapped -= sh.Unmapped
 		in.assumed -= sh.Assumed
 		p.sx, p.sy = x0, y0
@@ -439,6 +472,7 @@ func (in *interp) showCodes(f *font.Font, raw []byte) {
 	if in.opts.Words {
 		endX, endY = p.ex, p.ey // where the string before this one ended
 	}
+	jointX, jointY := p.ex, p.ey
 	p.font, p.textLo, p.textHi = f, int32(start), int32(len(in.text))
 	p.sx, p.sy, p.ex, p.ey = x0, y0, x1, y1
 	if p.serial != ge.serial || !p.valid {
@@ -471,13 +505,22 @@ func (in *interp) showCodes(f *font.Font, raw []byte) {
 	// one began is the next one of text written from right to left, if
 	// its script is; in any other script it is such a step back, and a
 	// line of two strings that is printed again starts that way.
-	back := sep == ' ' && along < 0 || leftward && !writtenLeftward(in.text[start:])
+	back := sep == ' ' && along < 0 || leftward && !font.HasRightToLeft(in.text[start:])
+	// A line with letters written from right to left is cut where its
+	// strings were joined across gaps when it ends (endLine).
+	if sep == '\n' || !p.valid {
+		in.endLine()
+	}
+	in.rtlLine = in.rtlLine || rtl
 	if n := len(in.runs); n > 0 && sep != '\n' && !replaced && !back && !(sep == ' ' && along > ge.size) && in.runs[n-1].Clip == clip && in.continues(&in.runs[n-1], f) {
 		last := &in.runs[n-1]
 		if sep == ' ' && start > 0 && in.text[start-1] != ' ' && len(in.text) > start && in.text[start] != ' ' {
 			in.text = append(in.text, 0)
 			copy(in.text[start+1:], in.text[start:])
 			in.text[start] = ' '
+			for i := clustersFrom; i < len(in.clusters); i++ {
+				in.clusters[i].Off++
+			}
 			in.gaps = append(in.gaps, Gap{Off: int32(start), Width: float32(along)})
 			if in.opts.Words {
 				in.breaks = append(in.breaks, Break{Off: int32(start), X0: endX, Y0: endY, X1: x0, Y1: y0})
@@ -501,7 +544,17 @@ func (in *interp) showCodes(f *font.Font, raw []byte) {
 			}
 			in.placeMarks(marks, start, x0, y0, f.Vertical)
 		}
+		// Noted where it can matter: on a line that has shown letters
+		// written from right to left, and for spaces, punctuation and
+		// numbers, which such a line can draw before its letters.
+		if sep == ' ' && len(in.joints) < maxRunsPerPage && (in.rtlLine || !hasLetter(in.text[start:])) {
+			in.joints = append(in.joints, joint{run: int32(n - 1), off: int32(start), ex: jointX, ey: jointY, sx: x0, sy: y0})
+		}
 		last.Len = int32(len(in.text)) - last.Off
+		if leftward && !last.Back {
+			last.Back, last.RX, last.RY = true, last.X1, last.Y1
+		}
+		last.RTL = last.RTL || rtl
 		last.X1, last.Y1 = x1, y1
 		last.LX, last.LY = x0, y0
 		last.Glyphs += int32(sh.Glyphs)
@@ -512,6 +565,7 @@ func (in *interp) showCodes(f *font.Font, raw []byte) {
 	}
 	if len(in.runs) >= maxRunsPerPage {
 		in.text = in.text[:start]
+		in.clusters = in.clusters[:clustersFrom]
 		in.tooMuchText()
 		return
 	}
@@ -525,23 +579,77 @@ func (in *interp) showCodes(f *font.Font, raw []byte) {
 		Mode: g.mode, Clip: clip, FillAlpha: g.fillAlpha, StrokeAlpha: g.strokeAlpha,
 		OptionalOff: in.offDepth > 0,
 		Sep:         sep, ActualText: replaced, Glyphs: int32(sh.Glyphs), Unmapped: int32(sh.Unmapped), Assumed: int32(sh.Assumed),
-		MCID: in.mcid,
+		MCID: in.mcid, RTL: rtl,
 	})
 	in.checkTextLimit()
 }
 
-// writtenLeftward reports whether text has a letter of a script that is
-// written from right to left.
-func writtenLeftward(text []byte) bool {
-	for i := 0; i < len(text); {
-		r, n := utf8.DecodeRune(text[i:])
-		i += n
-		if r >= 0x0590 && r <= 0x08FF || r >= 0xFB1D && r <= 0xFDFF || r >= 0xFE70 && r <= 0xFEFC ||
-			r >= 0x10800 && r <= 0x10FFF || r >= 0x1E800 && r <= 0x1EFFF {
+// hasLetter reports whether text has a letter, of ASCII or not: what is
+// not ASCII is taken for one, unread.
+func hasLetter(text []byte) bool {
+	for _, c := range text {
+		if c >= 0x80 || c|0x20 >= 'a' && c|0x20 <= 'z' {
 			return true
 		}
 	}
 	return false
+}
+
+// joint is where a string was joined to the run before it across a gap,
+// on the line being drawn: the run, where the string's text begins, where
+// the string before it ended and where it begins.
+type joint struct {
+	run            int32
+	off            int32
+	ex, ey, sx, sy float64
+}
+
+// endLine ends the line being drawn. If it has letters written from
+// right to left, its runs are cut where strings were joined across gaps:
+// such a line can draw its spaces and punctuation before its letters,
+// and it is read by where its pieces stand (the layout's bidi.go).
+func (in *interp) endLine() {
+	if in.rtlLine {
+		for i := len(in.joints) - 1; i >= 0; i-- {
+			j := &in.joints[i]
+			if int(j.run) >= len(in.runs) || len(in.runs) >= maxRunsPerPage {
+				continue
+			}
+			r := in.runs[j.run]
+			if j.off <= r.Off || j.off >= r.Off+r.Len || r.Back || r.ActualText {
+				continue
+			}
+			second := r
+			second.Off, second.Len = j.off, r.Off+r.Len-j.off
+			second.X0, second.Y0 = j.sx, j.sy
+			second.Sep, second.Glyphs, second.Unmapped, second.Assumed = ' ', 0, 0, 0
+			first := &in.runs[j.run]
+			first.Len = j.off - r.Off
+			// A space put in at the gap is the layout's to judge again,
+			// from where the pieces stand.
+			if g := sort.Search(len(in.gaps), func(i int) bool { return in.gaps[i].Off >= j.off-1 }); g < len(in.gaps) && in.gaps[g].Off == j.off-1 && first.Len > 1 {
+				first.Len--
+			}
+			first.X1, first.Y1, first.LX, first.LY = j.ex, j.ey, j.ex, j.ey
+			in.runs = slices.Insert(in.runs, int(j.run)+1, second)
+		}
+	}
+	in.joints, in.rtlLine = in.joints[:0], false
+}
+
+// markClusters notes the codes of the string raw, whose text in the
+// font f begins at start, that stand for more than one character.
+func (in *interp) markClusters(f *font.Font, raw []byte, start int) {
+	off := start
+	for len(raw) > 0 && len(in.clusters) < maxRunsPerPage {
+		n := min(max(f.CodeLen(raw), 1), len(raw))
+		in.silent, _ = f.Append(in.silent[:0], raw[:n])
+		if utf8.RuneCount(in.silent) > 1 {
+			in.clusters = append(in.clusters, Cluster{Off: int32(off), Len: int32(len(in.silent))})
+		}
+		off += len(in.silent)
+		raw = raw[n:]
+	}
 }
 
 // markSpaces notes the spaces in the text of the string raw, which has

@@ -70,7 +70,12 @@ files made to exhaust it, and is several times faster. The tag follows that of g
   metadata packet (XMP) gives the lists of authors and keywords, an entry for each item, and fills in what
   the document information leaves out.
 - **Warnings** for what a file has that a consumer may want to know: active content, references to
-  other files, repaired input, fonts without a mapping, text from right to left given in drawing order.
+  other files, repaired input, fonts without a mapping.
+- **Text written from right to left** (Hebrew, Arabic) in the order it is read, whatever order the
+  page draws it in, by the Unicode bidirectional algorithm on lines put together from where their glyphs
+  stand; numbers and Latin words within them read from left to right, ligatures keep their letters in
+  order, brackets are mirrored where the file gives the glyph drawn. The warning `pdf.rtl_visual_order` is
+  gone with the need for it.
 - **Limits** on input size, decoded size, the text of a document, pages, nesting and more; see
   [SECURITY.md](SECURITY.md). Decoded bytes and text are counted for a document and the files attached to
   it together. Cancellation through the context, also inside a long page.

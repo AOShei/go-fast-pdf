@@ -273,7 +273,7 @@ func (w *furnitureWindow) next(emit func(*pageOut) bool) bool {
 	}
 
 	// List items, from the page alone, after its headers and footers.
-	lists(part, out.styles)
+	lists(part, out.styles, out.items)
 
 	// A paragraph split by the page break before this page. A list item
 	// is text that flows too, but starts an item of its own.

@@ -30,7 +30,10 @@ import (
 // The three fixtures of one page are tagged PDFs: the elements of
 // their structure tree that their content refers to are read for each
 // page, one allocation or more for each element (24 to 34 on these
-// pages). They were raised by that when the tree was first read.
+// pages). They were raised by that when the tree was first read, and
+// again by 7 to 9 when the order of the tree and its lists were: where
+// each element stands among its parent's kids, and the hooks that give
+// the layout what the tree says.
 var budgets = []struct {
 	name          string
 	data          func(t *testing.T) []byte
@@ -40,14 +43,14 @@ var budgets = []struct {
 	// Measured: 69 allocations and 26.5 KB for each of 3 pages.
 	{name: "english", data: fixtureBytes("english"), allocsPerPage: 78, bytesPerPage: 34000},
 	// 448 and 92.7 KB: one page in five scripts, with as many fonts.
-	{name: "multilingual", data: fixtureBytes("multilingual"), allocsPerPage: 540, bytesPerPage: 124000},
+	{name: "multilingual", data: fixtureBytes("multilingual"), allocsPerPage: 550, bytesPerPage: 128000},
 	// 277 and 104 KB when the budget was set. A document of one page also
 	// carries what is done once for a document: since then, its metadata
 	// packet read for the stored part, and the window in which pages are
 	// compared for headers, footers and headings. 315 allocations then.
-	{name: "layout-justified-libreoffice", data: fixtureBytes("layout-justified-libreoffice"), allocsPerPage: 380, bytesPerPage: 146000},
+	{name: "layout-justified-libreoffice", data: fixtureBytes("layout-justified-libreoffice"), allocsPerPage: 395, bytesPerPage: 150000},
 	// 196 and 81.1 KB.
-	{name: "layout-cols2-firefox", data: fixtureBytes("layout-cols2-firefox"), allocsPerPage: 255, bytesPerPage: 107000},
+	{name: "layout-cols2-firefox", data: fixtureBytes("layout-cols2-firefox"), allocsPerPage: 265, bytesPerPage: 111000},
 	// 20 and 10.0 KB.
 	{name: "100 pages of 40 lines", data: func(*testing.T) []byte { return benchPages(100) }, allocsPerPage: 23, bytesPerPage: 13000},
 }

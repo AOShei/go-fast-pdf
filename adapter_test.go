@@ -176,8 +176,12 @@ func checkContract(doc *gofastcore.Document, opts *gofastcore.Options) error {
 			continue
 		}
 		var w []string
-		// The renderers put a marker back in front of its block.
+		// The renderers put a marker back in front of its block, and a
+		// dash in front of a list item without one.
 		w = append(w, strings.Fields(b.Marker)...)
+		if b.Kind == gofastcore.KindListItem && b.Marker == "" && !b.Continued {
+			w = append(w, "-")
+		}
 		w = append(w, strings.Fields(b.Text)...)
 		if b.Table != nil { // a table row by row, cell by cell
 			for _, row := range b.Table.Rows {
@@ -263,9 +267,11 @@ func checkContract(doc *gofastcore.Document, opts *gofastcore.Options) error {
 				}
 				continue
 			case gofastcore.KindListItem:
-				// A paragraph that starts with the marker of an item.
+				// A paragraph that starts with the marker of an item, or
+				// an item of the structure tree of a tagged PDF, whose
+				// marker can be drawn rather than written.
 				text = true
-				if b.Level < 1 || b.Level > 6 || b.Marker == "" || b.Text == "" {
+				if tree := b.Origin == gofastcore.OriginNative; b.Level < 1 || !tree && (b.Level > 6 || b.Marker == "") || b.Text == "" {
 					return fmt.Errorf("%s: a list item of level %d, marker %q and text %q", where, b.Level, b.Marker, b.Text)
 				}
 			case gofastcore.KindTable:
@@ -311,7 +317,7 @@ func checkContract(doc *gofastcore.Document, opts *gofastcore.Options) error {
 			// The value of a form field and a note are what the file says
 			// they are.
 			_, field := b.Attrs[gofastcore.AttrField]
-			if native := field || b.Kind == gofastcore.KindNote; native != (b.Origin == gofastcore.OriginNative) || !native && b.Origin != gofastcore.OriginInferred {
+			if native := field || b.Kind == gofastcore.KindNote || b.Kind == gofastcore.KindListItem && b.Origin == gofastcore.OriginNative; native != (b.Origin == gofastcore.OriginNative) || !native && b.Origin != gofastcore.OriginInferred {
 				return fmt.Errorf("%s: a %s block with origin %s (the value of a form field: %v)", where, b.Kind, b.Origin, field)
 			}
 			if len(b.Spans) > 0 && !opts.Spans {

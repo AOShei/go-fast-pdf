@@ -141,11 +141,14 @@ func (b *builder) paragraphs(first int, display gofastcore.Display) {
 	for li := range lines {
 		ln := &lines[li]
 		raw := b.text[ln.tlo:ln.thi]
-		ln.item, ln.gap = false, false
+		ln.item, ln.gap, ln.li = false, false, 0
+		if b.opts.Item != nil && ln.hi > ln.lo {
+			ln.li, _ = b.opts.Item(b.c.Runs[b.pieces[b.lidx[ln.lo]].run].MCID)
+		}
 		if !mayStartItem(raw) {
 			continue
 		}
-		_, _, _, _, ok := splitMarker(raw)
+		_, _, _, _, ok := splitMarker(raw, false)
 		// A tab after the marker would make it a row: what tab the line
 		// has is the space after its marker.
 		ln.item, ln.gap = ok, ok && ln.tab
@@ -184,7 +187,9 @@ func (b *builder) paragraphs(first int, display gofastcore.Display) {
 			right = max(right, next.u1)
 			last = next
 		}
-		if !ln.item && continues(rowTab(up), rowTab(ln), before, leading, right) {
+		// Lines of two items of a tagged list, or of an item and what is
+		// not in one, are two paragraphs.
+		if !ln.item && ln.li == up.li && continues(rowTab(up), rowTab(ln), before, leading, right) {
 			ln.pred, ln.start = p, false
 		}
 	}

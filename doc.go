@@ -129,6 +129,22 @@
 // with a tab after the marker, which is a row of a table. A numbered
 // line set as a heading is a heading and keeps its number as Marker.
 //
+// In a tagged PDF, a paragraph whose text is all in one item of a list
+// of the structure tree (LI, in L) is a list_item with OriginNative.
+// The layout starts a paragraph at each item and never joins the lines
+// of two items, so that an item whose bullet is drawn and not written
+// is an item of its own; a second paragraph of the same item stays a
+// paragraph. The marker is the item's label (Lbl) where the text starts
+// with it; else a marker as above, where a capital before a full stop
+// ("C.", "IV.") and an asterisk count too, or a mark by itself at the
+// start: a symbol, a character that could not be read (U+FFFD), the
+// "o" that word processors set as a bullet. An item with no written
+// marker has none, and the renderers set a dash in front of it.
+// Ordered is what the list's ListNumbering attribute says, or else
+// whether the marker counts. Level is found by indent, as above:
+// programs nest the lists of the tree in more than one way. Paragraphs
+// outside the items of the tree can still be items by their markers.
+//
 // Headings are blocks of kind heading. In a tagged PDF, a block whose
 // text is all part of one heading of the structure tree (H1 to H6, or H
 // at the depth of the sections around it, through the role map) is that
@@ -380,9 +396,15 @@
 // space between its blocks. Where a page can be cut in more than one
 // way, the cut is taken that agrees best with the order in which the
 // page draws its text: a page drawn column by column is read by
-// columns, a table drawn row by row is read by rows. Text in a script
-// written from right to left is given as the page draws it, and its
-// page has pdf.rtl_visual_order.
+// columns, a table drawn row by row is read by rows. In a tagged PDF
+// the order of the structure tree takes the place of the order drawn,
+// each block by the first of its content in the tree, and a block the
+// tree does not place right after the block drawn before it. The white
+// space still decides where it separates blocks: a text box at the top
+// of a page, which a word processor puts in the tree where the box is
+// anchored, is read first, and a page drawn from top to bottom in one
+// column is read so. Text in a script written from right to left is
+// given as the page draws it, and its page has pdf.rtl_visual_order.
 //
 // # What the file declares
 //

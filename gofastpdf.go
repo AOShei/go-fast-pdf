@@ -164,6 +164,9 @@ type pageOut struct {
 	attachments []attachment
 	// scripts are the scripts of the actions that were looked at.
 	scripts []script
+	// items is what the structure tree says of the list items the
+	// blocks are in, nil for none.
+	items map[int64]treeItem
 	// What the layout and the interpreter counted. It is for
 	// measurement and goes into no document.
 	stats                                  layout.Stats
@@ -213,8 +216,10 @@ func (e *Extractor) page(f *file.File, p *file.Page, opts *gofastcore.Options, w
 		links = pageLinks(f, p, m, width, height, w.dests)
 	}
 	// What the structure tree of a tagged PDF says of the page.
-	tags := w.structure.pageTags(p)
+	tags, ordered := w.structure.pageTags(p)
 	var headingOf func(int32) uint8
+	var itemOf func(int32) (int64, bool)
+	var rankOf func(int32) int32
 	if tags != nil {
 		headingOf = func(mcid int32) uint8 {
 			if mcid >= 0 && int(mcid) < len(tags) {
@@ -222,6 +227,13 @@ func (e *Extractor) page(f *file.File, p *file.Page, opts *gofastcore.Options, w
 			}
 			return 0
 		}
+		itemOf = func(mcid int32) (int64, bool) {
+			if mcid >= 0 && int(mcid) < len(tags) {
+				return tags[mcid].item, tags[mcid].label
+			}
+			return 0, false
+		}
+		rankOf = ordered.rank
 	}
 	// The tables of a tagged PDF that the page's content is in.
 	tables := w.structure.pageTables(tags)
@@ -229,7 +241,7 @@ func (e *Extractor) page(f *file.File, p *file.Page, opts *gofastcore.Options, w
 		// Made here, where nothing outside holds it: it stays off the heap.
 		lopts := layout.Options{
 			Images: opts.Images != gofastcore.ImagesNone, Lines: w.lines,
-			Spans: opts.Spans, Links: links, Heading: headingOf,
+			Spans: opts.Spans, Links: links, Heading: headingOf, Item: itemOf, Rank: rankOf,
 		}
 		tables.options(tags, &lopts)
 		lay = layout.Build(layout.Page{M: m, Width: width, Height: height}, c, lopts)
@@ -264,6 +276,9 @@ func (e *Extractor) page(f *file.File, p *file.Page, opts *gofastcore.Options, w
 			b.Origin = gofastcore.OriginNative
 		}
 	}
+	// The items of the lists of the tree, made into list items with
+	// those found by their markers (lists.go).
+	out.items = treeItems(lay.Styles, tags)
 	// The identifiers of the elements of the tree, each on the first block
 	// that its content begins (anchors.go).
 	if tags != nil {

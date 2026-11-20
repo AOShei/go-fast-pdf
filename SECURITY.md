@@ -81,6 +81,7 @@ Bounds that are fixed:
 | Work of finding the grids of rules on one page | 4,194,304 comparisons; 16,384 cells for one grid |
 | Pixels of an image whose data is handed on | 268,435,456; its pixels, at one byte each for gray or a table of colours and four with a mask or in colour, count against `MaxDecodedBytes` |
 | Width of a row of CCITT fax data | 1,048,576 pixels |
+| A TrueType program read for its cmap | 32 MiB, and 1,048,576 characters of the subtable read; its /CIDToGIDMap 128 KiB |
 | Fonts kept for one file | 1,024 |
 | Outline items | 131,072, 64 levels deep |
 | Attached files | 4,096; the name and the stated type of each are held to 1,024 bytes |

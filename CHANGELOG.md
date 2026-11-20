@@ -73,6 +73,11 @@ files made to exhaust it, and is several times faster. The tag follows that of g
   the document information leaves out.
 - **Warnings** for what a file has that a consumer may want to know: active content, references to
   other files, repaired input, fonts without a mapping.
+- **Chinese, Japanese and Korean text without ToUnicode**: the CMaps the PDF specification predefines for
+  the legacy encodings (Shift-JIS, EUC-JP, GBK, GB2312, Big Five, UHC, EUC-KR and the others) are built
+  in from Adobe's resources (about 1.2 MB), giving CIDs, their widths, and through each collection's map
+  their characters; a CID TrueType font takes its characters from its program's cmap. Public corpus:
+  F1 of the CJK files 0.79 to 0.93.
 - **Text written from right to left** (Hebrew, Arabic) in the order it is read, whatever order the
   page draws it in, by the Unicode bidirectional algorithm on lines put together from where their glyphs
   stand; numbers and Latin words within them read from left to right, ligatures keep their letters in

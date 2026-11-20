@@ -338,8 +338,10 @@ file can be read from many goroutines, and the result is the same for any number
   most of its words, so a line of a paragraph read from right to left that is mostly Latin can be read
   the other way. Columns are read from left to right whatever the script. Glyphs that a font leaves
   without a character (Firefox's Arabic subsets) cannot be read
-- **Fonts without any mapping** - glyphs of embedded CFF and TrueType programs that the PDF does not
-  describe are read by their codes or reported as unmapped; the legacy CJK encodings are not built in
+- **Fonts without any mapping** - glyphs of embedded CFF and simple TrueType programs that the PDF does
+  not describe are read by their codes or reported as unmapped. (The legacy Chinese, Japanese and Korean
+  encodings are built in, and a CID TrueType font takes its characters from its program's cmap.) A
+  CID-keyed CFF font of no collection says nothing about its characters and cannot be read
 - **Images** - JBIG2 images, images in Separation and DeviceN colours, and images inside content streams
   are listed without their data. CMYK is made RGB without a colour profile, so its colours are near but
   not as a profile would make them. JPEG and JPEG 2000 are handed on without their masks

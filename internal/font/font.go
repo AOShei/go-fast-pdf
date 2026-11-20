@@ -83,12 +83,15 @@ type Font struct {
 
 	// A composite font.
 	space   codespace
-	toUni   *cmap        // ToUnicode
-	cids    *cmap        // code to CID; nil when the CID is the code
-	noCIDs  bool         // the code to CID mapping is not known
-	unicode unicodeCodes // the codes are Unicode
-	dw      float32      // default advance
-	w       []cidWidth   // sorted by first
+	toUni   *cmap         // ToUnicode
+	cids    *cmap         // code to CID; nil when the CID is the code
+	noCIDs  bool          // the widths of the CIDs are not used
+	cidsOK  bool          // the CID of each code is known: the code, or by cids
+	coll    *cmap         // the CIDs of the font's collection to Unicode (cjk.go)
+	tt      *trueTypeText // the characters of a TrueType program's glyphs
+	unicode unicodeCodes  // the codes are Unicode
+	dw      float32       // default advance
+	w       []cidWidth    // sorted by first
 	wArr    []float32
 }
 
@@ -159,6 +162,13 @@ func (f *Font) Append(dst, s []byte) ([]byte, Shown) {
 		if n == 1 && code == ' ' {
 			sh.Spaces++
 		}
+		cid, cidOK := code, f.cidsOK
+		if f.cids != nil {
+			cid, cidOK = f.cids.cidOf(code, n)
+		}
+		// The text: by the ToUnicode CMap, the code itself where it is
+		// Unicode, the CID's character in its collection, the glyph's in
+		// the TrueType program.
 		ok := false
 		if f.toUni != nil {
 			dst, ok = f.toUni.appendText(dst, code, n)
@@ -166,13 +176,20 @@ func (f *Font) Append(dst, s []byte) ([]byte, Shown) {
 		if !ok && f.unicode != 0 {
 			dst, ok = appendUnicode(dst, code, n, f.unicode)
 		}
+		if !ok && cidOK && f.coll != nil && cid > 0 {
+			before := len(dst)
+			if dst, ok = f.coll.appendText(dst, cid, 2); ok && string(dst[before:]) == replacement {
+				dst, ok = dst[:before], false
+			}
+		}
+		if !ok && cidOK && f.tt != nil {
+			if r := f.tt.char(cid); r != 0 {
+				dst, ok = utf8.AppendRune(dst, r), true
+			}
+		}
 		if !ok {
 			dst = append(dst, replacement...)
 			sh.Unmapped++
-		}
-		cid := code
-		if f.cids != nil {
-			cid = f.cids.cid(code, n)
 		}
 		if f.noCIDs {
 			sh.Advance += float64(f.dw)
@@ -434,7 +451,7 @@ func (f *Font) MayRightToLeft() bool {
 	case 2:
 		return true
 	}
-	may := f.unicode != 0
+	may := f.unicode != 0 || f.tt != nil
 	if c := f.toUni; c != nil && !may {
 		// The texts of the entries, all at once; then the ranges whose
 		// last character grows with the code.
@@ -769,8 +786,10 @@ func (font *Font) parseComposite(f *file.File, dict syntax.Value, toUni *cmap) {
 	font.Composite = true
 	font.toUni = toUni
 
-	// /Encoding names a predefined CMap or is a CMap stream.
+	// /Encoding names a predefined CMap or is a CMap stream. collection
+	// is the character collection of a predefined CMap it is or uses.
 	known := false
+	collection := ""
 	switch enc := f.Resolve(dict.Get("Encoding")); enc.Kind {
 	case syntax.Name:
 		name := enc.NameString()
@@ -779,8 +798,21 @@ func (font *Font) parseComposite(f *file.File, dict syntax.Value, toUni *cmap) {
 		if codes != 0 {
 			font.unicode = codes
 		}
-		// Only for the identity CMaps is the CID the code.
-		font.noCIDs = name != "Identity-H" && name != "Identity-V"
+		// For the identity CMaps the CID is the code; the others map
+		// codes to CIDs by tables (cjk.go).
+		identity := name == "Identity-H" || name == "Identity-V"
+		font.noCIDs, font.cidsOK = !identity, identity
+		if m := predefinedCMap(name); m != nil && !identity {
+			font.cids, font.noCIDs, font.cidsOK = m, false, true
+			if len(m.space.ranges) > 0 {
+				font.space, known = m.space, true
+			}
+			if font.unicode == asciiOneByte {
+				// The table says what each code is, the one-byte ones too.
+				font.unicode = 0
+			}
+			collection = m.collection
+		}
 	case syntax.Stream:
 		if data, err := f.Decode(enc, nil, 0); err == nil || len(data) > 0 {
 			c := parseCMap(data)
@@ -802,11 +834,19 @@ func (font *Font) parseComposite(f *file.File, dict syntax.Value, toUni *cmap) {
 					font.unicode = codes
 				}
 			}
+			if pm := predefinedCMap(parent); pm != nil && parent != "Identity-H" && parent != "Identity-V" {
+				c.parentMap, collection = pm, pm.collection
+				if !known && len(pm.space.ranges) > 0 {
+					font.space, known = pm.space, true
+				}
+			}
 			switch {
-			case len(c.entries) > 0:
-				font.cids = c
+			case len(c.entries) > 0 || c.parentMap != nil:
+				font.cids, font.cidsOK = c, true
 			case parent != "Identity-H" && parent != "Identity-V":
 				font.noCIDs = true
+			default:
+				font.cidsOK = true
 			}
 		}
 	}
@@ -820,6 +860,7 @@ func (font *Font) parseComposite(f *file.File, dict syntax.Value, toUni *cmap) {
 			font.space = fixed(2)
 		}
 		font.noCIDs = font.cids == nil
+		font.cidsOK = font.cids != nil
 	}
 
 	// Advances are in the descendant CIDFont.
@@ -827,6 +868,24 @@ func (font *Font) parseComposite(f *file.File, dict syntax.Value, toUni *cmap) {
 	descendant := syntax.Value{}
 	if list := f.Resolve(dict.Get("DescendantFonts")).Elems(); len(list) > 0 {
 		descendant = f.Resolve(list[0])
+	}
+	// What the CIDs stand for: the characters of their collection, by
+	// the CIDFont's CIDSystemInfo or else by the CMap's; for a TrueType
+	// program whose collection is not one of those, its glyphs'.
+	info := f.Resolve(descendant.Get("CIDSystemInfo"))
+	str := func(v syntax.Value) string {
+		if v = f.Resolve(v); v.Kind == syntax.Name {
+			return v.NameString()
+		}
+		return string(v.Data)
+	}
+	font.coll = collectionUnicode(str(info.Get("Registry")), str(info.Get("Ordering")))
+	if font.coll == nil && collection != "" {
+		font.coll = collectionUnicode("Adobe", strings.TrimPrefix(collection, "Adobe-"))
+	}
+	if program := f.Resolve(descendant.Get("FontDescriptor")).Get("FontFile2"); font.coll == nil && !program.IsNull() &&
+		f.Resolve(descendant.Get("Subtype")).IsName("CIDFontType2") {
+		font.tt = &trueTypeText{f: f, program: f.Resolve(program), gidMap: f.Resolve(descendant.Get("CIDToGIDMap"))}
 	}
 	if dw, ok := f.Resolve(descendant.Get("DW")).Float(); ok {
 		font.dw = advance(dw * 0.001)

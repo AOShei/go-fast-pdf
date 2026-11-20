@@ -3,9 +3,10 @@ Copyright (c) 2025 Andrew O'Shei. Licensed under the MIT License (see LICENSE).
 
 This module has no dependencies outside the Go standard library and the
 go-fast modules. It does contain tables generated from data published by
-others. The tables are in internal/charset (files ending in _gen.go) and
-are made by internal/charset/gen/gen.go, which names the sources. The
-notices those sources ask to be kept follow.
+others. The tables are in internal/charset (files ending in _gen.go),
+made by internal/charset/gen/gen.go, and internal/font/cjk.bin, made by
+internal/font/gen/gen.go; each generator names its sources. The notices
+those sources ask to be kept follow.
 
 The encodings that the PDF specification defines (StandardEncoding,
 WinAnsiEncoding, MacRomanEncoding, MacExpertEncoding and
@@ -82,3 +83,47 @@ AFM files.
 Helvetica and Times are trademarks of Linotype-Hell AG and/or its
 subsidiaries. ITC Zapf Dingbats is a registered trademark of
 International Typeface Corporation.
+
+------------------------------------------------------------------------
+3. CMaps for Chinese, Japanese and Korean
+
+Source: https://github.com/adobe-type-tools/cmap-resources (the CMaps of
+Adobe-CNS1-7, Adobe-GB1-6, Adobe-Japan1-7 and Adobe-Korea1-2) and
+https://github.com/adobe-type-tools/mapping-resources-pdf (pdf2unicode:
+Adobe-CNS1-UCS2, Adobe-GB1-UCS2, Adobe-Japan1-UCS2, Adobe-Korea1-UCS2,
+Adobe-KR-UCS2).
+Used for: internal/font/cjk.bin (the predefined CMaps of the PDF
+specification, and the maps from the CIDs of each collection to
+Unicode).
+
+Modification notice: the CMaps are kept without their comments and
+blank lines, each compressed with DEFLATE.
+
+Copyright 1990-2023 Adobe. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are
+met:
+
+Redistributions of source code must retain the above copyright notice,
+this list of conditions and the following disclaimer.
+
+Redistributions in binary form must reproduce the above copyright
+notice, this list of conditions and the following disclaimer in the
+documentation and/or other materials provided with the distribution.
+
+Neither the name of Adobe nor the names of its contributors may be used
+to endorse or promote products derived from this software without
+specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS
+IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
+TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
+PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED
+TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.

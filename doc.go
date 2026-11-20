@@ -414,6 +414,19 @@
 // anchored, is read first, and a page drawn from top to bottom in one
 // column is read so.
 //
+// The characters of the text are what the file says each glyph is: a
+// font's ToUnicode CMap, its encoding and the names of its glyphs, or
+// codes that are Unicode already. For the fonts of Chinese, Japanese and
+// Korean, the CMaps the specification predefines for the legacy
+// encodings (Shift-JIS, EUC, GBK, Big Five, UHC and the others) are
+// built in, from Adobe's published resources: they give a code's CID,
+// and with it its width, and the CID's character in its collection
+// (Adobe-GB1, -CNS1, -Japan1, -Korea1, -KR) gives the text where the
+// file does not. A CIDFont of type 2 whose CIDs are of no collection
+// takes the characters of its glyphs from the cmap of its TrueType
+// program, read the first time a code has no text otherwise. A glyph
+// of which nothing is known is U+FFFD.
+//
 // A line with letters of a script written from right to left (Hebrew,
 // Arabic and the others) is read in the order it is written, whatever
 // order the page draws it in: from left to right as it is seen, word by

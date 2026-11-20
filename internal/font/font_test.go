@@ -554,13 +554,51 @@ func TestCompositeFont(t *testing.T) {
 		if got != "A日" || sh.Glyphs != 2 || !near(sh.Advance, 2) {
 			t.Errorf("%q, %+v", got, sh)
 		}
-		// Without one, the one-byte codes are still ASCII; the two-byte
-		// codes need the tables of the encoding.
-		for _, enc := range []string{"/90ms-RKSJ-H", "/GBK-EUC-H", "/ETen-B5-H", "/KSCms-UHC-V", "/EUC-H"} {
-			dict, extra = type0(enc, "/DW 1000", "")
-			if got, sh := show(load(t, dict, extra...), "OK \x93\xFA\x7f"); got != "OK ��" || sh.Unmapped != 2 {
-				t.Errorf("%s: %q, %+v", enc, got, sh)
+	})
+	t.Run("a legacy encoding without ToUnicode", func(t *testing.T) {
+		// The tables of the encoding give the CIDs, and the collection's
+		// map gives their characters (cjk.go).
+		for _, c := range []struct{ enc, s, want string }{
+			{"/90ms-RKSJ-H", "A\x93\xFA\x96\x7B", "A日本"},
+			{"/90ms-RKSJ-V", "A\x93\xFA\x96\x7B", "A日本"},
+			{"/EUC-H", "A\xC6\xFC\xCB\xDC", "A日本"},
+			{"/GBK-EUC-H", "A\xD6\xD0\xCE\xC4", "A中文"},
+			{"/GB-EUC-H", "A\xD6\xD0\xCE\xC4", "A中文"},
+			{"/B5pc-H", "A\xA4\xA4\xA4\xE5", "A中文"},
+			{"/ETen-B5-V", "A\xA4\xA4\xA4\xE5", "A中文"},
+			{"/KSCms-UHC-H", "A\xC7\xD1\xB1\xB9", "A한국"},
+			{"/KSC-EUC-H", "A\xC7\xD1\xB1\xB9", "A한국"},
+		} {
+			dict, extra := type0(c.enc, "/DW 1000", "")
+			if got, sh := show(load(t, dict, extra...), c.s); got != c.want || sh.Unmapped != 0 || sh.Glyphs != 3 {
+				t.Errorf("%s: %q, %+v", c.enc, got, sh)
 			}
+		}
+		// The CIDs give the widths too.
+		cidA, _ := predefinedCMap("90ms-RKSJ-H").cidOf('A', 1)
+		dict, extra := type0("/90ms-RKSJ-H", fmt.Sprintf("/DW 1000 /W [%d [500]]", cidA), "")
+		if _, sh := show(load(t, dict, extra...), "A\x93\xFA"); !near(sh.Advance, 1.5) {
+			t.Errorf("widths by CID: %v", sh.Advance)
+		}
+		// A code the encoding does not have has no text.
+		dict, extra = type0("/90ms-RKSJ-H", "/DW 1000", "")
+		if got, sh := show(load(t, dict, extra...), "\x7F"); got != "\uFFFD" || sh.Unmapped != 1 {
+			t.Errorf("no such code: %q, %+v", got, sh)
+		}
+	})
+	t.Run("CIDs of a collection", func(t *testing.T) {
+		// Identity-H, the CIDs those of Adobe-Japan1: the CIDs of 日 and
+		// 本 by 90ms-RKSJ-H.
+		m := predefinedCMap("90ms-RKSJ-H")
+		c1, ok1 := m.cidOf(0x93FA, 2)
+		c2, ok2 := m.cidOf(0x967B, 2)
+		if !ok1 || !ok2 {
+			t.Fatal("no CIDs")
+		}
+		extra := []string{"<< /Type /Font /Subtype /CIDFontType0 /BaseFont /Test /CIDSystemInfo << /Registry (Adobe) /Ordering (Japan1) /Supplement 6 >> /DW 1000 >>"}
+		f := load(t, "<< /Type /Font /Subtype /Type0 /BaseFont /Test /Encoding /Identity-H /DescendantFonts [1 0 R] >>", extra...)
+		if got, _ := show(f, string([]byte{byte(c1 >> 8), byte(c1), byte(c2 >> 8), byte(c2), 0, 0})); got != "日本\uFFFD" {
+			t.Errorf("%q", got)
 		}
 	})
 	t.Run("an embedded CMap", func(t *testing.T) {

@@ -590,9 +590,27 @@ func (font *Font) parseSimple(f *file.File, dict syntax.Value, toUni *cmap) {
 		glyphText = charset.DingbatText
 	}
 	var unknown [256]string // glyph names that say nothing
+	// The font's program, read once when it is needed (program.go).
+	var program *simpleProgram
+	programRead := false
+	readProgram := func() *simpleProgram {
+		// A font with a ToUnicode CMap has its text from it.
+		if !programRead && embedded && !font.Type3 && toUni == nil {
+			programRead = true
+			program = readSimpleProgram(f, descriptor)
+		}
+		return program
+	}
 	if base == nil {
-		// A Type 1 font program states its encoding in clear text.
-		if names, standard, ok := type1Encoding(f, descriptor); ok {
+		// A Type 1 font program states its encoding in clear text, and a
+		// CFF one in its own tables.
+		names, standard, ok := type1Encoding(f, descriptor)
+		if !ok {
+			if p := readProgram(); p != nil && p.cff {
+				names, standard, ok = &p.names, p.standard, true
+			}
+		}
+		if ok {
 			certain = true
 			if standard {
 				base = charset.Standard()
@@ -611,10 +629,21 @@ func (font *Font) parseSimple(f *file.File, dict syntax.Value, toUni *cmap) {
 			}
 		}
 	}
+	// A symbolic TrueType program that names no encoding: its cmap says
+	// which glyph each code is, and of some glyphs their character. The
+	// others keep the encoding that is assumed below.
+	var programText *[256]string
+	if base == nil && (flags&symbolic != 0 || !subtype.IsName("TrueType")) {
+		if p := readProgram(); p != nil && p.mapped {
+			programText = &p.text
+		}
+	}
 	if base == nil {
 		switch {
 		case font.Type3:
 			base, certain = &charset.Encoding{}, true
+		case subtype.IsName("TrueType") && program != nil && program.windows:
+			base = charset.WinAnsi()
 		case core != nil:
 			base = core.Builtin
 		case subtype.IsName("TrueType") && flags&symbolic == 0:
@@ -626,6 +655,13 @@ func (font *Font) parseSimple(f *file.File, dict syntax.Value, toUni *cmap) {
 	font.text = *base
 	for code, t := range font.text {
 		font.blank[code] = certain && t == "" && unknown[code] == ""
+	}
+	if programText != nil {
+		for code, t := range programText {
+			if t != "" {
+				font.text[code], font.blank[code] = t, false
+			}
+		}
 	}
 
 	// /Differences: a number sets the code, each name that follows is
@@ -653,6 +689,18 @@ func (font *Font) parseSimple(f *file.File, dict syntax.Value, toUni *cmap) {
 					}
 					code++
 				}
+			}
+		}
+	}
+
+	// Names that say nothing by themselves, looked up in the program.
+	for code, name := range unknown {
+		if name == "" || font.text[code] != "" {
+			continue
+		}
+		if p := readProgram(); p != nil {
+			if r, ok := p.nameChar(name); ok {
+				font.text[code], unknown[code] = string(r), ""
 			}
 		}
 	}

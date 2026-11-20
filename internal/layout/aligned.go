@@ -959,6 +959,12 @@ func runsOn(upper, lower string) bool {
 	if r, _ := utf8.DecodeRuneInString(lower); unicode.IsLower(r) {
 		return true
 	}
+	return endsOpen(upper)
+}
+
+// endsOpen reports whether a line ends as no sentence does: with a
+// hyphen, a comma or one of the little words that do not end one.
+func endsOpen(upper string) bool {
 	upper = strings.TrimSpace(upper)
 	if strings.HasSuffix(upper, "-") || strings.HasSuffix(upper, ",") {
 		return true

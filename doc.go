@@ -104,9 +104,16 @@
 // rule missing inside it joins two cells into one over several columns
 // or rows. Text goes to the cell that holds the middle of each piece of
 // it; a line that the grid's edge cuts through stays out of the table.
-// Where a table is ruled between its columns and not between its rows,
-// each line of text in a band of the grid is a row, unless its lines
-// run on as sentences do. A grid is a table when it has two columns and
+// Text that the page draws in one go across an upright rule, the
+// entries of two cells set apart by a gap, is cut where the rule passes
+// between its strings, which the interpreter knows exactly; a space
+// inside a string is not cut. Where a table is ruled between its columns
+// and not between its rows, each line of text in a band of the grid is a
+// row, unless its lines run on as sentences do. Where entries of several
+// lines stand beside codes of one, each line of the first column begins
+// a row instead: lines of four words or fewer, each with a line of the
+// next column beside it, where no entry goes on from one row to the
+// next. A grid is a table when it has two columns and
 // two rows or more, at least two rows with text in two cells, text in
 // a quarter of its cells or more, and cells that are not paragraphs of
 // prose (30 words at the median), and it is not the frame of a page or

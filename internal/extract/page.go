@@ -68,6 +68,10 @@ type Content struct {
 	// Rules are the thin lines and bars painted along the page's axes,
 	// when Options.Rules is set (rules.go).
 	Rules []Rule
+	// Joins are the places where a run goes on with a string that stands
+	// apart from the one before it, by a space or more, in the order of
+	// the text, when Options.Rules is set.
+	Joins []Join
 	// Clusters are the stretches of Text that one glyph of text written
 	// from right to left stands for, where that is more than one
 	// character (a ligature of lam and alef), in the order of the text.
@@ -237,6 +241,7 @@ type interp struct {
 	text     []byte // the text of all runs
 	runs     []Run
 	gaps     []Gap
+	joins    []Join
 	clusters []Cluster
 	images   []Image
 	// Where the spaces are, when words are asked for: marks are those of
@@ -344,7 +349,7 @@ func (in *interp) finish() {
 			}
 			in.unmapped++
 		}
-		in.opts.Use(&Content{Runs: in.runs, Text: in.text, Gaps: in.gaps, Images: in.images, Breaks: in.breaks, Rules: in.rules, Clusters: in.clusters})
+		in.opts.Use(&Content{Runs: in.runs, Text: in.text, Gaps: in.gaps, Joins: in.joins, Images: in.images, Breaks: in.breaks, Rules: in.rules, Clusters: in.clusters})
 	} else {
 		out := assemble(in.str[:0], in.runs, in.text)
 		in.str = out
@@ -404,6 +409,9 @@ func (in *interp) trim() {
 	if cap(in.gaps) > keep/8 {
 		in.gaps = nil
 	}
+	if cap(in.joins) > keep/8 {
+		in.joins = nil
+	}
 	if cap(in.clusters) > keep/8 {
 		in.clusters = nil
 	}
@@ -437,7 +445,7 @@ func (in *interp) reset(f *file.File, p *file.Page, opts Options, res *Result) {
 	in.tm, in.tlm = identity, identity
 	in.mc, in.offDepth, in.actual, in.inActual, in.mcid = in.mc[:0], 0, in.actual[:0], 0, -1
 	in.text, in.runs = in.text[:0], in.runs[:0]
-	in.gaps, in.images, in.clusters = in.gaps[:0], in.images[:0], in.clusters[:0]
+	in.gaps, in.joins, in.images, in.clusters = in.gaps[:0], in.joins[:0], in.images[:0], in.clusters[:0]
 	in.prev, in.full, in.rtlLine, in.joints = lineEnd{}, false, false, in.joints[:0]
 	in.unmapped, in.assumed, in.fontMissing = 0, 0, false
 	in.formActive, in.formCalls = in.formActive[:0], 0

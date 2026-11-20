@@ -162,6 +162,10 @@ the file declares, and judges nothing.
 - The command has the render flags of every go-fast command: `-furniture`, `-stored`, `-part-markers`,
   `-children` (on by default) and `-exclude-display`, which now takes `=all`, and with an empty value
   leaves nothing out.
+- The command's `-stored` takes kinds: `-stored=macro` shows the scripts alone, each on its page,
+  `-stored=macro,form_field` those two kinds; alone, `=true` or `=all` it shows everything, and `=false`
+  or empty nothing. An unknown kind is an error that lists them (go-fast-core `d4cd8e2`, which also
+  makes a field note stored data and a thematic break always native; this library emits neither).
 - Text off the page is placed among the other text by where it is, no longer at the end of its page.
 
 ## v0.1.1 and v0.1.0 (2025-12-25)

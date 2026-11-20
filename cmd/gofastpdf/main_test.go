@@ -265,6 +265,8 @@ func TestRenderFlags(t *testing.T) {
 	}
 	b := pdftest.New()
 	file := b.Add("<< /Type /Filespec /F (notes.txt) /EF << /F " + strconv.Itoa(b.AddStream("/Type /EmbeddedFile", []byte("a note"))) + " 0 R >> >>")
+	// A document variable: stored data of another kind than the scripts.
+	b.Trailer = fmt.Sprintf("/Info %d 0 R", b.Add("<< /Company (A Company) >>"))
 	b = pdftest.Doc(pdftest.DocOptions{Base: b}, pages...)
 	b.Set(b.Root, fmt.Sprintf("<< /Type /Catalog /Pages %d 0 R /Names << /EmbeddedFiles << /Names [(notes.txt) %d 0 R] >> "+
 		"/JavaScript << /Names [(init) << /S /JavaScript /JS (this.print\\(\\);) >>] >> >> >>", b.Root+1, file))
@@ -274,10 +276,20 @@ func TestRenderFlags(t *testing.T) {
 		args      []string
 		has, hasn []string
 	}{
-		{nil, []string{"page 4 says", "[child 1: notes.txt]"}, []string{"Annual Report", "console", "this.print", "[page 1]"}},
+		{nil, []string{"page 4 says", "[child 1: notes.txt]"}, []string{"Annual Report", "console", "this.print", "Company", "[page 1]"}},
 		{[]string{"-furniture"}, []string{"Annual Report", "page 4 says"}, nil},
 		// A page's script in its place on the page, and the stored part.
-		{[]string{"-stored"}, []string{"console.println", "this.print"}, nil},
+		{[]string{"-stored"}, []string{"console.println", "this.print", "Company: A Company"}, nil},
+		{[]string{"-stored=all"}, []string{"console.println", "this.print", "Company: A Company"}, nil},
+		{[]string{"-stored=true"}, []string{"console.println", "this.print", "Company: A Company"}, nil},
+		{[]string{"-stored="}, []string{"page 4 says"}, []string{"console", "this.print", "Company"}},
+		{[]string{"-stored=false"}, []string{"page 4 says"}, []string{"console", "this.print", "Company"}},
+		// The kinds named, wherever they are.
+		{[]string{"-stored=macro"}, []string{"console.println", "this.print", "page 4 says"}, []string{"Company"}},
+		{[]string{"--stored=document_variable"}, []string{"Company: A Company"}, []string{"console", "this.print"}},
+		{[]string{"-stored=macro+document_variable"}, []string{"console.println", "this.print", "Company: A Company"}, nil},
+		{[]string{"-stored=document_variable,macro,macro"}, []string{"console.println", "this.print", "Company: A Company"}, nil},
+		{[]string{"-stored=form_field"}, []string{"page 4 says"}, []string{"console", "this.print", "Company"}},
 		{[]string{"-part-markers"}, []string{"[page 1]", "[page 4]"}, nil},
 		{[]string{"-children=false"}, []string{"page 4 says"}, []string{"[child"}},
 	} {
@@ -301,6 +313,19 @@ func TestRenderFlags(t *testing.T) {
 	}
 	if out, _, _ := command(t, "-quiet", "-part-markers", "-format", "markdown", path); !strings.Contains(out, "<!-- page 1 -->") {
 		t.Errorf("markdown with -part-markers: %q", out)
+	}
+	if out, _, _ := command(t, "-quiet", "-stored=macro", "-format", "markdown", path); !strings.Contains(out, "console.println") || strings.Contains(out, "Company") {
+		t.Errorf("markdown with -stored=macro: %q", out)
+	}
+	// JSON has everything, whatever is asked for.
+	if out, _, _ := command(t, "-quiet", "-stored=", path); !strings.Contains(out, "console.println") || !strings.Contains(out, "A Company") {
+		t.Errorf("JSON with -stored=: %q", out)
+	}
+	for _, bad := range []string{"-stored=macros", "-stored=macro,unknown", "-stored=,", "-stored=+"} {
+		_, stderr, status := command(t, bad, path)
+		if status != 2 || !strings.Contains(stderr, "the kinds are "+strings.Join(gofastcore.StoredKindNames, ", ")+"\n") {
+			t.Errorf("%s: status %d, %q", bad, status, stderr)
+		}
 	}
 }
 

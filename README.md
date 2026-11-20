@@ -204,7 +204,9 @@ Settings that only PDF has are fields of `gofastpdf.Extractor`. The
   text of the page; what is written in a comment is a `note` block with its author and date; the value
   of a field that displays nothing is a block with the field's name; the options of a list or combo box
   are a `choices` note
-- **Outline, page labels, document information, attached files** - attached files are handed to a child
+- **Outline, page labels, document information, attached files** - the metadata packet (XMP) gives the
+  lists of authors and keywords as the file declares them, and what the document information leaves out;
+  attached files are handed to a child
   extractor that you supply
 - **What a file stores and shows nowhere** - scripts, the metadata packet, entries of the file's own making
   in the document information, form fields on no page, the filled-in data of an XFA form: read as text, never run, flagged `invisible`, with

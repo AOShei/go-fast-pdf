@@ -94,6 +94,10 @@ func (f *File) describe() *described {
 			md.Modified = parseDate(in.Resolve(info.Get("ModDate")))
 		}
 		md.Language = text(in, catalog.Get("Lang"))
+		// The lists of the metadata packet, and what the information
+		// leaves out (xmp.go).
+		pk := readPacket(in, catalog)
+		fromPacket(md, pk)
 
 		// --- page labels and outline ---
 		d.label = pageLabels(in, catalog.Get("PageLabels"))
@@ -123,7 +127,7 @@ func (f *File) describe() *described {
 		})
 
 		// --- what the file holds and shows nowhere ---
-		d.stored, d.storedCut = stored(in, catalog, md, facts.scripts)
+		d.stored, d.storedCut = stored(in, catalog, md, facts.scripts, pk)
 
 		d.invisible = invisibleInMetadata(&gofastcore.Document{Metadata: d.meta, Outline: d.outline})
 	})

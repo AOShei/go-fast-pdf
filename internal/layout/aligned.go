@@ -164,8 +164,15 @@ func (b *builder) findTables(first int) (taken []line, blocks []int32) {
 	if len(blocks) == 0 {
 		return nil, nil
 	}
-	// The lines of the tables leave the lines for paragraphs. Their
-	// places in b.lines change: the tables are told where they go.
+	return b.takeLines(first, lines, used, blocks), blocks
+}
+
+// takeLines takes the lines of tables, those of lines (b.lines[first:])
+// that used marks, out of the lines for paragraphs and returns them, in
+// their order. Their places change: the tables' blocks, whose tlines say
+// where their lines are in b.lines, are told where they go among those
+// returned.
+func (b *builder) takeLines(first int, lines []line, used []bool, blocks []int32) (taken []line) {
 	at := make([]int32, len(lines)) // new index of each line taken, among those taken
 	keep := first
 	for i := range lines {
@@ -184,7 +191,7 @@ func (b *builder) findTables(first int) (taken []line, blocks []int32) {
 			bl.tlines[n] = at[int(li)-first]
 		}
 	}
-	return taken, blocks
+	return taken
 }
 
 // mayHaveTable reports, cheaply, whether the lines b.lines[first:] can

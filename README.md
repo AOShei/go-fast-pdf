@@ -198,9 +198,9 @@ Settings that only PDF has are fields of `gofastpdf.Extractor`. The
   size and weight, with levels
 - **Tables of tagged PDFs** - table blocks with the grid the structure tree gives: header rows, merged
   cells, and tables over several pages continued
-- **Tables in files without tags** - found by how their text lines up in columns, with cells of several
-  lines, cells over several columns and header rows set in bold; columns of prose, lists, tables of
-  contents and code are not taken for tables
+- **Tables in files without tags** - found by the rules they are drawn with, or by how their text lines
+  up in columns: cells of several lines, cells over several columns and header rows set in bold; columns
+  of prose, boxes around paragraphs, lists, tables of contents and code are not taken for tables
 - **Descriptions of figures** - an image of a tagged PDF has the alternative text its figure gives
 - **List items** - bulleted and numbered, with their markers and how deep they are nested
 - **Bold, italic and links** - with `Options.Spans`: spans by the fonts of the words, and links to web
@@ -323,9 +323,9 @@ file can be read from many goroutines, and the result is the same for any number
 
 ## Limitations
 
-- **Structure** - a table without tags is found only where its columns stand apart with white space;
-  one whose columns are set close together, or apart only by drawn lines, is paragraphs, a row a line
-  with its cells apart by tabs. Headings are found by the
+- **Structure** - a table without tags is found only where its columns stand apart with white space or
+  rules; one whose columns are set close together with neither is paragraphs, a row a line with its
+  cells apart by tabs. Headings are found by the
   outline and by type; a heading set like the text around it is not found. List items are found by their
   markers; a list set without markers is paragraphs
 - **Scripts written from right to left** - the text is given in the order the page draws it, with a warning
@@ -361,7 +361,7 @@ PDF file → objects and cross-references → content interpreter → layout →
 * [x] Headings, lists, running headers and footers; bold, italic and links
 * [x] Tagged PDF: headings, tables and the descriptions of figures
 * [x] Tables in files without tags, by how their text lines up
-* [ ] Tables in files without tags, by their drawn lines
+* [x] Tables in files without tags, by their drawn lines
 * [ ] Text from right to left in reading order
 
 ## License

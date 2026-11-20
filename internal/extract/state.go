@@ -87,10 +87,13 @@ type gstate struct {
 	// clip is the number of the text object whose text, shown in a
 	// clipping render mode, is part of the clipping path; 0 if none.
 	clip int32
+
+	// lineWidth is the width of stroked lines, for rules (rules.go).
+	lineWidth float64
 }
 
 func initialState() gstate {
-	return gstate{ctm: identity, th: 1, fillAlpha: 1, strokeAlpha: 1, alphaScale: 1}
+	return gstate{ctm: identity, th: 1, fillAlpha: 1, strokeAlpha: 1, alphaScale: 1, lineWidth: 1}
 }
 
 // extGState handles gs: the entries of a graphics state parameter
@@ -117,6 +120,10 @@ func (in *interp) extGState(raw []byte) {
 		case "CA":
 			if v, ok := in.f.Resolve(dict.List[i+1]).Float(); ok {
 				g.strokeAlpha = float32(math.Min(math.Max(v, 0), 1)) * g.alphaScale
+			}
+		case "LW":
+			if v, ok := in.f.Resolve(dict.List[i+1]).Float(); ok {
+				g.lineWidth = max(finite(v), 0)
 			}
 		case "Font":
 			if f := in.f.Resolve(dict.List[i+1]).Elems(); len(f) == 2 {

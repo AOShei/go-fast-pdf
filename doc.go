@@ -94,9 +94,26 @@
 // makes no header. Tables of the same columns set side by side, lists of
 // different lengths each with a name and a value, are a table each, read
 // down. Only text without a display reason, in no cell of a tagged
-// table, is looked at. A table set without white space between its
-// columns, or only with drawn lines, is not found: its text is in
-// paragraph blocks, a row a line with its cells apart by tabs.
+// table, is looked at.
+//
+// Before that, a table drawn with rules is found by them, and its block
+// has OriginInferred too. The thin lines and bars a page paints along
+// its axes are joined where they meet into a grid; its columns lie
+// between its upright rules and its rows between its level ones, and a
+// rule missing inside it joins two cells into one over several columns
+// or rows. Text goes to the cell that holds the middle of each piece of
+// it; a line that the grid's edge cuts through stays out of the table.
+// Where a table is ruled between its columns and not between its rows,
+// each line of text in a band of the grid is a row, unless its lines
+// run on as sentences do. A grid is a table when it has two columns and
+// two rows or more, at least two rows with text in two cells, text in
+// a quarter of its cells or more, and cells that are not paragraphs of
+// prose (30 words at the median), and it is not the frame of a page or
+// lines on a picture. The header rows are found as for tables found by
+// alignment. A page that draws a great many lines, a map or a hatching,
+// is not followed past 131,072 path operators. A table whose columns
+// stand apart neither with white space nor with rules is not found: its
+// text is in paragraph blocks, a row a line with its cells apart by tabs.
 //
 // A paragraph that starts with the marker of a list item is a block of
 // kind list_item: a bullet, a dash, or a number or letter that counts

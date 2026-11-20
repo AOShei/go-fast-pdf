@@ -98,7 +98,16 @@ func (b *builder) layoutGroup(idx []int32) {
 		var taken []line
 		var tables []int32
 		if display == 0 && b.pieces[idx[0]].cell == 0 && !b.opts.NoTables {
-			taken, tables = b.findTables(lo)
+			// Tables drawn with rules first (ruled.go), then those found
+			// among the lines left.
+			taken, tables = b.findRuledTables(lo)
+			more, also := b.findTables(lo)
+			for _, k := range also {
+				for n := range b.blocks[k].tlines {
+					b.blocks[k].tlines[n] += int32(len(taken))
+				}
+			}
+			taken, tables = append(taken, more...), append(tables, also...)
 		}
 		b.paragraphs(lo, display)
 		if len(taken) > 0 {

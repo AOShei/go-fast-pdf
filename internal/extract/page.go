@@ -65,6 +65,9 @@ type Content struct {
 	// text, when Options.Words is set: where each begins and ends on the
 	// page. A space that has none is one of text that replaces glyphs.
 	Breaks []Break
+	// Rules are the thin lines and bars painted along the page's axes,
+	// when Options.Rules is set (rules.go).
+	Rules []Rule
 }
 
 // Options says what to extract besides text.
@@ -76,6 +79,9 @@ type Options struct {
 	// Words records where the spaces of the text are on the page, in
 	// Content.Breaks, so that a reader can place every word.
 	Words bool
+	// Rules records the rules the page paints, in Content.Rules: the
+	// borders of tables (rules.go).
+	Rules bool
 	// Stop, when set, is looked at as the content is read. Once it holds
 	// true the page is abandoned and its result has ErrStopped.
 	Stop *atomic.Bool
@@ -249,6 +255,15 @@ type interp struct {
 	clips       int32
 	textClip    int32
 	clipPainted []bool
+
+	// The path being built and the rules painted, with Options.Rules,
+	// and the segments along an axis converted on the page.
+	rp       rulePath
+	rules    []Rule
+	ruleSegs int
+	ruleOps  int
+	// followPaths is Options.Rules until a page is found to be a drawing.
+	followPaths bool
 }
 
 var interps = sync.Pool{New: func() any { return new(interp) }}
@@ -318,7 +333,7 @@ func (in *interp) finish() {
 			}
 			in.unmapped++
 		}
-		in.opts.Use(&Content{Runs: in.runs, Text: in.text, Gaps: in.gaps, Images: in.images, Breaks: in.breaks})
+		in.opts.Use(&Content{Runs: in.runs, Text: in.text, Gaps: in.gaps, Images: in.images, Breaks: in.breaks, Rules: in.rules})
 	} else {
 		out := assemble(in.str[:0], in.runs, in.text)
 		in.str = out
@@ -381,6 +396,9 @@ func (in *interp) trim() {
 	if cap(in.images) > 4096 {
 		in.images = nil
 	}
+	if cap(in.rules) > 4096 || cap(in.rp.segs) > 4096 || cap(in.rp.rects) > 4096 || cap(in.rp.polys) > 4096 {
+		in.rules, in.rp = nil, rulePath{}
+	}
 	if cap(in.breaks) > keep/16 {
 		in.breaks = nil
 	}
@@ -411,6 +429,8 @@ func (in *interp) reset(f *file.File, p *file.Page, opts Options, res *Result) {
 	in.formActive, in.formCalls = in.formActive[:0], 0
 	in.clips, in.textClip, in.clipPainted = 0, 0, in.clipPainted[:0]
 	in.breaks, in.marks, in.stopped = in.breaks[:0], in.marks[:0], false
+	in.rp.reset()
+	in.rules, in.ruleSegs, in.ruleOps, in.followPaths = in.rules[:0], 0, 0, opts.Rules
 }
 
 func (in *interp) resourcesAt(level int) *resources {
@@ -689,10 +709,20 @@ func (in *interp) operator(scan *content.Scanner, op []byte, args []content.Oper
 	case "EMC":
 		in.endMarked()
 
-	// --- painting ---
-	// Paths and colours are not followed: of what is painted, only that
-	// it is painted through text that clips matters (Run.ClipPainted).
-	case "f", "F", "f*", "S", "s", "B", "B*", "b", "b*", "sh":
+	// --- paths and painting ---
+	// Of a path, only the rules it paints are followed, and only when
+	// they are asked for (rules.go). Of what is painted, that it is
+	// painted through text that clips matters (Run.ClipPainted).
+	case "m", "l", "h", "c", "v", "y", "re", "n", "w":
+		if in.followPaths {
+			in.pathOperator(string(op), args)
+		}
+	case "f", "F", "f*", "S", "s", "B", "B*", "b", "b*":
+		if in.followPaths {
+			in.pathOperator(string(op), args)
+		}
+		in.painted()
+	case "sh":
 		in.painted()
 	case "BI":
 		in.inlineImage(args)

@@ -1,28 +1,28 @@
 group                     files   read  mean F1    order   not read
-all                        1650  97.8%   0.9143   0.8514   locked 21, error 15
+all                        1650  97.8%   0.9143   0.8516   locked 21, error 15
 flag=damaged                219  84.0%   0.8992   0.8549   locked 20, error 15
-flag=encrypted               26 100.0%   0.9560   0.8839   
-flag=linearized             285 100.0%   0.9787   0.9069   
-flag=none                  1065  99.9%   0.8774   0.8181   locked 1
-flag=tagged                 156 100.0%   0.9768   0.9045   
+flag=encrypted               26 100.0%   0.9560   0.8842   
+flag=linearized             285 100.0%   0.9788   0.9084   
+flag=none                  1065  99.9%   0.8774   0.8179   locked 1
+flag=tagged                 156 100.0%   0.9768   0.9040   
 producer=browser             26 100.0%   0.9430   0.9163   
-producer=dtp                 57 100.0%   0.9372   0.8290   
-producer=library             44  97.7%   0.9399   0.8595   locked 1
-producer=office             117 100.0%   0.9700   0.9120   
-producer=other              108  98.1%   0.8857   0.8199   locked 2
-producer=print-driver       248 100.0%   0.9710   0.9027   
+producer=dtp                 57 100.0%   0.9372   0.8302   
+producer=library             44  97.7%   0.9399   0.8584   locked 1
+producer=office             117 100.0%   0.9700   0.9119   
+producer=other              108  98.1%   0.8857   0.8201   locked 2
+producer=print-driver       248 100.0%   0.9710   0.9038   
 producer=scanner             13 100.0%   0.9963   0.9798   
 producer=tex                101 100.0%   0.9004   0.8653   
-producer=unknown            936  96.5%   0.8525   0.7882   locked 18, error 15
+producer=unknown            936  96.5%   0.8525   0.7881   locked 18, error 15
 script=cjk                   14 100.0%   0.7893   0.7292   
 script=cyrillic               6 100.0%   0.6665   0.6220     (under-represented)
-script=latin                591 100.0%   0.9280   0.8647   
+script=latin                591 100.0%   0.9280   0.8650   
 script=none                 968  99.3%        -        -   locked 4, error 3
 script=other                  5 100.0%   0.8577   0.7430     (under-represented)
 script=rtl                    5 100.0%   0.0000   0.0000     (under-represented)
 script=unknown               61  52.5%        -        -   locked 17, error 12
-set=held                    561  97.9%   0.9062   0.8543   locked 8, error 4
-set=tune                   1089  97.8%   0.9183   0.8499   locked 13, error 11
-source=govdocs1-000         200 100.0%   0.9832   0.9074   
+set=held                    561  97.9%   0.9062   0.8553   locked 8, error 4
+set=tune                   1089  97.8%   0.9183   0.8498   locked 13, error 11
+source=govdocs1-000         200 100.0%   0.9832   0.9082   
 source=pdfium               348  94.0%   0.8225   0.7872   locked 9, error 12
-source=pdfjs               1102  98.6%   0.8946   0.8333   locked 12, error 3
+source=pdfjs               1102  98.6%   0.8946   0.8332   locked 12, error 3

@@ -192,6 +192,9 @@ type builder struct {
 	// The words of a block and their atoms, for its spans.
 	atomBuf   []atom
 	placedBuf []placed
+	// The grids of the page's rules, found once (ruled.go).
+	grids     []grid
+	gridsDone bool
 	// What the search for tables by alignment works in (aligned.go).
 	tOrder []int32
 	tV     []float64
@@ -413,6 +416,7 @@ func btoi(v bool) int {
 
 func (b *builder) reset(page Page, c *extract.Content, opts Options) {
 	b.page, b.c, b.opts = page, c, opts
+	b.grids, b.gridsDone = nil, false
 	m := page.M
 	b.scale = hypot(m[0], m[1])
 	if b.scale == 0 {

@@ -320,7 +320,9 @@
 // lines of a paragraph are joined with one space. A hyphen at the end
 // of a line stays and the next line follows without a space, so that
 // "well-" and "known" are "well-known" and "inter-" and "national" are
-// "inter-national"; a soft hyphen at the end of a line is dropped.
+// "inter-national". A soft hyphen at the end of a line, between the
+// letters of a word, is dropped and the word joined again; anywhere else
+// it stays.
 // Ligatures are written as their letters. A character the file gives no
 // meaning for is U+FFFD, and so is a control character.
 //

@@ -38,6 +38,9 @@ const (
 type described struct {
 	meta    gofastcore.Metadata
 	outline []gofastcore.OutlineItem
+	// dests finds the page that a destination of the outline or of a
+	// link points at.
+	dests *destinations
 	// label gives the label of the page with an index from 0, nil when
 	// the file has no page labels.
 	label func(index int) string
@@ -92,8 +95,9 @@ func (f *File) describe() *described {
 
 		// --- page labels and outline ---
 		d.label = pageLabels(in, catalog.Get("PageLabels"))
+		d.dests = newDestinations(in, catalog, f.pages)
 		if outlines := in.Resolve(catalog.Get("Outlines")); outlines.IsDict() {
-			d.outline, d.outlineCut = outline(in, catalog, outlines, f.pages, f.textLimit)
+			d.outline, d.outlineCut = outline(in, d.dests, outlines, f.textLimit)
 		}
 
 		// --- things that run, and things outside the file ---
@@ -462,119 +466,8 @@ func letters(n int, first byte) string {
 // most bounds the titles, taken together: every entry can name one long
 // string of the file as its title, so the outline of a small file can
 // be very large. cut reports that the outline ends for that reason.
-func outline(f *file.File, catalog, outlines syntax.Value, pages []file.Page, most int64) (items []gofastcore.OutlineItem, cut bool) {
-	// Page object numbers, to find the page a destination points at.
-	byObj := make(map[int64]int, len(pages))
-	for i := range pages {
-		if pages[i].Obj != 0 {
-			if _, dup := byObj[pages[i].Obj]; !dup {
-				byObj[pages[i].Obj] = i
-			}
-		}
-	}
-	// Named destinations are in a name tree, or, in the form of PDF
-	// 1.1, in a dictionary. A tree is in order, so a name is found
-	// along one path; a tree that is not in order is read whole, once,
-	// when a name is not found that way.
-	dests := f.Resolve(catalog.Get("Names")).Get("Dests")
-	var all, old map[string]syntax.Value
-	lookup := func(name string) syntax.Value {
-		if all == nil {
-			if v, ok := findName(f, dests, name); ok {
-				return v
-			}
-			all = map[string]syntax.Value{}
-			walkTree(f, dests, "Names", func(key, val syntax.Value) bool {
-				if key.Kind == syntax.String {
-					if _, dup := all[string(key.Data)]; !dup {
-						all[string(key.Data)] = val
-					}
-				}
-				return true
-			})
-		}
-		if v, ok := all[name]; ok {
-			return v
-		}
-		// The dictionary is read into a map once: an outline can have a
-		// hundred thousand items, and the dictionary as many names.
-		if old == nil {
-			dict := f.Resolve(catalog.Get("Dests"))
-			old = map[string]syntax.Value{}
-			for i := len(dict.List)&^1 - 2; i >= 0 && dict.IsDict(); i -= 2 {
-				if k := &dict.List[i]; k.Kind == syntax.Name {
-					old[string(k.Data)] = dict.List[i+1] // the first of a name wins
-				}
-			}
-		}
-		return old[name]
-	}
-	target := func(item syntax.Value) (part int, y float64) {
-		dest := f.Resolve(item.Get("Dest"))
-		if dest.IsNull() {
-			if a := f.Resolve(item.Get("A")); a.Get("S").IsName("GoTo") {
-				dest = f.Resolve(a.Get("D"))
-			}
-		}
-		for hops := 0; hops < 4; hops++ {
-			switch dest.Kind {
-			case syntax.Name, syntax.String:
-				dest = f.Resolve(lookup(string(dest.Data)))
-				continue
-			case syntax.Dict:
-				dest = f.Resolve(dest.Get("D"))
-				continue
-			}
-			break
-		}
-		if dest.Kind != syntax.Array || len(dest.List) == 0 {
-			return 0, 0
-		}
-		index := -1
-		if n := file.RefNumber(dest.List[0]); n != 0 {
-			if i, ok := byObj[n]; ok {
-				index = i
-			}
-		} else if n, ok := f.Resolve(dest.List[0]).Integer(); ok && n >= 0 && n < int64(len(pages)) {
-			index = int(n) // a page index, as some programs write it
-		}
-		if index < 0 {
-			return 0, 0
-		}
-		// The top of the view, where the destination gives one.
-		p := &pages[index]
-		arg := func(i int) (float64, bool) {
-			if i < len(dest.List) {
-				return f.Resolve(dest.List[i]).Float()
-			}
-			return 0, false
-		}
-		box := p.VisibleBox()
-		left, top, hasTop := box[0], 0.0, false
-		if len(dest.List) > 1 {
-			switch f.Resolve(dest.List[1]).NameString() {
-			case "XYZ":
-				if l, ok := arg(2); ok {
-					left = l
-				}
-				top, hasTop = arg(3)
-			case "FitH", "FitBH":
-				top, hasTop = arg(2)
-			case "FitR":
-				if l, ok := arg(2); ok {
-					left = l
-				}
-				top, hasTop = arg(5)
-			}
-		}
-		if !hasTop || p.Err != nil {
-			return p.Number, 0
-		}
-		m, _, h := p.Display()
-		y = m[1]*left + m[3]*top + m[5]
-		return p.Number, min(max(y, 0), h)
-	}
-
+func outline(f *file.File, dests *destinations, outlines syntax.Value, most int64) (items []gofastcore.OutlineItem, cut bool) {
+	target := dests.target
 	var out []gofastcore.OutlineItem
 	seen := map[int64]bool{}
 	type entry struct {

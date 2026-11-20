@@ -113,7 +113,7 @@ func TestThreeWaysToTheSameParts(t *testing.T) {
 	ctx := context.Background()
 	for name, data := range equivalenceDocs(t) {
 		for _, opts := range []gofastcore.Options{
-			{}, {Workers: 1}, {Images: gofastcore.ImagesMeta, Workers: 3}, {DeepHidden: true},
+			{}, {Workers: 1}, {Images: gofastcore.ImagesMeta, Workers: 3}, {DeepHidden: true}, {Spans: true, Workers: 2},
 			{Parts: gofastcore.PartRange{First: 2}, Workers: 2},
 		} {
 			f, err := gofastpdf.OpenBytes(data, &opts)

@@ -245,7 +245,17 @@
 //     of documents: a few percent on pages of text, more on pages with
 //     many shapes. The checks that always run take one percent.
 //
-//   - Spans: not implemented yet and ignored.
+//   - Spans: gives the text blocks spans of bold and italic, by the
+//     fonts of their words, and of links. A link is a link annotation of
+//     the page: the words it covers, each word as a whole, go to the
+//     address of its URI action, or, for a destination in the document,
+//     to "#page=N" (the open parameter of a PDF for page N). Links to
+//     other files, links that are hidden and addresses over 4 KiB have
+//     no span. Link targets count against Limits.MaxTextBytes. A word
+//     is placed by its share of the characters of its run, and a word
+//     that the joining of lines changed may have no span. Spans take a
+//     tenth more time on pages of text, up to a third on short
+//     documents.
 //
 // # Text
 //

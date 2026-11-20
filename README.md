@@ -189,6 +189,8 @@ Settings that only PDF has are fields of `gofastpdf.Extractor`. The
   are tagged, and the renderers leave them out; a paragraph split by a page break is joined again
 - **Headings** - from the outline where it names them, otherwise by size and weight, with levels
 - **List items** - bulleted and numbered, with their markers and how deep they are nested
+- **Bold, italic and links** - with `Options.Spans`: spans by the fonts of the words, and links to web
+  addresses or to pages of the document (`#page=N`)
 - **Hidden text** - flagged with its reason, never dropped: see below
 - **Encryption** - RC4, AES-128 and AES-256, with user and owner passwords, and files encrypted for a
   certificate, with the private key (`Options.Keys`)

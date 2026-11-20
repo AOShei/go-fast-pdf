@@ -58,6 +58,10 @@ func lists(part *gofastcore.Part, styles []layout.Style) {
 		}
 		b.Kind, b.Level, b.Ordered = gofastcore.KindListItem, uint8(len(at)), ordered
 		b.Marker = strings.TrimSpace(marker)
+		cut := len(b.Text) - len(rest)
 		b.Text = rest
+		if len(b.Spans) > 0 {
+			cutSpans(b, cut)
+		}
 	}
 }

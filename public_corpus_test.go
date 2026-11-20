@@ -273,13 +273,13 @@ func scorePublicFile(path, refFile string) publicResult {
 		if diff := sameDocument(got.Doc, many.Doc); diff != "" {
 			return publicResult{Status: "invalid", Detail: clipString("1 worker and 8 workers: "+diff, 120)}
 		}
-		// And with the checks of DeepHidden: a document that keeps the
-		// contract, the same for any number of workers.
-		deep, err := extractFile(path, extractOpts{Deep: true})
+		// And with the checks of DeepHidden and with spans: a document that
+		// keeps the contract, the same for any number of workers.
+		deep, err := extractFile(path, extractOpts{Deep: true, Spans: true})
 		if err != nil {
 			return publicResult{Status: "invalid", Detail: clipString("with DeepHidden: "+err.Error(), 120)}
 		}
-		deepMany, err := extractFile(path, extractOpts{Deep: true, Workers: 8})
+		deepMany, err := extractFile(path, extractOpts{Deep: true, Spans: true, Workers: 8})
 		if err != nil {
 			return publicResult{Status: "invalid", Detail: clipString("with DeepHidden and 8 workers: "+err.Error(), 120)}
 		}

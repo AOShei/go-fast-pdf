@@ -241,12 +241,21 @@ func (e *Extractor) page(f *file.File, p *file.Page, opts *gofastcore.Options, w
 			return 0
 		}
 	}
+	// The tables of a tagged PDF that the page's content is in.
+	tables := w.structure.pageTables(tags)
 	res := extract.Page(f, p, extract.Options{Shapes: opts.DeepHidden, MaxShapes: e.MaxShapes, Words: w.lines, Stop: w.stop, Use: func(c *extract.Content) {
-		lay = layout.Build(layout.Page{M: m, Width: width, Height: height}, c, layout.Options{
+		// Made here, where nothing outside holds it: it stays off the heap.
+		lopts := layout.Options{
 			Images: opts.Images != gofastcore.ImagesNone, NoHiddenChecks: e.noHiddenChecks,
 			Deep: opts.DeepHidden, MaxDeepSteps: e.maxDeepSteps, Lines: w.lines,
 			Spans: opts.Spans, Links: links, Heading: headingOf,
-		})
+		}
+		tables.options(tags, &lopts)
+		lay = layout.Build(layout.Page{M: m, Width: width, Height: height}, c, lopts)
+		if tables.drop(&lay) {
+			// Tables that the page does not bear out are its text again.
+			lay = layout.Build(layout.Page{M: m, Width: width, Height: height}, c, lopts)
+		}
 		images = len(c.Images)
 		for k, i := range lay.Images {
 			if i >= 0 {
@@ -264,6 +273,7 @@ func (e *Extractor) page(f *file.File, p *file.Page, opts *gofastcore.Options, w
 	out.lines, out.styles = lay.Lines, lay.Styles
 	out.decoded, out.external, out.stats = res.Decoded, res.External, lay.Stats
 	out.actualDiffers, out.actualLonger, out.longGlyph = res.ActualDiffers, res.ActualLonger, res.LongGlyphText
+	tables.fill(lay.Blocks, &lay)
 	part.Blocks = lay.Blocks
 	part.Warnings = append(part.Warnings, res.Warnings...)
 	// The headings that the structure tree names.

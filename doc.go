@@ -62,8 +62,22 @@
 // Text blocks are paragraphs, in reading order. A PDF without tags
 // does not say where a paragraph ends or in which order a page is read,
 // so both are worked out from where the text is, and every text block
-// has OriginInferred. Tables are not recognised yet: their text is in
-// paragraph blocks.
+// has OriginInferred.
+//
+// A table of a tagged PDF, which the structure tree says is one (Table,
+// with rows TR and cells TD and TH), is a block of kind table with
+// OriginNative. Its grid is the tree's: a cell takes the first column
+// its row leaves free, RowSpan and ColSpan make merges, and the leading
+// rows in THead, or all of TH, are HeaderRows. The visible text of each
+// cell is laid out by itself; hidden text in a cell stays out of the
+// table, a block of its own as hidden text is anywhere. A table over
+// several pages is a block on each, with the rows that are on that page,
+// and the block on a later page is Continued. A table whose text the
+// page does not bear out, a row reaching into the next or cells that do
+// not follow each other across the page, is taken for a tree made badly:
+// its text is laid out as if the tree had no table there. Other tables
+// are not recognised yet: their text is in paragraph blocks, a row a
+// line with its cells apart by tabs.
 //
 // A paragraph that starts with the marker of a list item is a block of
 // kind list_item: a bullet, a dash, or a number or letter that counts

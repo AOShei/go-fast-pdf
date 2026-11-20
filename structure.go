@@ -2,6 +2,7 @@ package gofastpdf
 
 import (
 	"strings"
+	"sync"
 
 	"github.com/AOShei/go-fast-pdf/internal/file"
 	"github.com/AOShei/go-fast-pdf/internal/syntax"
@@ -18,10 +19,11 @@ import (
 // element it belongs to. Each element has its parent in /P, and a type
 // in /S, which /RoleMap may map to a standard type.
 //
-// Of all this, three things are read, for the content of each page as
+// Of all this, four things are read, for the content of each page as
 // it is read: the headings, H1 to H6 and H (whose level is the number of
 // sections, Sect, around it), the alternative description of a figure,
-// and the identifiers of elements, /ID. A block of text whose every run
+// the cells of tables (tables.go), and the identifiers of elements,
+// /ID. A block of text whose every run
 // is under one heading is that heading, with OriginNative; an image
 // drawn under a figure has its description as its text. A page that has
 // a heading of the tree has none by type. An element with an identifier
@@ -38,6 +40,9 @@ type structure struct {
 	roles      map[string]string
 	// ids is set when the tree lists identifiers of elements.
 	ids bool
+	// The grids of the tables, read once each (tables.go).
+	mu    sync.Mutex
+	grids map[int64]*tableGrid
 }
 
 // maxStructHops bounds the parents followed up from an element, and
@@ -106,6 +111,9 @@ type tag struct {
 	// id is the identifier of the innermost element that the content
 	// begins.
 	id string
+	// cell and table are the object numbers of the cell of a table the
+	// content is in, TD or TH, and of the table; 0 for none.
+	cell, table int64
 }
 
 // pageTags returns, by MCID, what the structure tree says of the content
@@ -129,6 +137,9 @@ func (s *structure) pageTags(p *file.Page) []tag {
 	for mcid, ref := range elems {
 		r := w.reach(ref, 0)
 		t := tag{alt: r.alt}
+		if r.cell != 0 && r.table != 0 {
+			t.cell, t.table = r.cell, r.table
+		}
 		if s.ids {
 			t.id = w.firstID(ref, mcid, p.Obj)
 		}
@@ -161,6 +172,9 @@ type reach struct {
 	sections int
 	// alt is the description of the nearest figure that has one.
 	alt string
+	// cell is the nearest cell of a table, TD or TH, inside the nearest
+	// table, and table that table, by their object numbers.
+	cell, table int64
 }
 
 // walker follows elements up to the root, each once on a page.
@@ -190,6 +204,10 @@ func (w *walker) reach(ref syntax.Value, depth int) reach {
 		r.heading, r.h, r.hSections = 0, true, r.sections
 	case t == "Sect":
 		r.sections++
+	case t == "TD" || t == "TH":
+		r.cell = n
+	case t == "Table":
+		r.table, r.cell = n, 0 // a table in a cell has cells of its own
 	case t == "Figure":
 		if alt := strings.TrimSpace(text(f, el.Get("Alt"))); alt != "" {
 			r.alt = clipText(alt, maxAltBytes)

@@ -42,6 +42,11 @@ type blk struct {
 	size           float64
 	text           string
 	line           int32 // its first line, in b.lines; the others follow by line.next
+	// cell is one more than the cell of a table that the block is the
+	// text of, and table one more than the table a block of kind table
+	// is; members are the blocks of its cells, in order of cell.
+	cell, table int32
+	members     []int32
 }
 
 // paragraphs joins the lines b.lines[first:] into paragraphs and

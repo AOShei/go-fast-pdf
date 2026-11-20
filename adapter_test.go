@@ -181,6 +181,13 @@ func checkContract(doc *gofastcore.Document, opts *gofastcore.Options) error {
 			// The renderers put a marker back in front of its block.
 			words = append(words, strings.Fields(b.Marker)...)
 			words = append(words, strings.Fields(b.Text)...)
+			if b.Table != nil { // a table row by row, cell by cell
+				for _, row := range b.Table.Rows {
+					for _, cell := range row {
+						words = append(words, strings.Fields(cell)...)
+					}
+				}
+			}
 		}
 	}
 	text := doc.Text()
@@ -259,6 +266,14 @@ func checkContract(doc *gofastcore.Document, opts *gofastcore.Options) error {
 				if b.Level < 1 || b.Level > 6 || b.Marker == "" || b.Text == "" {
 					return fmt.Errorf("%s: a list item of level %d, marker %q and text %q", where, b.Level, b.Marker, b.Text)
 				}
+			case gofastcore.KindTable:
+				// A table of a tagged PDF: the structure tree says it is
+				// one, and its cells are the text.
+				text = true
+				if b.Origin != gofastcore.OriginNative || b.Table == nil || b.Text != "" || b.Hidden != 0 {
+					return fmt.Errorf("%s: a table with origin %s, text %q and hidden %q", where, b.Origin, b.Text, b.Hidden)
+				}
+				continue
 			case gofastcore.KindHeader, gofastcore.KindFooter:
 				// Running headers and footers: text of the page that the
 				// layout found in its margins and on the pages around it.

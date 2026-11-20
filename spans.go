@@ -107,9 +107,17 @@ func cutSpans(b *gofastcore.Block, n int) {
 }
 
 // blockBytes is what a block takes from the limit on text: its cost, its
-// text, its marker, the targets of its links and its anchor.
+// text, its marker, the targets of its links, its anchor and the cells
+// of its table.
 func blockBytes(b *gofastcore.Block) int {
 	n := gofastcore.BlockCost + len(b.Text) + len(b.Marker) + len(b.Loc.Anchor)
+	if t := b.Table; t != nil {
+		for _, row := range t.Rows {
+			for _, cell := range row {
+				n += gofastcore.CellCost + len(cell)
+			}
+		}
+	}
 	for i := range b.Spans {
 		n += len(b.Spans[i].Href)
 	}

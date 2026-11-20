@@ -189,6 +189,8 @@ Settings that only PDF has are fields of `gofastpdf.Extractor`. The
   are tagged, and the renderers leave them out; a paragraph split by a page break is joined again
 - **Headings** - from the structure tree of a tagged PDF or the outline where they name them, otherwise by
   size and weight, with levels
+- **Tables of tagged PDFs** - table blocks with the grid the structure tree gives: header rows, merged
+  cells, and tables over several pages continued
 - **Descriptions of figures** - an image of a tagged PDF has the alternative text its figure gives
 - **List items** - bulleted and numbered, with their markers and how deep they are nested
 - **Bold, italic and links** - with `Options.Spans`: spans by the fonts of the words, and links to web
@@ -326,15 +328,16 @@ file can be read from many goroutines, and the result is the same for any number
 
 ## Limitations
 
-- **Structure** - tables are not recognised yet; their text is in paragraphs. Headings are found by the
+- **Structure** - tables are recognised only where a tagged PDF says what they are; other tables are
+  paragraphs, a row a line with its cells apart by tabs. Headings are found by the
   outline and by type; a heading set like the text around it is not found. List items are found by their
   markers; a list set without markers is paragraphs
 - **Scripts written from right to left** - the text is given in the order the page draws it, with a warning
 - **Fonts without any mapping** - glyphs of embedded CFF and TrueType programs that the PDF does not
   describe are read by their codes or reported as unmapped; the legacy CJK encodings are not built in
 - **Images** - CMYK, indexed, 1-bit, CCITT and JBIG2 images are listed without their data
-- **Tagged PDF** - of the structure tree, headings and the descriptions of figures are read; lists, tables
-  and the reading order it gives are not yet
+- **Tagged PDF** - of the structure tree, headings, tables and the descriptions of figures are read;
+  lists and the reading order it gives are not yet
 - **No OCR** - a scan without a text layer gives its images and the warning `part.image_only`
 
 ## How it works
@@ -360,8 +363,8 @@ PDF file → objects and cross-references → content interpreter → layout →
 * [x] Image data (JPEG, JPEG 2000, 8-bit gray and RGB)
 * [x] Page iterator, lines and words, the command-line tool
 * [x] Headings, lists, running headers and footers; bold, italic and links
-* [ ] Tables
-* [x] Tagged PDF: headings and the descriptions of figures
+* [x] Tagged PDF: headings, tables and the descriptions of figures
+* [ ] Tables in files without tags
 * [ ] Text from right to left in reading order
 
 ## License

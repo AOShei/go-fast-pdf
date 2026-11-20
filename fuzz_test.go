@@ -31,6 +31,8 @@ func FuzzOpen(f *testing.F) {
 	// Named destinations, and a structure tree with identifiers.
 	f.Add(anchorsDoc().bytes())
 	f.Add(taggedDoc().bytes())
+	// A tagged table.
+	f.Add(tableDoc().bytes())
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// An error is fine. A document that breaks the contract of the
 		// shared model is not, and neither is one that depends on the

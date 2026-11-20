@@ -31,19 +31,27 @@ type atom struct {
 func (b *builder) linesOf(res *Result, final []int32) {
 	var atoms []atom
 	for k, bi := range final {
-		for li := b.blocks[bi].line; li >= 0; li = b.lines[li].next {
-			ln := &b.lines[li]
-			raw := b.text[ln.tlo:ln.thi]
-			out := Line{Block: k, Text: b.clean(raw), BBox: rect(ln.x0, ln.y0, ln.x1, ln.y1), Size: ln.size}
-			if ln.main != nil {
-				out.Font = fontName(ln.main.BaseFont)
+		// The lines of a table are those of its cells.
+		own := [1]int32{bi}
+		parts := own[:]
+		if b.blocks[bi].table > 0 {
+			parts = b.blocks[bi].members
+		}
+		for _, pi := range parts {
+			for li := b.blocks[pi].line; li >= 0; li = b.lines[li].next {
+				ln := &b.lines[li]
+				raw := b.text[ln.tlo:ln.thi]
+				out := Line{Block: k, Text: b.clean(raw), BBox: rect(ln.x0, ln.y0, ln.x1, ln.y1), Size: ln.size}
+				if ln.main != nil {
+					out.Font = fontName(ln.main.BaseFont)
+				}
+				if ln.hi <= ln.lo {
+					continue
+				}
+				atoms = b.atoms(atoms[:0], ln)
+				out.Words = b.words(raw, atoms, ln)
+				res.Lines = append(res.Lines, out)
 			}
-			if ln.hi <= ln.lo {
-				continue
-			}
-			atoms = b.atoms(atoms[:0], ln)
-			out.Words = b.words(raw, atoms, ln)
-			res.Lines = append(res.Lines, out)
 		}
 	}
 }

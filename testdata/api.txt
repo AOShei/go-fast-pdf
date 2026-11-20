@@ -82,6 +82,8 @@ type Extractor struct {
 	ObjectStreamCacheBytes int64
 
 	ObjectCacheBytes int64
+
+	NoRuledTables bool
 }
 
 type File struct {

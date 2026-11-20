@@ -1,11 +1,14 @@
 package gofastpdf_test
 
 import (
+	"bytes"
+	"context"
 	"fmt"
 	"strings"
 	"testing"
 
 	gofastcore "github.com/AOShei/go-fast-core"
+	gofastpdf "github.com/AOShei/go-fast-pdf"
 )
 
 // ruledGrid draws the rules of a grid: a level rule at each of ys from
@@ -253,4 +256,31 @@ func proseIn(x, y int, text string) string {
 		text, y = text[n:], y-10
 	}
 	return sb.String()
+}
+
+// Extractor.NoRuledTables leaves ruled tables out: two rows with rules
+// are a table, and without the rules too few for one by alignment.
+func TestNoRuledTables(t *testing.T) {
+	xs, ys := []int{72, 200, 300, 400}, []int{700, 680, 660}
+	rows := []row{
+		{false, []string{"Station", "Depth", "Count"}},
+		{false, []string{"North Bay", "12.5", "140"}},
+	}
+	data := ruledDoc(ruledGrid(xs, ys) + ruledCells(xs, ys, rows)).bytes()
+	for _, off := range []bool{false, true} {
+		e := &gofastpdf.Extractor{NoRuledTables: off}
+		doc, err := e.Extract(context.Background(), bytes.NewReader(data), int64(len(data)), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tables := 0
+		for _, b := range doc.Parts[0].Blocks {
+			if b.Kind == gofastcore.KindTable {
+				tables++
+			}
+		}
+		if want := btoi(!off); tables != want {
+			t.Errorf("NoRuledTables %v: %d tables\n%s", off, tables, tablesOf(doc.Parts[0]))
+		}
+	}
 }

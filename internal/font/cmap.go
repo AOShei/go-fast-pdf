@@ -30,6 +30,11 @@ type cmap struct {
 	parent string
 	// truncated is set when the CMap had more entries than are kept.
 	truncated bool
+	// parentMap is the predefined CMap that parent names, and
+	// collection the character collection whose CIDs a predefined CMap
+	// gives (cjk.go).
+	parentMap  *cmap
+	collection string
 }
 
 // Limits on what one CMap may hold.

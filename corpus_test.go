@@ -74,9 +74,10 @@ func round4(x float64) float64 { return math.Round(x*1e4) / 1e4 }
 // tierFloor is the word-level F1 every file of a tier must reach
 // (IMPLEMENTATION_PLAN.md, section 4.3). Tier A is text in Latin script
 // from the common producers; tier B is other scripts with a ToUnicode
-// mapping. Tier C, which needs tables or font programs this library does
-// not read yet, has no floor.
-var tierFloor = map[string]float64{"A": 0.98, "B": 0.95}
+// mapping; tier C is text that needs more than the file's mappings:
+// scripts written from right to left, the tables of the legacy Chinese,
+// Japanese and Korean encodings, the cmap of a font program.
+var tierFloor = map[string]float64{"A": 0.98, "B": 0.95, "C": 0.95}
 
 func TestCorpus(t *testing.T) {
 	var files []corpusFile

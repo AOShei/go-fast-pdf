@@ -33,5 +33,9 @@
   "para-fr-libreoffice": {"f1":1,"order":1,"words":147,"want_words":147,"pages":1,"reference":"src/para-fr.txt"},
   "para-ru-firefox": {"f1":1,"order":1,"words":100,"want_words":100,"pages":1,"reference":"src/para-ru.txt"},
   "para-ru-ghostscript": {"f1":1,"order":1,"words":100,"want_words":100,"pages":1,"reference":"src/para-ru.txt"},
-  "para-ru-libreoffice": {"f1":1,"order":1,"words":100,"want_words":100,"pages":1,"reference":"src/para-ru.txt"}
+  "para-ru-libreoffice": {"f1":1,"order":1,"words":100,"want_words":100,"pages":1,"reference":"src/para-ru.txt"},
+  "rtl-ar-libreoffice": {"f1":1,"order":1,"words":129,"want_words":129,"pages":1,"reference":"src/rtl-ar.txt"},
+  "rtl-he-firefox": {"f1":1,"order":1,"words":125,"want_words":125,"pages":1,"reference":"src/rtl-he.txt"},
+  "rtl-he-libreoffice": {"f1":1,"order":1,"words":125,"want_words":125,"pages":1,"reference":"src/rtl-he.txt"},
+  "rtl-mixed-libreoffice": {"f1":1,"order":1,"words":73,"want_words":73,"pages":1,"reference":"src/rtl-mixed.txt"}
 }

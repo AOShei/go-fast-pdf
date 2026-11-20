@@ -30,6 +30,12 @@ func FuzzOpen(f *testing.F) {
 	if data, err := os.ReadFile("testdata/fixtures/rtl-he-libreoffice.pdf"); err == nil {
 		f.Add(data)
 	}
+	// A font of a legacy Japanese encoding, without ToUnicode.
+	f.Add(synthDoc{
+		Objects: []string{"<< /Type /Font /Subtype /CIDFontType2 /BaseFont /MS-Mincho /CIDSystemInfo << /Registry (Adobe) /Ordering (Japan1) /Supplement 2 >> /DW 1000 >>"},
+		Font:    "<< /Type /Font /Subtype /Type0 /BaseFont /MS-Mincho /Encoding /90ms-RKSJ-H /DescendantFonts [1 0 R] >>",
+		Pages:   []synthPage{{Content: "BT /F1 12 Tf 72 700 Td (A\x93\xFA\x96\x7B) Tj ET"}},
+	}.bytes())
 	hebrew := "1 begincodespacerange <00> <FF> endcodespacerange 3 beginbfchar <41> <05E9> <42> <05DC> <43> <05DD> endbfchar"
 	f.Add(synthDoc{
 		Objects: []string{pdftest.Stream("", hebrew)},

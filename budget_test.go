@@ -27,6 +27,10 @@ import (
 //
 // For comparison: v0.1.1 made 975 allocations for each of the hundred
 // pages of 40 lines, where this makes 20.
+// The three fixtures of one page are tagged PDFs: the elements of
+// their structure tree that their content refers to are read for each
+// page, one allocation or more for each element (24 to 34 on these
+// pages). They were raised by that when the tree was first read.
 var budgets = []struct {
 	name          string
 	data          func(t *testing.T) []byte
@@ -37,20 +41,20 @@ var budgets = []struct {
 	// Measured: 69 allocations and 26.5 KB for each of 3 pages.
 	{name: "english", data: fixtureBytes("english"), allocsPerPage: 78, bytesPerPage: 34000},
 	// 448 and 92.7 KB: one page in five scripts, with as many fonts.
-	{name: "multilingual", data: fixtureBytes("multilingual"), allocsPerPage: 504, bytesPerPage: 118000},
+	{name: "multilingual", data: fixtureBytes("multilingual"), allocsPerPage: 540, bytesPerPage: 124000},
 	// 277 and 104 KB when the budget was set. A document of one page also
 	// carries what is done once for a document: since then, its metadata
 	// packet read for the stored part, and the window in which pages are
 	// compared for headers, footers and headings. 315 allocations then.
-	{name: "layout-justified-libreoffice", data: fixtureBytes("layout-justified-libreoffice"), allocsPerPage: 340, bytesPerPage: 132000},
+	{name: "layout-justified-libreoffice", data: fixtureBytes("layout-justified-libreoffice"), allocsPerPage: 380, bytesPerPage: 146000},
 	// 196 and 81.1 KB.
-	{name: "layout-cols2-firefox", data: fixtureBytes("layout-cols2-firefox"), allocsPerPage: 221, bytesPerPage: 104000},
+	{name: "layout-cols2-firefox", data: fixtureBytes("layout-cols2-firefox"), allocsPerPage: 255, bytesPerPage: 107000},
 	// 20 and 10.0 KB.
 	{name: "100 pages of 40 lines", data: func(*testing.T) []byte { return benchPages(100) }, allocsPerPage: 23, bytesPerPage: 13000},
 	// The checks of DeepHidden allocate nothing per page that the
 	// default does not: 69 and 27.2 KB, 196 and 83.0 KB.
 	{name: "english with DeepHidden", data: fixtureBytes("english"), deep: true, allocsPerPage: 78, bytesPerPage: 35000},
-	{name: "layout-cols2-firefox with DeepHidden", data: fixtureBytes("layout-cols2-firefox"), deep: true, allocsPerPage: 221, bytesPerPage: 106000},
+	{name: "layout-cols2-firefox with DeepHidden", data: fixtureBytes("layout-cols2-firefox"), deep: true, allocsPerPage: 255, bytesPerPage: 109000},
 }
 
 func fixtureBytes(name string) func(t *testing.T) []byte {

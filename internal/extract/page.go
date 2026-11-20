@@ -56,6 +56,9 @@ type Image struct {
 	// Region is what the clipping paths in force leave of the page: the
 	// image is painted only there.
 	Region Region
+	// MCID is the marked-content identifier the image is drawn under, as
+	// for a run; -1 for none.
+	MCID int32
 }
 
 // Content is what a page's content streams draw, as the interpreter
@@ -210,6 +213,9 @@ type marked struct {
 	emitted bool
 	// The text is in interp.actual[lo:hi].
 	lo, hi int32
+	// mcid is the marked-content identifier of a sequence of the page's
+	// own content, -1 for none.
+	mcid int32
 }
 
 // interp holds the state of one page's interpretation. Its buffers are
@@ -238,6 +244,7 @@ type interp struct {
 	tm, tlm matrix
 
 	mc       []marked
+	mcid     int32  // that of the innermost sequence that has one, -1 for none
 	offDepth int    // marked sequences and forms that are switched off
 	actual   []byte // the /ActualText of the open sequences
 	inActual int    // open sequences with /ActualText
@@ -442,7 +449,7 @@ func (in *interp) reset(f *file.File, p *file.Page, opts Options, res *Result) {
 	in.geomValid = false
 	in.stack = in.stack[:0]
 	in.tm, in.tlm = identity, identity
-	in.mc, in.offDepth, in.actual, in.inActual = in.mc[:0], 0, in.actual[:0], 0
+	in.mc, in.offDepth, in.actual, in.inActual, in.mcid = in.mc[:0], 0, in.actual[:0], 0, -1
 	in.text, in.runs, in.forms = in.text[:0], in.runs[:0], in.forms[:0]
 	in.gaps, in.images = in.gaps[:0], in.images[:0]
 	in.form, in.seq, in.prev, in.full = -1, 0, lineEnd{}, false
@@ -934,13 +941,19 @@ func (in *interp) beginMarked(tag []byte, props content.Operand) {
 	if len(in.mc) >= maxMarkedDepth {
 		return
 	}
-	m := marked{}
+	m := marked{mcid: -1}
 	// The property list is a dictionary in the stream or a name in the
-	// /Properties resources. Only two things in it matter here, and most
-	// lists have neither: look before parsing.
+	// /Properties resources. Only three things in it matter here, and
+	// most lists have none: look before parsing.
 	var dict syntax.Value
 	switch props.Kind {
 	case content.Dict:
+		// The identifier of the page's own content. A form's content has
+		// identifiers of its own, which the structure tree refers to by
+		// the form: what a form draws is under the sequence that drew it.
+		if in.level == 0 {
+			m.mcid = mcidIn(props.Raw)
+		}
 		if bytes.Contains(props.Raw, []byte("ActualText")) {
 			in.name = append(append(append(in.name[:0], "<<"...), props.Raw...), ">>"...)
 			parser := syntax.NewParser(in.name, 0, 64)
@@ -952,6 +965,9 @@ func (in *interp) beginMarked(tag []byte, props content.Operand) {
 			m.off = in.contentOff(ref)
 		} else {
 			dict = in.f.Resolve(ref)
+			if n, ok := in.f.Resolve(dict.Get("MCID")).Integer(); ok && in.level == 0 && n >= 0 && n < 1<<31 {
+				m.mcid = int32(n)
+			}
 		}
 	}
 	if text := in.f.Resolve(dict.Get("ActualText")); text.Kind == syntax.String {
@@ -964,7 +980,33 @@ func (in *interp) beginMarked(tag []byte, props content.Operand) {
 	if m.off {
 		in.offDepth++
 	}
+	if m.mcid >= 0 {
+		in.mcid = m.mcid
+	}
 	in.mc = append(in.mc, m)
+}
+
+// mcidIn reads the /MCID of a property list written in the stream,
+// without parsing it: -1 if it has none.
+func mcidIn(raw []byte) int32 {
+	i := bytes.Index(raw, []byte("/MCID"))
+	if i < 0 {
+		return -1
+	}
+	i += len("/MCID")
+	for i < len(raw) && (raw[i] == ' ' || raw[i] == '\t' || raw[i] == '\r' || raw[i] == '\n') {
+		i++
+	}
+	n, digits := int64(0), 0
+	for i < len(raw) && raw[i] >= '0' && raw[i] <= '9' && digits < 10 {
+		n = n*10 + int64(raw[i]-'0')
+		i++
+		digits++
+	}
+	if digits == 0 || n >= 1<<31 || i < len(raw) && raw[i] >= '0' && raw[i] <= '9' {
+		return -1
+	}
+	return int32(n)
 }
 
 func (in *interp) endMarked() {
@@ -980,6 +1022,15 @@ func (in *interp) popMarked() {
 	in.mc = in.mc[:n-1]
 	if m.off {
 		in.offDepth--
+	}
+	if m.mcid >= 0 {
+		in.mcid = -1
+		for k := len(in.mc) - 1; k >= 0; k-- {
+			if in.mc[k].mcid >= 0 {
+				in.mcid = in.mc[k].mcid
+				break
+			}
+		}
 	}
 	if m.actual {
 		in.inActual--
@@ -1060,6 +1111,7 @@ func (in *interp) addImage(img Image) {
 	img.Seq, img.After = in.seq, int32(len(in.runs))
 	img.Opaque = img.Opaque && in.gs.fillAlpha >= 1 && !in.gs.blend && !in.gs.overprint && in.offDepth == 0
 	img.Region = in.gs.region
+	img.MCID = in.mcid
 	in.images = append(in.images, img)
 }
 

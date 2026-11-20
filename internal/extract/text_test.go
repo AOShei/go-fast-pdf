@@ -692,7 +692,8 @@ func TestOptionalContent(t *testing.T) {
 		{"nested", "/OC /Off BDC /OC /On BDC (in) Tj EMC (mid) Tj EMC (out) Tj", "inmid"},
 		{"nested the other way", "/OC /On BDC /OC /Off BDC (in) Tj EMC (mid) Tj EMC", "in"},
 		// Another kind of marked content inside does not end it.
-		{"other marked content inside", "/OC /Off BDC /Span << /MCID 1 >> BDC (a) Tj EMC (b) Tj EMC (c) Tj", "ab"},
+		// (a and b are runs of their own: they have different MCIDs.)
+		{"other marked content inside", "/OC /Off BDC /Span << /MCID 1 >> BDC (a) Tj EMC (b) Tj EMC (c) Tj", "a|b"},
 		// Membership: one group off, one on.
 		{"any on", show("AnyOn"), ""},
 		{"all on", show("AllOn"), "AllOn"},
@@ -719,7 +720,7 @@ func TestOptionalContent(t *testing.T) {
 			t.Errorf("%s: off %q, want %q (runs %s)", tc.name, got, tc.off, res.texts())
 		}
 		// Content that is switched off is still content.
-		if tc.off != "" && !strings.Contains(res.Text, tc.off) {
+		if tc.off != "" && !strings.Contains(res.Text, strings.ReplaceAll(tc.off, "|", "")) {
 			t.Errorf("%s: %q is missing from the text %q", tc.name, tc.off, res.Text)
 		}
 	}

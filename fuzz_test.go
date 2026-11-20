@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -24,6 +25,18 @@ func FuzzOpen(f *testing.F) {
 		pdftest.PageSpec{Content: pdftest.TextPage("object streams")}).Bytes())
 	// Annotations with appearances, notes and form fields.
 	f.Add(formDoc().bytes())
+	// Text written from right to left: words drawn as they are seen, and
+	// glyph by glyph from right to left, a number and brackets among them.
+	if data, err := os.ReadFile("testdata/fixtures/rtl-he-libreoffice.pdf"); err == nil {
+		f.Add(data)
+	}
+	hebrew := "1 begincodespacerange <00> <FF> endcodespacerange 3 beginbfchar <41> <05E9> <42> <05DC> <43> <05DD> endbfchar"
+	f.Add(synthDoc{
+		Objects: []string{pdftest.Stream("", hebrew)},
+		Font:    "<< /Type /Font /Subtype /Type1 /BaseFont /Courier /ToUnicode 1 0 R >>",
+		Pages: []synthPage{{Content: "BT /F1 10 Tf 72 700 Td ((12) CBA) Tj ET BT /F1 10 Tf 84 680 Td (A) Tj ET BT /F1 10 Tf 78 680 Td (B) Tj ET " +
+			"BT /F1 10 Tf 60 680 Td (3 5) Tj ET BT /F1 10 Tf 66 680 Td (.) Tj ET"}},
+	}.bytes())
 	// Scripts, a metadata packet, entries of the file's own making, fields
 	// on no page.
 	f.Add(storedDoc().bytes())

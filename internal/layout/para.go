@@ -170,26 +170,49 @@ func (b *builder) paragraphs(first int, display gofastcore.Display) {
 		if up.pred >= 0 {
 			before = &lines[up.pred]
 		}
+		// Lines read from right to left start at the right and end at
+		// the left: they are looked at as in a mirror.
+		mirrored := up.rtl && ln.rtl
+		upEnd, lnStart, lnEnd := up.u1, ln.u0, ln.u1
+		if mirrored {
+			upEnd, lnStart, lnEnd = -up.u0, -ln.u1, -ln.u0
+		}
 		// How far to the right the lines of this column reach: the two
 		// lines, the lines of the paragraph over them, and the lines
 		// that follow under them from the same left edge.
-		right := max(up.u1, ln.u1)
+		right := max(upEnd, lnEnd)
 		for k, at := 0, up.pred; k < 2 && at >= 0; k, at = k+1, lines[at].pred {
-			right = max(right, lines[at].u1)
+			e := lines[at].u1
+			if mirrored {
+				e = -lines[at].u0
+			}
+			right = max(right, e)
 		}
 		last := ln
 		for k, at := 0, under[li]; k < 2 && at >= 0; k, at = k+1, under[at] {
 			next := &lines[at]
 			size := max(last.size, next.size)
-			if abs(next.u0-ln.u0) > edgeSlack*size || min(last.size, next.size) < (1-sameSize)*size || (next.v-last.v)/size > leading+leadingSlack {
+			nextStart, nextEnd := next.u0, next.u1
+			if mirrored {
+				nextStart, nextEnd = -next.u1, -next.u0
+			}
+			if abs(nextStart-lnStart) > edgeSlack*size || min(last.size, next.size) < (1-sameSize)*size || (next.v-last.v)/size > leading+leadingSlack {
 				break
 			}
-			right = max(right, next.u1)
+			right = max(right, nextEnd)
 			last = next
+		}
+		upC, lnC := rowTab(up), rowTab(ln)
+		var upM, lnM line
+		if mirrored {
+			upM, lnM = *upC, *lnC
+			upM.u0, upM.u1 = -up.u1, -up.u0
+			lnM.u0, lnM.u1 = lnStart, lnEnd
+			upC, lnC = &upM, &lnM
 		}
 		// Lines of two items of a tagged list, or of an item and what is
 		// not in one, are two paragraphs.
-		if !ln.item && ln.li == up.li && continues(rowTab(up), rowTab(ln), before, leading, right) {
+		if !ln.item && ln.li == up.li && continues(upC, lnC, before, leading, right) {
 			ln.pred, ln.start = p, false
 		}
 	}
@@ -452,9 +475,6 @@ func (b *builder) clean(t []byte) string {
 			if r >= 0x80 && r <= 0x9F {
 				return b.cleanSlow(t)
 			}
-			if !b.rtl && rightToLeft(r) {
-				b.rtl = true
-			}
 			w += copy(t[w:], t[i:i+size])
 			i += size
 		}
@@ -475,9 +495,6 @@ func (b *builder) cleanSlow(t []byte) string {
 			out = append(out, "\xef\xbf\xbd"...)
 			b.controls++
 		default:
-			if !b.rtl && rightToLeft(r) {
-				b.rtl = true
-			}
 			out = utf8.AppendRune(out, r)
 		}
 	}

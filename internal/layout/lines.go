@@ -52,6 +52,10 @@ type line struct {
 	// li is the list item of a tagged PDF that the line's first run is
 	// in (Options.Item), 0 for none.
 	li int64
+	// bidi is set for a line with letters of a script written from right
+	// to left, whose text is put together from its units (bidi.go); rtl
+	// when it reads from right to left.
+	bidi, rtl bool
 	// The fonts of the first and last piece, and of the piece with the
 	// most text.
 	first, last, main *font.Font
@@ -426,6 +430,11 @@ const (
 
 // lineText writes the text of a line to b.text.
 func (b *builder) lineText(ln *line) {
+	ln.bidi, ln.rtl = false, false
+	if b.rightToLeftLine(ln) {
+		b.bidiText(ln)
+		return
+	}
 	b.cands = b.cands[:0]
 	start := len(b.text)
 	gaps := b.c.Gaps
@@ -506,6 +515,48 @@ func (b *builder) lineText(ln *line) {
 	if len(b.cands) >= 3 && b.closeLetters(start) {
 		b.stats.LetterSpaced++
 	}
+	b.endLine(ln, start)
+}
+
+// bidiText writes the text of a line with letters of a script written
+// from right to left to b.text, in the order it is read (bidi.go).
+func (b *builder) bidiText(ln *line) {
+	start := len(b.text)
+	ln.bidi, ln.rtl = true, b.bidiUnits(ln)
+	// The fonts where the line meets the lines before and after it: of
+	// its first and its last letters as they are read.
+	first, last := -1, -1
+	for i := range b.units {
+		if u := &b.units[i]; u.run >= 0 && u.class != bidiWS {
+			if first < 0 {
+				first = i
+			}
+			last = i
+		}
+	}
+	if first >= 0 {
+		ln.first, ln.last = b.c.Runs[b.units[first].run].Font, b.c.Runs[b.units[last].run].Font
+	}
+	for i := range b.units {
+		u := &b.units[i]
+		n := len(b.text)
+		b.text = b.unitText(b.text, u)
+		if u.put == '\t' {
+			ln.tab = true
+			b.stats.Tabs++
+			continue
+		}
+		for k := n; k < len(b.text); k++ {
+			if c := b.text[k]; c < 0x20 && (c == '\n' || c == '\t' || c == '\r' || c == '\f' || c == '\v') {
+				b.text[k] = ' '
+			}
+		}
+	}
+	b.endLine(ln, start)
+}
+
+// endLine notes where the text of a line, written from start, is.
+func (b *builder) endLine(ln *line, start int) {
 	ln.tlo, ln.thi = int32(start), int32(len(b.text))
 
 	// The width of the first word, taken as its share of the line's

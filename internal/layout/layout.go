@@ -99,9 +99,6 @@ type Result struct {
 	HasText bool
 	// Controls is the number of control characters that were replaced.
 	Controls int
-	// RightToLeft reports that some text is in a script written from
-	// right to left.
-	RightToLeft bool
 	// Lines are the lines of the text blocks, block by block, when
 	// Options.Lines is set.
 	Lines []Line
@@ -223,9 +220,13 @@ type builder struct {
 	// The order of the structure tree (order.go): the place of each
 	// block, and the keys of the order drawn that are put back.
 	tPlaces, tDrawn [][2]int32
+	// The units of a line written from right to left (bidi.go), and
+	// whether its brackets are mirrored.
+	units      []unit
+	segs       []segment
+	mirrorLine bool
 
 	controls int
-	rtl      bool
 }
 
 var builders = sync.Pool{New: func() any { return new(builder) }}
@@ -308,7 +309,7 @@ func Build(page Page, c *extract.Content, opts Options) Result {
 		lo = hi
 	}
 
-	res := Result{Controls: b.controls, RightToLeft: b.rtl, Stats: b.stats, CellText: cellText, CellBox: cellBox, CellSize: cellSize}
+	res := Result{Controls: b.controls, Stats: b.stats, CellText: cellText, CellBox: cellBox, CellSize: cellSize}
 	res.Blocks = make([]gofastcore.Block, 0, len(final)+len(c.Images)*btoi(opts.Images))
 	for _, i := range final {
 		bl := &b.blocks[i]
@@ -475,7 +476,7 @@ func (b *builder) reset(page Page, c *extract.Content, opts Options) {
 	b.pieces, b.order, b.lines, b.lidx = b.pieces[:0], b.order[:0], b.lines[:0], b.lidx[:0]
 	b.text, b.cands, b.frags, b.blocks, b.bidx = b.text[:0], b.cands[:0], b.frags[:0], b.blocks[:0], b.bidx[:0]
 	b.stats = Stats{Runs: len(c.Runs)}
-	b.controls, b.rtl = 0, false
+	b.controls = 0
 }
 
 // trim drops what one unusually large page grew.

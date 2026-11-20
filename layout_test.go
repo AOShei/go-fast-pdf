@@ -183,18 +183,29 @@ func TestTextConventions(t *testing.T) {
 	})
 
 	t.Run("text written from right to left", func(t *testing.T) {
-		cmap := "1 begincodespacerange <00> <FF> endcodespacerange 3 beginbfchar <41> <05E9> <42> <05DC> <43> <05DD> endbfchar"
-		d := synthDoc{
-			Objects: []string{pdftest.Stream("", cmap)},
-			Font:    "<< /Type /Font /Subtype /Type1 /BaseFont /Courier /ToUnicode 1 0 R >>",
-			Pages:   []synthPage{{Content: draw(10, textLine{72, 700, "CBA"})}, {Content: draw(10, textLine{72, 700, "xyz"})}},
-		}
-		doc := mustExtract(t, d.bytes(), nil)
-		if w, ok := warning(doc.Parts[0].Warnings, "pdf.rtl_visual_order"); !ok || w.Severity != gofastcore.SeverityWarning {
-			t.Errorf("page 1: warnings %+v", doc.Parts[0].Warnings)
-		}
-		if doc.Parts[1].Has("pdf.rtl_visual_order") {
-			t.Error("page 2 has no such text and has the warning")
+		// A, B and C are shin, lamed and final mem: the word shalem, read
+		// from right to left. However a page draws it, it is read so.
+		cmap := "1 begincodespacerange <00> <FF> endcodespacerange 7 beginbfchar <41> <05E9> <42> <05DC> <43> <05DD> <28> <0028> <29> <0029> <44> <05D0> <45> <05D1> endbfchar"
+		one := func(x int, s string) string { return fmt.Sprintf("BT /F1 10 Tf %d 700 Td (%s) Tj ET\n", x, s) }
+		for _, c := range []struct{ name, content, want string }{
+			{"drawn as it is seen", draw(10, textLine{72, 700, "CBA"}), "\u05e9\u05dc\u05dd"},
+			{"drawn glyph by glyph from right to left", one(84, "A") + one(78, "B") + one(72, "C"), "\u05e9\u05dc\u05dd"},
+			{"with a number, read from left to right", draw(10, textLine{72, 700, "12 CBA"}), "\u05e9\u05dc\u05dd 12"},
+			{"two words, the second drawn first", one(72, "ED") + one(96, "CBA"), "\u05e9\u05dc\u05dd \u05d0\u05d1"},
+			{"a Latin word inside", draw(10, textLine{72, 700, "CBA abc ED"}), "\u05d0\u05d1 abc \u05e9\u05dc\u05dd"},
+		} {
+			d := synthDoc{
+				Objects: []string{pdftest.Stream("", cmap)},
+				Font:    "<< /Type /Font /Subtype /Type1 /BaseFont /Courier /ToUnicode 1 0 R >>",
+				Pages:   []synthPage{{Content: c.content}},
+			}
+			doc := mustExtract(t, d.bytes(), nil)
+			if got := texts(&doc.Parts[0]); len(got) != 1 || got[0] != c.want {
+				t.Errorf("%s: %q, want %q", c.name, got, c.want)
+			}
+			if len(doc.Parts[0].Warnings) != 0 {
+				t.Errorf("%s: warnings %v", c.name, doc.Parts[0].Warnings)
+			}
 		}
 	})
 }

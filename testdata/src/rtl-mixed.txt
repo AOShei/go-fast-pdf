@@ -1,0 +1,5 @@
+Names in two directions
+
+The library keeps its catalogue in three languages. A reader who asks for the city library in Hebrew says הספרייה העירונית, and in Arabic مكتبة المدينة, and both names are printed on the sign above the door.
+
+Books that came in 2024 have a label with the words ספר חדש in red, followed by the call number, such as 892.4 or 3.5, and the date the book was received.

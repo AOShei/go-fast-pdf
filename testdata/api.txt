@@ -7,8 +7,6 @@ const (
 )
 
 const (
-	WarnRTLVisualOrder = "pdf.rtl_visual_order"
-
 	WarnGlyphTextAssumed = "pdf.glyph_text_assumed"
 
 	WarnFontMissing = "pdf.font_missing"

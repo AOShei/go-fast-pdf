@@ -79,6 +79,12 @@ func (b *builder) prepare() {
 		p.nx, p.ny = nx, ny
 		p.sx, p.sy = b.toDisplay(r.X0, r.Y0)
 		ex, ey := b.toDisplay(r.X1, r.Y1)
+		if r.Back {
+			// Drawn from right to left: from where its first string ends
+			// to where its last begins.
+			p.sx, p.sy = b.toDisplay(r.RX, r.RY)
+			ex, ey = b.toDisplay(r.LX, r.LY)
+		}
 		p.ex, p.ey = ex, ey
 		p.size, p.em = r.Size*b.scale, r.Em()*b.scale
 

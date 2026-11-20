@@ -412,8 +412,23 @@
 // space still decides where it separates blocks: a text box at the top
 // of a page, which a word processor puts in the tree where the box is
 // anchored, is read first, and a page drawn from top to bottom in one
-// column is read so. Text in a script written from right to left is
-// given as the page draws it, and its page has pdf.rtl_visual_order.
+// column is read so.
+//
+// A line with letters of a script written from right to left (Hebrew,
+// Arabic and the others) is read in the order it is written, whatever
+// order the page draws it in: from left to right as it is seen, word by
+// word, or glyph by glyph from right to left. The line is put together
+// from where its glyphs stand, and the Unicode bidirectional algorithm
+// gives the order of reading: numbers and Latin words read from left to
+// right within it, spaces and punctuation take the direction of what
+// surrounds them, and a glyph that stands for more than one letter (a
+// ligature of lam and alef) keeps its letters in their order. The line
+// reads from right to left when the letters at both its ends are of
+// such a script, or else when most of its words are. Brackets read from
+// right to left are mirrored where the file gives the glyph drawn and
+// not the character it stands for, which is told by which reading pairs
+// them. The paragraphs of such lines are found as for others, with the
+// start of a line at its right.
 //
 // # What the file declares
 //
@@ -483,8 +498,6 @@
 //
 // Codes that only this package uses, each for a fact about the file:
 //
-//	pdf.rtl_visual_order            a page has text written from right
-//	                                to left, given as the page draws it
 //	pdf.glyph_text_assumed          characters of a font that does not
 //	                                say what its glyphs are were read as
 //	                                the characters their codes stand for

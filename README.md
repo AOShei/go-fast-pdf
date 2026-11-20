@@ -192,7 +192,8 @@ Settings that only PDF has are fields of `gofastpdf.Extractor`. The
   Glyph List; ligatures are written as their letters
 - **Paragraphs and reading order** - lines are joined into paragraphs; columns, tables drawn by rows, and
   pages drawn out of order are put in reading order; in a tagged PDF the order of the structure tree
-  decides where the white space of the page leaves it open
+  decides where the white space of the page leaves it open; text written from right to left (Hebrew,
+  Arabic) reads in the order it is written, with numbers and Latin words in it from left to right
 - **Running headers and footers** - titles, dates and page numbers that the pages repeat in their margins
   are tagged, and the renderers leave them out; a paragraph split by a page break is joined again
 - **Headings** - from the structure tree of a tagged PDF or the outline where they name them, otherwise by
@@ -333,7 +334,10 @@ file can be read from many goroutines, and the result is the same for any number
   cells apart by tabs. Headings are found by the outline and by type; a heading set like the text around
   it is not found. In a file without tags, list items are found by their markers; a list set without
   markers is paragraphs
-- **Scripts written from right to left** - the text is given in the order the page draws it, with a warning
+- **Scripts written from right to left** - a line's direction is that of the letters at its ends or of
+  most of its words, so a line of a paragraph read from right to left that is mostly Latin can be read
+  the other way. Columns are read from left to right whatever the script. Glyphs that a font leaves
+  without a character (Firefox's Arabic subsets) cannot be read
 - **Fonts without any mapping** - glyphs of embedded CFF and TrueType programs that the PDF does not
   describe are read by their codes or reported as unmapped; the legacy CJK encodings are not built in
 - **Images** - JBIG2 images, images in Separation and DeviceN colours, and images inside content streams
@@ -371,7 +375,7 @@ PDF file → objects and cross-references → content interpreter → layout →
 * [x] Tagged PDF: headings, tables, lists, the descriptions of figures and the order of the tree
 * [x] Tables in files without tags, by how their text lines up
 * [x] Tables in files without tags, by their drawn lines
-* [ ] Text from right to left in reading order
+* [x] Text from right to left in reading order
 
 ## License
 

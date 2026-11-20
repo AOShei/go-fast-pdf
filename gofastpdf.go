@@ -109,10 +109,6 @@ func (e *Extractor) ExtractFile(ctx context.Context, path string, opts *gofastco
 // Warning codes that only this library uses. Each states a fact about
 // the file or about what was done with it.
 const (
-	// WarnRTLVisualOrder: the page has text in a script written from
-	// right to left. Its text is given in the order the page draws it,
-	// which may be the order of display and not of reading.
-	WarnRTLVisualOrder = "pdf.rtl_visual_order"
 	// WarnGlyphTextAssumed: characters on the page are set in a font
 	// that does not say which characters its glyphs are; they were read
 	// as the characters their codes stand for.
@@ -317,10 +313,6 @@ func (e *Extractor) page(f *file.File, p *file.Page, opts *gofastcore.Options, w
 	if lay.Controls > 0 && !part.Has(gofastcore.WarnTextUnmappedGlyphs) {
 		part.Warn(gofastcore.SeverityWarning, gofastcore.WarnTextUnmappedGlyphs,
 			fmt.Sprintf("%d characters on the page are control characters and appear as U+FFFD", lay.Controls))
-	}
-	if lay.RightToLeft {
-		part.Warn(gofastcore.SeverityWarning, WarnRTLVisualOrder,
-			"the page has text in a script written from right to left; it is given in the order the page draws it")
 	}
 	// A message can quote the file: a name, part of an object.
 	for i := range part.Warnings {

@@ -28,19 +28,15 @@
 //     Adobe-Japan1-UCS2, Adobe-Korea1-UCS2 and Adobe-KR-UCS2, which map
 //     the CIDs of each collection to Unicode for the extraction of text.
 //
-// For -cff: Adobe Technical Note #5176, "The Compact Font Format
-// Specification" (4 December 2003), as Adobe publishes it in
-// https://github.com/adobe-type-tools/font-tech-notes (pdfs/5176.CFF.pdf,
-// SHA-256 60e0696c4fac326de597722af37bcdbbd688e0337a548709a287405ff3b3996a),
-// made into text with "pdftotext -layout" (Poppler 26.10). Only Appendix A
-// is read: which number stands for which glyph name. The table is checked
-// as it is read: 391 names, numbered from 0 without a gap.
+// The other two come from fontTools (https://github.com/fonttools/fonttools,
+// MIT License) at commit f3f799e1b6c090096d7dc9a6ca22f26dd25a4c81:
 //
-// For -mac: Lib/fontTools/ttLib/standardGlyphOrder.py of fontTools
-// (https://github.com/fonttools/fonttools, MIT License) at commit
-// f3f799e1b6c090096d7dc9a6ca22f26dd25a4c81, which follows Apple's
-// TrueType Reference Manual for the 'post' table. Each name is checked
-// against the number in the comment after it.
+//   - -cff: Lib/fontTools/cffLib/__init__.py, its list cffStandardStrings,
+//     which is Appendix A of the CFF specification (Adobe Technical Note
+//     #5176). It is checked to have 391 names, as the file itself asserts.
+//   - -mac: Lib/fontTools/ttLib/standardGlyphOrder.py, which follows
+//     Apple's TrueType Reference Manual for the 'post' table. Each name is
+//     checked against the number in the comment after it.
 //
 // The notices the sources ask to be kept are in NOTICE at the root of the
 // repository.
@@ -100,7 +96,7 @@ func main() {
 	cmaps := flag.String("cmaps", "", "the cmap-resources repository")
 	unicode := flag.String("unicode", "", "the pdf2unicode directory of mapping-resources-pdf")
 	out := flag.String("out", "", "the file to write")
-	cff := flag.String("cff", "", "Adobe Technical Note #5176 as text, from pdftotext -layout")
+	cff := flag.String("cff", "", "fontTools' cffLib/__init__.py")
 	stringsOut := flag.String("strings", "", "the Go file to write the CFF standard strings to")
 	mac := flag.String("mac", "", "fontTools' standardGlyphOrder.py")
 	macOut := flag.String("macout", "", "the Go file to write the standard Macintosh glyph names to")
@@ -210,32 +206,26 @@ func writeMacNames(src, out string) {
 	fmt.Printf("%d Macintosh glyph names\n", len(names))
 }
 
-// writeCFFStrings reads Appendix A of the CFF specification, as text,
-// and writes the standard strings as a Go table.
-func writeCFFStrings(text, out string) {
-	data := string(read(text))
-	start := strings.Index(data, "(SID / name)")
+// writeCFFStrings reads the CFF standard strings from fontTools' list
+// and writes them as a Go table.
+func writeCFFStrings(src, out string) {
+	data := string(read(src))
+	start := strings.Index(data, "\ncffStandardStrings = [\n")
 	end := -1
 	if start >= 0 {
-		end = strings.Index(data[start:], "Appendix B\n")
+		end = strings.Index(data[start:], "\n]\n")
 	}
 	if start < 0 || end < 0 {
-		log.Fatal("Appendix A not found")
+		log.Fatal("cffStandardStrings not found")
 	}
-	pair := regexp.MustCompile(`(\d+)\s+(\S+)`)
-	names := map[int]string{}
-	for _, line := range strings.Split(data[start+len("(SID / name)"):start+end], "\n") {
-		if strings.Contains(line, "Appendix") || strings.Contains(line, "Dec 03") {
-			continue // a page header
+	entry := regexp.MustCompile(`^\s*"([^"]+)",\s*$`)
+	var names []string
+	for _, line := range strings.Split(data[start+len("\ncffStandardStrings = [\n"):start+end], "\n") {
+		m := entry.FindStringSubmatch(line)
+		if m == nil {
+			log.Fatalf("not a name: %q", line)
 		}
-		for _, m := range pair.FindAllStringSubmatch(line, -1) {
-			var sid int
-			fmt.Sscan(m[1], &sid)
-			if old, dup := names[sid]; dup && old != m[2] {
-				log.Fatalf("SID %d is %q and %q", sid, old, m[2])
-			}
-			names[sid] = m[2]
-		}
+		names = append(names, m[1])
 	}
 	if len(names) != 391 {
 		log.Fatalf("%d standard strings, want 391", len(names))
@@ -246,11 +236,7 @@ func writeCFFStrings(text, out string) {
 	b.WriteString("// cffStandardStrings are the glyph names that the SIDs 0 to 390 of a\n")
 	b.WriteString("// CFF font program stand for (CFF specification, Appendix A).\n")
 	b.WriteString("var cffStandardStrings = [391]string{\n")
-	for sid := 0; sid < 391; sid++ {
-		name, ok := names[sid]
-		if !ok {
-			log.Fatalf("SID %d missing", sid)
-		}
+	for _, name := range names {
 		fmt.Fprintf(&b, "\t%q,\n", name)
 	}
 	b.WriteString("}\n")

@@ -130,25 +130,13 @@ NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ------------------------------------------------------------------------
-4. Standard strings of the Compact Font Format
+4. Glyph name tables from fontTools
 
-Source: Adobe Technical Note #5176, "The Compact Font Format
-Specification", Appendix A, as published in
-https://github.com/adobe-type-tools/font-tech-notes (pdfs/5176.CFF.pdf),
-under the Creative Commons Attribution-NoDerivatives 4.0 International
-licence.
-Used for: internal/font/cffstrings_gen.go: the glyph name each of the
-391 standard string IDs stands for, which reading a CFF font program
-requires. Only that list of names is taken, as data; no text of the
-document is in this module.
-
-------------------------------------------------------------------------
-5. Standard Macintosh glyph order
-
-Source: Lib/fontTools/ttLib/standardGlyphOrder.py of fontTools,
-https://github.com/fonttools/fonttools
-Used for: internal/font/macnames_gen.go (the 258 glyph names a TrueType
-'post' table refers to by number).
+Source: fontTools, https://github.com/fonttools/fonttools
+Used for: internal/font/cffstrings_gen.go (the 391 standard strings of
+the Compact Font Format, from Lib/fontTools/cffLib/__init__.py) and
+internal/font/macnames_gen.go (the 258 glyph names a TrueType 'post'
+table refers to by number, from Lib/fontTools/ttLib/standardGlyphOrder.py).
 
 MIT License
 

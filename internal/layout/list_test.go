@@ -43,3 +43,34 @@ func TestListMarker(t *testing.T) {
 		}
 	}
 }
+
+// The marker of a text known to be an item: also a capital letter or a
+// capital Roman number before a full stop, and whatever tabs follow.
+func TestItemMarker(t *testing.T) {
+	for text, want := range map[string]string{
+		"1. Numbered":           "1.|Numbered|true",
+		"C. BCRA, which":        "C.|BCRA, which|true",
+		"IV. Fourth":            "IV.|Fourth|true",
+		"III.\tThe Ability":     "III.|The Ability|true",
+		"- production\t656.3":   "-|production\t656.3|false",
+		"6. Options\t. . . 6-1": "6.|Options\t. . . 6-1|true",
+		"VIX. Letters of Roman": "VIX.|Letters of Roman|true",
+		"IVXIVX. Too long":      "",
+		". A full stop":         "",
+		"Text without a marker": "",
+		"3.5 million people":    "",
+	} {
+		marker, rest, ordered, ok := ItemMarker(text)
+		got := ""
+		if ok {
+			got = marker + "|" + rest + "|" + map[bool]string{true: "true", false: "false"}[ordered]
+		}
+		if got != want {
+			t.Errorf("%q: %q, want %q", text, got, want)
+		}
+	}
+	// A list found by its markers is read as before.
+	if _, _, _, ok := ListMarker("C. BCRA, which"); ok {
+		t.Error("ListMarker reads a capital before a full stop")
+	}
+}

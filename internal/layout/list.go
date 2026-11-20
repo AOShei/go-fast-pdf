@@ -26,7 +26,20 @@ const bullets = "•◦▪▫‣⁃∙·●○■□◆◇►▸▹▶➢➤✓�
 // and whether the marker counts (a number or a letter). ok is false when
 // the text does not start with one, or nothing follows it.
 func ListMarker(text string) (marker, rest string, ordered, ok bool) {
-	start, end, at, ordered, ok := splitMarker(text)
+	start, end, at, ordered, ok := splitMarker(text, false)
+	if !ok {
+		return "", "", false, false
+	}
+	return text[start:end], text[at:], ordered, true
+}
+
+// ItemMarker reads the marker of a text that is known to be a list
+// item, as the structure tree of a tagged PDF says one is: as
+// ListMarker, and also a capital letter or a capital Roman number
+// before a full stop ("C.", "IV."), which ListMarker leaves to names,
+// whatever tabs the text has after it.
+func ItemMarker(text string) (marker, rest string, ordered, ok bool) {
+	start, end, at, ordered, ok := splitMarker(text, true)
 	if !ok {
 		return "", "", false, false
 	}
@@ -35,15 +48,16 @@ func ListMarker(text string) (marker, rest string, ordered, ok bool) {
 
 // splitMarker finds the marker that text starts with: it is
 // text[start:end], and what follows it starts at text[at:]. It reads a
-// line of the layout as it is, without making a string of it.
-func splitMarker[T ~string | ~[]byte](text T) (start, end, at int, ordered, ok bool) {
+// line of the layout as it is, without making a string of it. item is
+// set for the text of a known item (ItemMarker).
+func splitMarker[T ~string | ~[]byte](text T, item bool) (start, end, at int, ordered, ok bool) {
 	for start < len(text) && (text[start] == ' ' || text[start] == '\t') {
 		start++
 	}
 	// A marker is short: its first bytes are enough to read it, and a
 	// string of them is made without allocating.
 	head := text[start:min(len(text), start+24)]
-	n, ordered := markerEnd(string(head))
+	n, ordered := markerEnd(string(head), item)
 	end = start + n
 	if n == 0 || end >= len(text) || text[end] != ' ' && text[end] != '\t' {
 		return 0, 0, 0, false, false
@@ -55,7 +69,7 @@ func splitMarker[T ~string | ~[]byte](text T) (start, end, at int, ordered, ok b
 	if at == len(text) {
 		return 0, 0, 0, false, false
 	}
-	for i := at; i < len(text); i++ {
+	for i := at; i < len(text) && !item; i++ {
 		if text[i] == '\t' {
 			return 0, 0, 0, false, false // a row of a table
 		}
@@ -95,8 +109,9 @@ func mayStartItem(t []byte) bool {
 }
 
 // markerEnd returns where a marker at the start of s ends, 0 if there is
-// none.
-func markerEnd(s string) (int, bool) {
+// none. item is set for the text of a known item, where a capital before
+// a full stop counts.
+func markerEnd(s string, item bool) (int, bool) {
 	if s == "" {
 		return 0, false
 	}
@@ -128,7 +143,7 @@ func markerEnd(s string) (int, bool) {
 	switch {
 	case closing == ')' && counter(word, true):
 		return i + 1, true
-	case strings.HasSuffix(word, ".") && counter(word[:len(word)-1], false):
+	case strings.HasSuffix(word, ".") && (counter(word[:len(word)-1], item) || item && len(word) >= 2 && len(word) <= 6 && strings.Trim(word[:len(word)-1], "IVX") == ""):
 		return i, true
 	case clause(word):
 		return i, true

@@ -65,7 +65,8 @@ func (b *builder) readingOrder(idx []int32) {
 		return
 	}
 	// Most pages are drawn from top to bottom in one column: each block
-	// under the one before it.
+	// under the one before it. Such a page is read so, whatever the
+	// structure tree of a tagged PDF says.
 	inOrder := true
 	for k := 1; k < len(idx); k++ {
 		if b.cutBox(idx[k]).y0 < b.cutBox(idx[k-1]).y1 {
@@ -76,6 +77,16 @@ func (b *builder) readingOrder(idx []int32) {
 	if inOrder {
 		return
 	}
+	if b.opts.Rank != nil {
+		if drawn := b.treeKeys(idx); drawn != nil {
+			defer func() {
+				for _, d := range drawn {
+					b.blocks[d[0]].key = d[1]
+				}
+			}()
+			sortStable(idx, func(i, j int32) bool { return b.blocks[i].key < b.blocks[j].key })
+		}
+	}
 	b.cut(idx, 0)
 	if b.blocks[idx[0]].display == 0 {
 		for k := 1; k < len(idx); k++ {
@@ -85,6 +96,64 @@ func (b *builder) readingOrder(idx []int32) {
 			}
 		}
 	}
+}
+
+// treeKeys gives the blocks idx, which are in the order drawn, keys in
+// the order of the structure tree of a tagged PDF (Options.Rank): each
+// block by the first of its content in that order, and a block that
+// the tree does not place right after the block drawn before it. It
+// returns each block with its key of the order drawn, which the caller
+// puts back once the blocks are ordered; nil when the tree places none
+// of them, and the keys are unchanged.
+//
+// The order of the tree is the evidence of a tagged PDF in place of the
+// order of drawing: where white space separates blocks, they are read
+// by it all the same, so that the tree can say which way a page is cut
+// but not that a text box set at the top of a page, which a word
+// processor puts in the tree where it is anchored, is read further
+// down.
+func (b *builder) treeKeys(idx []int32) [][2]int32 {
+	// places[k] is the place in the tree that block idx[k] is read at,
+	// and k after it: the order drawn among blocks at one place.
+	places := b.tPlaces[:0]
+	cur, any := int32(0), false
+	for k, i := range idx {
+		r := b.blockRank(i)
+		if r > 0 {
+			cur, any = r, true
+		}
+		places = append(places, [2]int32{cur, int32(k)})
+	}
+	b.tPlaces = places
+	if !any {
+		return nil
+	}
+	slices.SortStableFunc(places, func(x, y [2]int32) int { return cmp.Compare(x[0], y[0]) })
+	drawn := b.tDrawn[:0]
+	for _, i := range idx {
+		drawn = append(drawn, [2]int32{i, b.blocks[i].key})
+	}
+	b.tDrawn = drawn
+	for n, p := range places {
+		b.blocks[idx[p[1]]].key = int32(n)
+	}
+	return drawn
+}
+
+// blockRank is the first place in the order of the structure tree of
+// the content of block i, 0 for none.
+func (b *builder) blockRank(i int32) int32 {
+	best := int32(0)
+	b.tOrder = b.blockLines(b.tOrder[:0], i)
+	for _, li := range b.tOrder {
+		ln := &b.lines[li]
+		for k := ln.lo; k < ln.hi; k++ {
+			if r := b.opts.Rank(b.c.Runs[b.pieces[b.lidx[k]].run].MCID); r > 0 && (best == 0 || r < best) {
+				best = r
+			}
+		}
+	}
+	return best
 }
 
 // cut orders idx, which is in the order drawn.

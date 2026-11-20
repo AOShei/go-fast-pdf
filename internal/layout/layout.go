@@ -67,7 +67,19 @@ type Options struct {
 	// with its cells' text in Result.CellText (tables.go).
 	Cell      func(mcid int32) int32
 	CellTable []int32
-	Tables    int // NoTables leaves out the tables found by how their text lines up
+	Tables    int
+	// Item, when set, gives the list item of a tagged PDF that the
+	// content under a marked-content identifier is in, 0 for none, and
+	// whether it is the item's label. A paragraph never joins lines of two
+	// items, or of an item and content outside one (see Style.Item).
+	Item func(mcid int32) (item int64, label bool)
+	// Rank, when set, gives the place of the content under a
+	// marked-content identifier in the order of the structure tree of a
+	// tagged PDF, from 1; 0 for none. The blocks are then ordered with
+	// the tree as the evidence that the order of drawing is otherwise
+	// (order.go).
+	Rank func(mcid int32) int32
+	// NoTables leaves out the tables found by how their text lines up
 	// (aligned.go).
 	NoTables bool
 }
@@ -124,6 +136,11 @@ type Style struct {
 	// the first run of the block, on a page that Options.Heading is set
 	// for; 0 for none.
 	Marked int32
+	// Item is the list item that Options.Item gives every run of a
+	// paragraph, 0 when it gives none or not the same to all; Label is
+	// then the text of the runs at its start that are the item's label.
+	Item  int64
+	Label string
 }
 
 // Line is one line of a text block.
@@ -203,6 +220,9 @@ type builder struct {
 	tGrid  []tgrow
 	tCells []tcell
 	tWords []int
+	// The order of the structure tree (order.go): the place of each
+	// block, and the keys of the order drawn that are put back.
+	tPlaces, tDrawn [][2]int32
 
 	controls int
 	rtl      bool
@@ -380,7 +400,37 @@ func (b *builder) styleOf(i int32) Style {
 			s.Heading = level
 		}
 	}
+	if b.opts.Item != nil {
+		s.Item, s.Label = b.itemOf(i)
+	}
 	return s
+}
+
+// itemOf returns the list item that every run of paragraph i is in, 0
+// for none, and the text of the runs at its start that are the item's
+// label.
+func (b *builder) itemOf(i int32) (item int64, label string) {
+	bl := &b.blocks[i]
+	if bl.line < 0 || bl.grid != nil || bl.table > 0 {
+		return 0, ""
+	}
+	var lbl []byte
+	leading := true
+	for li := bl.line; li >= 0; li = b.lines[li].next {
+		ln := &b.lines[li]
+		for k := ln.lo; k < ln.hi; k++ {
+			run := b.pieces[b.lidx[k]].run
+			it, isLabel := b.opts.Item(b.c.Runs[run].MCID)
+			if it == 0 || item != 0 && it != item {
+				return 0, ""
+			}
+			item = it
+			if leading = leading && isLabel; leading && len(lbl) < 256 {
+				lbl = append(lbl, b.runText(run)...)
+			}
+		}
+	}
+	return item, string(lbl)
 }
 
 // farAway bounds the coordinates of a box. A page can place text a

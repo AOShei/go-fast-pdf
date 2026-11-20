@@ -19,11 +19,12 @@ import (
 // element it belongs to. Each element has its parent in /P, and a type
 // in /S, which /RoleMap may map to a standard type.
 //
-// Of all this, four things are read, for the content of each page as
+// Of all this, six things are read, for the content of each page as
 // it is read: the headings, H1 to H6 and H (whose level is the number of
 // sections, Sect, around it), the alternative description of a figure,
-// the cells of tables (tables.go), and the identifiers of elements,
-// /ID. A block of text whose every run
+// the cells of tables (tables.go), the items of lists (lists.go), the
+// identifiers of elements, /ID, and the order of the content in the
+// tree (treeorder.go). A block of text whose every run
 // is under one heading is that heading, with OriginNative; an image
 // drawn under a figure has its description as its text. A page that has
 // a heading of the tree has none by type. An element with an identifier
@@ -43,6 +44,14 @@ type structure struct {
 	// The grids of the tables, read once each (tables.go).
 	mu    sync.Mutex
 	grids map[int64]*tableGrid
+	// root is the object number of the tree's root. kidAt gives, for an
+	// element, where each of its kids that is an element stands in its
+	// /K, and contentAt where each of its marked contents stands, by
+	// page: read once for each element with many kids (treeorder.go).
+	root      int64
+	om        sync.Mutex
+	kidAt     map[int64]map[int64]int32
+	contentAt map[int64]map[int64][]placedContent
 }
 
 // maxStructHops bounds the parents followed up from an element, and
@@ -60,7 +69,7 @@ func newStructure(f *file.File, catalog syntax.Value) *structure {
 	if !root.IsDict() {
 		return nil
 	}
-	s := &structure{f: f, parentTree: root.Get("ParentTree")}
+	s := &structure{f: f, parentTree: root.Get("ParentTree"), root: file.RefNumber(catalog.Get("StructTreeRoot"))}
 	if !f.Resolve(s.parentTree).IsDict() {
 		return nil
 	}
@@ -114,25 +123,37 @@ type tag struct {
 	// cell and table are the object numbers of the cell of a table the
 	// content is in, TD or TH, and of the table; 0 for none.
 	cell, table int64
+	// item is the object number of the list item, LI, the content is
+	// in, 0 for none; label is set when the content is the item's label,
+	// Lbl, and numbering is what the list's attributes say of its
+	// numbering (lists.go).
+	item      int64
+	label     bool
+	numbering numbering
+	// rank is one more than the place of the content in the order of the
+	// tree among the content of the page, 0 when the tree does not place
+	// it (treeorder.go).
+	rank int32
 }
 
 // pageTags returns, by MCID, what the structure tree says of the content
-// of a page; nil when it says nothing.
-func (s *structure) pageTags(p *file.Page) []tag {
+// of a page, and the page as the tree orders it, whose ranks are found
+// when first asked for (treeorder.go); nil when the tree says nothing.
+func (s *structure) pageTags(p *file.Page) ([]tag, *treePage) {
 	if s == nil {
-		return nil
+		return nil, nil
 	}
 	f := s.f
 	key, ok := f.Resolve(p.Dict().Get("StructParents")).Integer()
 	if !ok {
-		return nil
+		return nil, nil
 	}
 	elems := f.Resolve(findNumber(f, s.parentTree, key)).Elems()
 	if len(elems) == 0 {
-		return nil
+		return nil, nil
 	}
 	elems = elems[:min(len(elems), maxPageMCIDs)]
-	w := walker{s: s, memo: map[int64]reach{}}
+	w := &walker{s: s, memo: map[int64]reach{}}
 	var out []tag
 	for mcid, ref := range elems {
 		r := w.reach(ref, 0)
@@ -150,6 +171,9 @@ func (s *structure) pageTags(p *file.Page) []tag {
 			// No deeper than the parents followed: maxStructHops.
 			t.heading = uint8(max(r.hSections, 1))
 		}
+		if r.item != 0 {
+			t.item, t.label, t.numbering = r.item, r.label, r.numbering
+		}
 		if t != (tag{}) {
 			if out == nil {
 				out = make([]tag, len(elems))
@@ -157,7 +181,10 @@ func (s *structure) pageTags(p *file.Page) []tag {
 			out[mcid] = t
 		}
 	}
-	return out
+	if out == nil {
+		out = make([]tag, len(elems))
+	}
+	return out, &treePage{w: w, elems: elems, page: p.Obj, tags: out}
 }
 
 // reach is what an element and the elements above it say.
@@ -175,12 +202,26 @@ type reach struct {
 	// cell is the nearest cell of a table, TD or TH, inside the nearest
 	// table, and table that table, by their object numbers.
 	cell, table int64
+	// item is the nearest list item, LI, not inside a table nearer than
+	// it; label is set inside the label, Lbl, of the nearest item;
+	// numbering is what the nearest list says of its numbering.
+	item      int64
+	label     bool
+	numbering numbering
+	// pathed is set once the element's path is looked for (walker.path),
+	// and placed when its way up reaches the root through elements that
+	// are objects and kids of their parents; the path is then
+	// walker.paths[at:at+n]: where each element from the root's kid down
+	// to it stands among the kids of its parent (treeorder.go).
+	pathed, placed bool
+	at, n          int32
 }
 
 // walker follows elements up to the root, each once on a page.
 type walker struct {
-	s    *structure
-	memo map[int64]reach
+	s     *structure
+	memo  map[int64]reach
+	paths []int32
 }
 
 func (w *walker) reach(ref syntax.Value, depth int) reach {
@@ -193,10 +234,14 @@ func (w *walker) reach(ref syntax.Value, depth int) reach {
 	}
 	f := w.s.f
 	el := f.Resolve(ref)
-	if !el.IsDict() || depth >= maxStructHops || f.Resolve(el.Get("Type")).IsName("StructTreeRoot") {
+	if !el.IsDict() || depth >= maxStructHops {
+		return reach{}
+	}
+	if f.Resolve(el.Get("Type")).IsName("StructTreeRoot") {
 		return reach{}
 	}
 	r := w.reach(el.Get("P"), depth+1)
+	r.pathed, r.placed, r.at, r.n = false, false, 0, 0 // found by path, when asked for
 	switch t := w.s.role(f.Resolve(el.Get("S")).NameString()); {
 	case len(t) == 2 && t[0] == 'H' && t[1] >= '1' && t[1] <= '6':
 		r.heading, r.h = t[1]-'0', false
@@ -208,6 +253,13 @@ func (w *walker) reach(ref syntax.Value, depth int) reach {
 		r.cell = n
 	case t == "Table":
 		r.table, r.cell = n, 0 // a table in a cell has cells of its own
+		r.item, r.label = 0, false
+	case t == "L":
+		r.numbering = w.s.listNumbering(el)
+	case t == "LI":
+		r.item, r.label = n, false
+	case t == "Lbl":
+		r.label = r.item != 0
 	case t == "Figure":
 		if alt := strings.TrimSpace(text(f, el.Get("Alt"))); alt != "" {
 			r.alt = clipText(alt, maxAltBytes)

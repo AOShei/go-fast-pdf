@@ -49,6 +49,9 @@ type line struct {
 	// and gap when its one tab is the space after that marker: a tab
 	// that does not make the line a row.
 	item, gap bool
+	// li is the list item of a tagged PDF that the line's first run is
+	// in (Options.Item), 0 for none.
+	li int64
 	// The fonts of the first and last piece, and of the piece with the
 	// most text.
 	first, last, main *font.Font

@@ -19,7 +19,9 @@ files made to exhaust it, and is several times faster. The tag follows that of g
 ### Added
 
 - **Paragraphs and reading order.** Lines are joined into paragraphs. Columns, tables drawn row by row
-  and pages drawn out of order are put in the order they are read.
+  and pages drawn out of order are put in the order they are read. In a tagged PDF the order of the
+  structure tree takes the place of the order of drawing where the white space of a page leaves the
+  order open.
 - **Running headers and footers** are tagged by comparing each page with its neighbours, and a paragraph
   split by a page break is marked as continued.
 - **Headings**, with levels: named by the structure tree of a tagged PDF or by the outline, or found by
@@ -34,7 +36,10 @@ files made to exhaust it, and is several times faster. The tag follows that of g
   charts and forms left mostly empty, lists, tables of contents, code and labels repeated side by side
   are not taken for tables. Finding ruled tables costs about 5 percent of the instructions over a mixed
   set of documents; `Extractor.NoRuledTables` turns it off.
-- **List items**, bulleted and numbered, with their markers and nesting.
+- **List items**, bulleted and numbered, with their markers and nesting. In a tagged PDF the items of
+  the lists of the structure tree are list items with `OriginNative`: each its own block, its label as
+  its marker, also an item whose bullet is drawn rather than written. `ListNumbering` says whether a
+  list is ordered.
 - **Bold, italic and links** as spans, with `Options.Spans`.
 - **Anchors**: a block that a named destination (with `Options.Spans`) or an element of a tagged PDF
   names has that name in `Loc.Anchor`.

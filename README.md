@@ -191,7 +191,8 @@ Settings that only PDF has are fields of `gofastpdf.Extractor`. The
 - **Text** - fonts with and without ToUnicode maps, composite fonts, the standard encodings, the Adobe
   Glyph List; ligatures are written as their letters
 - **Paragraphs and reading order** - lines are joined into paragraphs; columns, tables drawn by rows, and
-  pages drawn out of order are put in reading order
+  pages drawn out of order are put in reading order; in a tagged PDF the order of the structure tree
+  decides where the white space of the page leaves it open
 - **Running headers and footers** - titles, dates and page numbers that the pages repeat in their margins
   are tagged, and the renderers leave them out; a paragraph split by a page break is joined again
 - **Headings** - from the structure tree of a tagged PDF or the outline where they name them, otherwise by
@@ -203,7 +204,9 @@ Settings that only PDF has are fields of `gofastpdf.Extractor`. The
   of prose, boxes around paragraphs, lists, tables of contents and code are not taken for tables.
   Looking for ruled tables costs about 5 percent; `Extractor.NoRuledTables` turns it off
 - **Descriptions of figures** - an image of a tagged PDF has the alternative text its figure gives
-- **List items** - bulleted and numbered, with their markers and how deep they are nested
+- **List items** - bulleted and numbered, with their markers and how deep they are nested; in a tagged
+  PDF, the items of the lists of its structure tree, with their labels as markers, also where the bullet
+  is drawn and not written
 - **Bold, italic and links** - with `Options.Spans`: spans by the fonts of the words, and links to web
   addresses or to pages of the document (`#page=N`)
 - **Anchors** - the identifiers of the elements of a tagged PDF, and with `Options.Spans` the names of
@@ -326,15 +329,17 @@ file can be read from many goroutines, and the result is the same for any number
 
 - **Structure** - a table without tags is found only where its columns stand apart with white space or
   rules; one whose columns are set close together with neither is paragraphs, a row a line with its
-  cells apart by tabs. Headings are found by the
-  outline and by type; a heading set like the text around it is not found. List items are found by their
-  markers; a list set without markers is paragraphs
+  cells apart by tabs. Headings are found by the outline and by type; a heading set like the text around
+  it is not found. In a file without tags, list items are found by their markers; a list set without
+  markers is paragraphs
 - **Scripts written from right to left** - the text is given in the order the page draws it, with a warning
 - **Fonts without any mapping** - glyphs of embedded CFF and TrueType programs that the PDF does not
   describe are read by their codes or reported as unmapped; the legacy CJK encodings are not built in
 - **Images** - CMYK, indexed, 1-bit, CCITT and JBIG2 images are listed without their data
-- **Tagged PDF** - of the structure tree, headings, tables and the descriptions of figures are read;
-  lists and the reading order it gives are not yet
+- **Tagged PDF** - of the structure tree, headings, tables, lists and the descriptions of figures are
+  read, and its order where the white space of a page leaves the order open; where white space separates
+  blocks it decides, so a text box that a word processor puts in the tree where it is anchored is still
+  read where it stands. The tree's nesting of lists is not used: their levels are found by indent
 - **No OCR** - a scan without a text layer gives its images and the warning `part.image_only`
 
 ## How it works
@@ -360,7 +365,7 @@ PDF file → objects and cross-references → content interpreter → layout →
 * [x] Image data (JPEG, JPEG 2000, 8-bit gray and RGB)
 * [x] Page iterator, lines and words, the command-line tool
 * [x] Headings, lists, running headers and footers; bold, italic and links
-* [x] Tagged PDF: headings, tables and the descriptions of figures
+* [x] Tagged PDF: headings, tables, lists, the descriptions of figures and the order of the tree
 * [x] Tables in files without tags, by how their text lines up
 * [x] Tables in files without tags, by their drawn lines
 * [ ] Text from right to left in reading order

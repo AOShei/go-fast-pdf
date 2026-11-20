@@ -118,18 +118,28 @@ func TestStoredContent(t *testing.T) {
 		t.Errorf("scripts on page 1: %q", onPage)
 	}
 
-	t.Run("the stored part is rendered only when asked for", func(t *testing.T) {
-		// A page's script is on its page, with no display reason, and is
-		// rendered with it. The stored part is left out unless asked for.
-		var sb strings.Builder
-		doc.WriteText(&sb, nil)
-		if s := sb.String(); strings.Contains(s, "Ignore") || strings.Contains(s, "alert") || !strings.Contains(s, "console") || !strings.Contains(s, "committee") {
-			t.Errorf("the text by default: %q", s)
-		}
-		sb.Reset()
-		doc.WriteText(&sb, &gofastcore.RenderOptions{Stored: true})
-		if s := sb.String(); !strings.Contains(s, "alert") {
-			t.Errorf("the text with the stored part: %q", s)
+	t.Run("stored data is rendered only when asked for", func(t *testing.T) {
+		// A page's script is on its page, with no display reason and
+		// marked stored: it is left out of the rendered text with the
+		// stored part, and both come back when asked for, the script in
+		// its place on its page.
+		for _, md := range []bool{false, true} {
+			var sb strings.Builder
+			write := doc.WriteText
+			if md {
+				write = doc.WriteMarkdown
+			}
+			write(&sb, nil)
+			if s := sb.String(); strings.Contains(s, "Ignore") || strings.Contains(s, "alert") || strings.Contains(s, "console") || !strings.Contains(s, "committee") {
+				t.Errorf("markdown %v, by default: %q", md, s)
+			}
+			sb.Reset()
+			write(&sb, &gofastcore.RenderOptions{Stored: true})
+			s := sb.String()
+			page, script, stored := strings.Index(s, "committee"), strings.Index(s, "console"), strings.Index(s, "alert")
+			if page < 0 || script < page || stored < script {
+				t.Errorf("markdown %v, with stored data: %q", md, s)
+			}
 		}
 	})
 

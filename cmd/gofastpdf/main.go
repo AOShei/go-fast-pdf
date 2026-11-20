@@ -36,52 +36,41 @@ func main() {
 	os.Exit(run(ctx, os.Args[1:], os.Stdout, os.Stderr))
 }
 
-// displayFlag is the value of -exclude-display: every display reason
-// when the flag stands alone, or the reasons named after an equals sign.
-type displayFlag struct {
-	set     bool
-	reasons gofastcore.Display
-}
-
-func (h *displayFlag) String() string { return h.reasons.String() }
+// displayFlag is the value of -exclude-display, as every go-fast command
+// reads it: every display reason when the flag stands alone or is =true
+// or =all, none when it is =false or empty, or the reasons named,
+// separated by commas or plus signs.
+type displayFlag struct{ reasons gofastcore.Display }
 
 // IsBoolFlag lets the flag stand without a value.
 func (h *displayFlag) IsBoolFlag() bool { return true }
 
+func (h *displayFlag) String() string {
+	if h.reasons == 0 {
+		return ""
+	}
+	return h.reasons.String()
+}
+
 func (h *displayFlag) Set(v string) error {
-	h.set = true
 	switch v {
-	case "true", "":
+	case "true", "all":
 		h.reasons = gofastcore.DisplayAny
 		return nil
-	case "false":
-		h.set, h.reasons = false, 0
+	case "false", "":
+		h.reasons = 0
 		return nil
 	}
-	h.reasons = 0
-	for _, name := range strings.FieldsFunc(v, func(r rune) bool { return r == ',' || r == '+' }) {
-		var one gofastcore.Display
-		if err := one.UnmarshalText([]byte(name)); err != nil || one == 0 || one&gofastcore.DisplayUnknown != 0 {
-			return fmt.Errorf("%q is not a display reason; the reasons are %s", name, allReasons())
-		}
-		h.reasons |= one
+	var reasons gofastcore.Display
+	if err := reasons.UnmarshalText([]byte(strings.ReplaceAll(v, ",", "+"))); err != nil || !reasons.Valid() || reasons == 0 || reasons&gofastcore.DisplayUnknown != 0 {
+		return fmt.Errorf("unknown reason in %q; the reasons are %s", v, reasonNames)
 	}
-	if h.reasons == 0 {
-		return errors.New("no reason given")
-	}
+	h.reasons = reasons
 	return nil
 }
 
-// allReasons lists the names of the display reasons.
-func allReasons() string {
-	var names []string
-	for bit := gofastcore.Display(1); bit != 0 && bit.Valid(); bit <<= 1 {
-		if name := bit.String(); name != "" {
-			names = append(names, name)
-		}
-	}
-	return strings.Join(names, ", ")
-}
+// reasonNames lists the display reasons.
+var reasonNames = strings.ReplaceAll((gofastcore.DisplayHidden | gofastcore.DisplayNoInk).String(), "+", ", ")
 
 // pageRange reads the value of -pages: "3", "2-5", "4-" or "-7".
 func pageRange(v string) (gofastcore.PartRange, error) {
@@ -142,8 +131,13 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	pages := flags.String("pages", "", "the pages to read: 3, 2-5, 4- or -7 (default: all)")
 	images := flags.String("images", "meta", "images: meta (a block for each, with where it is and how large), data (their bytes too) or none")
 	workers := flags.Int("workers", 0, "pages read at a time (default: one per processor)")
+	// The flags for the renderers, which every go-fast command has.
+	furniture := flags.Bool("furniture", false, "in Markdown and text, include running headers and footers")
+	stored := flags.Bool("stored", false, "in Markdown and text, include the stored part (data the file keeps but shows nowhere), and the scripts of a page")
+	partMarkers := flags.Bool("part-markers", false, "in Markdown and text, put a line before each part saying which part it is")
 	var exclude displayFlag
-	flags.Var(&exclude, "exclude-display", "leave out of markdown and text what the file declares not shown or drawn with no ink; with =reasons, only for those ("+allReasons()+")")
+	flags.Var(&exclude, "exclude-display", "in Markdown and text, leave out what the file declares not displayed: all of it, or with =reasons only those reasons ("+reasonNames+"); JSON always has everything")
+	children := flags.Bool("children", true, "in Markdown and text, include embedded documents (attachments, members), each after a line naming it; -children=false leaves them out")
 	quiet := flags.Bool("quiet", false, "do not report the warnings of files that were read")
 	showVersion := flags.Bool("version", false, "print the version and exit")
 	flags.Usage = func() {
@@ -171,6 +165,13 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	}
 
 	opts := &gofastcore.Options{Workers: *workers, Password: *password}
+	render := &gofastcore.RenderOptions{
+		Furniture:      *furniture,
+		Stored:         *stored,
+		PartMarkers:    *partMarkers,
+		ExcludeDisplay: exclude.reasons,
+		Children:       *children,
+	}
 	switch *format {
 	case "json", "markdown", "text":
 	default:
@@ -272,12 +273,12 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 			if several {
 				fmt.Fprintf(out, "<!-- %s -->\n\n", path)
 			}
-			err = doc.WriteMarkdown(out, &gofastcore.RenderOptions{ExcludeDisplay: exclude.reasons})
+			err = doc.WriteMarkdown(out, render)
 		case "text":
 			if several {
 				fmt.Fprintf(out, "==> %s <==\n", path)
 			}
-			err = doc.WriteText(out, &gofastcore.RenderOptions{ExcludeDisplay: exclude.reasons})
+			err = doc.WriteText(out, render)
 		}
 		if err != nil {
 			failed(path, err)

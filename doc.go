@@ -203,9 +203,12 @@
 //     how many bytes follow the end, also when they are not text.
 //
 // The stored part, and a page's scripts, have no display reason: they
-// are where they are, which says what they are. The renderers of the
-// shared model leave the stored part out unless RenderOptions.Stored
-// asks for it; a page's scripts are rendered with the page.
+// are where they are, which says what they are. A page's scripts are the
+// only blocks of a page with Attrs["stored"]; so that every stored datum
+// is found, look at the attribute of every block, not only at the stored
+// part. The renderers of the shared model leave out the stored part and
+// a page's scripts unless RenderOptions.Stored asks for them; a script
+// then stands in its place on its page.
 //
 // A value is given once, and values that say nothing in words (a yes or
 // no, a number, a date, an identifier) are left out; anything with

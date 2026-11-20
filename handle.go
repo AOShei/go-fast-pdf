@@ -577,7 +577,7 @@ func (f *File) Parts(ctx context.Context) iter.Seq2[gofastcore.Part, error] {
 		last, stopped := 0, false
 		// Each page is compared with the pages around it before it is
 		// handed on (furniture.go).
-		var win furnitureWindow
+		win := furnitureWindow{titles: titlesByPage(f.describe().outline)}
 		emit := func(out *pageOut) bool {
 			// What the handle says of the file follows the parts it has
 			// handed out, not the pages that wait to be compared.
@@ -663,7 +663,8 @@ func (p *Page) Number() int { return p.p.Number }
 // shows it too, where Document and Parts give the data once for the
 // document. The limits on decoded bytes and on text apply to the page
 // by itself. And it is compared with no other page: it has no running
-// headers or footers, and no paragraph of it continues the page before.
+// headers or footers, no paragraph of it continues the page before, and
+// its headings are found by the type of this page alone.
 func (p *Page) Part() (gofastcore.Part, error) {
 	out, err := p.read(want{})
 	return out.part, err
@@ -677,6 +678,10 @@ func (p *Page) read(w want) (pageOut, error) {
 	out := f.e.page(f.f, p.p, &f.opts, w)
 	st := f.newState()
 	st.finish(&out)
+	// Its headings, by the type of this page alone.
+	var s sizes
+	s.add(&out.part, out.styles)
+	headings(&out.part, out.styles, &s, titlesByPage(f.describe().outline)[out.part.Number])
 	st.charge(&out.part)
 	f.note(&out)
 	return out, nil
@@ -707,7 +712,7 @@ func (f *File) Document(ctx context.Context) (*gofastcore.Document, error) {
 	last, cut := 0, 0
 	// Each page is compared with the pages around it before it is put
 	// in the document (furniture.go).
-	var win furnitureWindow
+	win := furnitureWindow{titles: titlesByPage(f.describe().outline)}
 	emit := func(out *pageOut) bool {
 		whole := st.charge(&out.part)
 		if !whole {

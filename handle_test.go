@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -82,10 +83,19 @@ func equivalenceDocs(t *testing.T) map[string][]byte {
 func alone(p gofastcore.Part) gofastcore.Part {
 	p.Blocks = append(make([]gofastcore.Block, 0, len(p.Blocks)), p.Blocks...)
 	for i := range p.Blocks {
-		if b := &p.Blocks[i]; b.Kind.Furniture() {
-			b.Kind = gofastcore.KindParagraph
+		b := &p.Blocks[i]
+		if b.Kind.Furniture() || b.Kind == gofastcore.KindHeading {
+			// Headings too: a page by itself has its own size of text.
+			b.Kind, b.Level, b.Origin = gofastcore.KindParagraph, 0, gofastcore.OriginInferred
+			if b.Attrs != nil {
+				b.Attrs = maps.Clone(b.Attrs)
+				delete(b.Attrs, gofastcore.AttrLevel)
+				if len(b.Attrs) == 0 {
+					b.Attrs = nil
+				}
+			}
 		}
-		p.Blocks[i].Continued = false
+		b.Continued = false
 	}
 	return p
 }
@@ -131,7 +141,7 @@ func TestThreeWaysToTheSameParts(t *testing.T) {
 				if err != nil {
 					t.Fatalf("%s: Part: %v", where, err)
 				}
-				single = append(single, part)
+				single = append(single, alone(part))
 			}
 			// A page read by itself is not compared with the pages around
 			// it: it has no running headers or footers, and nothing in it

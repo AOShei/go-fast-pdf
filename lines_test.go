@@ -67,7 +67,7 @@ func TestLinesBelongToTheirBlocks(t *testing.T) {
 				last := -1
 				for _, l := range got {
 					lines++
-					if l.Block < last || l.Block >= len(part.Blocks) || part.Blocks[l.Block].Kind != gofastcore.KindParagraph {
+					if k := part.Blocks[min(max(l.Block, 0), len(part.Blocks)-1)].Kind; l.Block < last || l.Block >= len(part.Blocks) || k != gofastcore.KindParagraph && k != gofastcore.KindHeading && !k.Furniture() {
 						t.Fatalf("%s: a line of block %d after one of block %d, of %d blocks", where, l.Block, last, len(part.Blocks))
 					}
 					last = l.Block

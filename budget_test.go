@@ -38,8 +38,11 @@ var budgets = []struct {
 	{name: "english", data: fixtureBytes("english"), allocsPerPage: 78, bytesPerPage: 34000},
 	// 448 and 92.7 KB: one page in five scripts, with as many fonts.
 	{name: "multilingual", data: fixtureBytes("multilingual"), allocsPerPage: 504, bytesPerPage: 118000},
-	// 277 and 104 KB.
-	{name: "layout-justified-libreoffice", data: fixtureBytes("layout-justified-libreoffice"), allocsPerPage: 312, bytesPerPage: 132000},
+	// 277 and 104 KB when the budget was set. A document of one page also
+	// carries what is done once for a document: since then, its metadata
+	// packet read for the stored part, and the window in which pages are
+	// compared for headers, footers and headings. 315 allocations then.
+	{name: "layout-justified-libreoffice", data: fixtureBytes("layout-justified-libreoffice"), allocsPerPage: 340, bytesPerPage: 132000},
 	// 196 and 81.1 KB.
 	{name: "layout-cols2-firefox", data: fixtureBytes("layout-cols2-firefox"), allocsPerPage: 221, bytesPerPage: 104000},
 	// 20 and 10.0 KB.

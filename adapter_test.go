@@ -244,6 +244,13 @@ func checkContract(doc *gofastcore.Document, opts *gofastcore.Options) error {
 				continue
 			case gofastcore.KindParagraph:
 				text = true
+			case gofastcore.KindHeading:
+				// Found by its type, or named by the outline.
+				text = true
+				if b.Level < 1 || b.Level > 6 {
+					return fmt.Errorf("%s: a heading of level %d", where, b.Level)
+				}
+				continue
 			case gofastcore.KindHeader, gofastcore.KindFooter:
 				// Running headers and footers: text of the page that the
 				// layout found in its margins and on the pages around it.

@@ -300,10 +300,19 @@
 //     the image's object, or, for an image inside a content stream,
 //     "inline-", the number of its page, a hyphen and its count on that
 //     page. With ImagesData the first block of each image also has its
-//     data: JPEG and JPEG 2000 as they are in the file, samples of 8
-//     bits in a gray or RGB colour space as PNG. An image in another
-//     encoding has no data, and its page gets
-//     image.unsupported_encoding. With ImagesNone there are no image
+//     data: JPEG and JPEG 2000 as they are in the file, without their
+//     masks; samples, of 1 to 16 bits, and CCITT fax data as PNG. The
+//     samples are made colours by their Decode array and colour space:
+//     gray, RGB, CMYK (made RGB by 1-C times 1-K, without a profile),
+//     Lab, an ICC profile by its number of components, or a table of
+//     colours (Indexed). A soft mask, a mask image or a range of colours
+//     masked makes the PNG's alpha. A stencil mask, which paints in the
+//     colour current where it is drawn, is black where it paints and
+//     white elsewhere. Damaged fax data gives the rows before the damage,
+//     the rest white. JBIG2, images in colour spaces made by functions
+//     (Separation, DeviceN), and images inside content streams have no
+//     data, and their page gets image.unsupported_encoding. With
+//     ImagesNone there are no image
 //     blocks. In a tagged PDF an image drawn as part of a figure that
 //     the structure tree describes (/Alt) has that description as its
 //     text. A block for every image costs under one percent of the time

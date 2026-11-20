@@ -218,7 +218,8 @@ Settings that only PDF has are fields of `gofastpdf.Extractor`. The
 - **Damaged files** - broken cross-reference data is rebuilt; a page that cannot be read is reported in
   its place and the rest is returned
 - **Images** - a block for every image, where it stands among the text, with its position and size; on
-  request JPEG and JPEG 2000 data as it is in the file, and 8-bit gray and RGB samples as PNG
+  request JPEG and JPEG 2000 data as it is in the file, and as PNG: samples of any depth in gray, RGB,
+  CMYK, Lab or indexed colours, CCITT fax images and stencil masks, with soft masks and masks as alpha
 - **Forms and annotations** - what a filled form field, a stamp or a note on the page displays is read as
   text of the page; what is written in a comment is a `note` block with its author and date; the value
   of a field that displays nothing is a block with the field's name; the options of a list or combo box
@@ -335,7 +336,9 @@ file can be read from many goroutines, and the result is the same for any number
 - **Scripts written from right to left** - the text is given in the order the page draws it, with a warning
 - **Fonts without any mapping** - glyphs of embedded CFF and TrueType programs that the PDF does not
   describe are read by their codes or reported as unmapped; the legacy CJK encodings are not built in
-- **Images** - CMYK, indexed, 1-bit, CCITT and JBIG2 images are listed without their data
+- **Images** - JBIG2 images, images in Separation and DeviceN colours, and images inside content streams
+  are listed without their data. CMYK is made RGB without a colour profile, so its colours are near but
+  not as a profile would make them. JPEG and JPEG 2000 are handed on without their masks
 - **Tagged PDF** - of the structure tree, headings, tables, lists and the descriptions of figures are
   read, and its order where the white space of a page leaves the order open; where white space separates
   blocks it decides, so a text box that a word processor puts in the tree where it is anchored is still
@@ -362,7 +365,7 @@ PDF file → objects and cross-references → content interpreter → layout →
 * [x] Paragraphs and reading order
 * [x] What the file declares about how text is shown (`hidden`, `no_ink`)
 * [x] AES-256 encryption
-* [x] Image data (JPEG, JPEG 2000, 8-bit gray and RGB)
+* [x] Image data (JPEG, JPEG 2000, samples of any depth and colour space, CCITT fax, masks)
 * [x] Page iterator, lines and words, the command-line tool
 * [x] Headings, lists, running headers and footers; bold, italic and links
 * [x] Tagged PDF: headings, tables, lists, the descriptions of figures and the order of the tree

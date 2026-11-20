@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"image"
 	"image/png"
 	"strconv"
 
@@ -18,19 +17,17 @@ type imageKind struct {
 	// mime is the media type of what is delivered, empty when the
 	// image's encoding is not one this library delivers.
 	mime string
-	// components is 1 or 3 for an image whose samples are written as
-	// PNG, 0 otherwise.
-	components int
-	why        string // why not, for the warning
+	// samples is set for an image whose samples are written as PNG.
+	samples bool
+	why     string // why not, for the warning
 }
 
 // kindOfImage reads from the image's dictionary how its data can be
 // delivered. Nothing is decoded.
 //
-// JPEG and JPEG 2000 data is handed over as it is. Samples of 8 bits in
-// a gray or RGB colour space are written as PNG. Everything else is not
-// delivered: other depths and colour spaces, stencil masks, CCITT fax
-// and JBIG2.
+// JPEG and JPEG 2000 data is handed over as it is. Samples, and CCITT
+// fax data, are written as PNG (raster.go). JBIG2 is not delivered, nor
+// are images in colour spaces made by functions (Separation, DeviceN).
 func kindOfImage(f *file.File, xobj syntax.Value) imageKind {
 	if xobj.Kind != syntax.Stream {
 		return imageKind{why: "the image is not a stream"}
@@ -43,92 +40,84 @@ func kindOfImage(f *file.File, xobj syntax.Value) imageKind {
 			last = f.Resolve(filters.List[n-1])
 		}
 	}
+	fax := false
 	switch last.NameString() {
 	case "DCTDecode", "DCT":
 		return imageKind{mime: "image/jpeg"}
 	case "JPXDecode":
 		return imageKind{mime: "image/jp2"}
 	case "CCITTFaxDecode", "CCF":
-		return imageKind{why: "CCITT fax encoding"}
+		fax = true
 	case "JBIG2Decode":
 		return imageKind{why: "JBIG2 encoding"}
 	}
+	png := imageKind{mime: "image/png", samples: true}
 	if mask := f.Resolve(xobj.Get("ImageMask")); mask.Kind == syntax.Bool && mask.N != 0 {
-		return imageKind{why: "a stencil mask"}
+		return png
 	}
-	if bpc, _ := f.Resolve(xobj.Get("BitsPerComponent")).Integer(); bpc != 8 {
+	cs, why := readColourSpace(f, xobj.Get("ColorSpace"), 0, false)
+	if cs.fam == famNone {
+		return imageKind{why: why}
+	}
+	if fax {
+		if cs.n != 1 {
+			return imageKind{why: "CCITT fax data in a colour space of more than one component"}
+		}
+		return png
+	}
+	switch bpc, _ := f.Resolve(xobj.Get("BitsPerComponent")).Integer(); bpc {
+	case 1, 2, 4, 8, 16:
+	default:
 		return imageKind{why: fmt.Sprintf("%d bits per component", bpc)}
 	}
-	if xobj.Has("Decode") {
-		// A decode array can invert or rescale the samples.
-		return imageKind{why: "a decode array"}
-	}
-	switch n := components(f, xobj.Get("ColorSpace")); n {
-	case 1, 3:
-		return imageKind{mime: "image/png", components: n}
-	}
-	return imageKind{why: "a colour space other than gray or RGB"}
+	return png
 }
-
-// components returns 1 for a gray colour space and 3 for an RGB one,
-// and 0 for any other.
-func components(f *file.File, v syntax.Value) int {
-	cs := f.Resolve(v)
-	family := cs
-	if cs.Kind == syntax.Array && len(cs.List) > 0 {
-		family = f.Resolve(cs.List[0])
-	}
-	switch family.NameString() {
-	case "DeviceGray", "G", "CalGray":
-		return 1
-	case "DeviceRGB", "RGB", "CalRGB":
-		return 3
-	case "ICCBased":
-		if cs.Kind == syntax.Array && len(cs.List) > 1 {
-			if n, _ := f.Resolve(f.Resolve(cs.List[1]).Get("N")).Integer(); n == 1 || n == 3 {
-				return int(n)
-			}
-		}
-	}
-	return 0
-}
-
-// maxImagePixels bounds the images written as PNG.
-const maxImagePixels = 1 << 28
 
 // imageData returns the bytes of an image as kind says they are
 // delivered, and how many bytes were decoded for it.
 func imageData(f *file.File, xobj syntax.Value, kind imageKind, limit int64) (data []byte, decoded int64, err error) {
-	raw, codec, err := f.DecodeImage(xobj, []byte{}, limit)
-	decoded = int64(len(raw))
-	if err != nil {
-		return nil, decoded, err
-	}
-	if kind.components == 0 {
+	if !kind.samples {
+		raw, codec, err := f.DecodeImage(xobj, []byte{}, limit)
+		decoded = int64(len(raw))
+		if err != nil {
+			return nil, decoded, err
+		}
 		if codec == "" {
 			return nil, decoded, errors.New("the image's filters do not end in the codec its dictionary names")
 		}
 		return raw, decoded, nil
 	}
-	w, _ := f.Resolve(xobj.Get("Width")).Integer()
-	h, _ := f.Resolve(xobj.Get("Height")).Integer()
-	if codec != "" || w <= 0 || h <= 0 || w > 1<<20 || h > 1<<20 || w*h > maxImagePixels {
-		return nil, decoded, fmt.Errorf("an image of %d by %d", w, h)
+	stencil := false
+	if mask := f.Resolve(xobj.Get("ImageMask")); mask.Kind == syntax.Bool && mask.N != 0 {
+		stencil = true
 	}
-	if need := w * h * int64(kind.components); int64(len(raw)) < need {
-		return nil, decoded, fmt.Errorf("the image has %d bytes of samples and its size needs %d", len(raw), need)
-	}
-	rect := image.Rect(0, 0, int(w), int(h))
-	var img image.Image
-	if kind.components == 1 {
-		img = &image.Gray{Pix: raw[:w*h], Stride: int(w), Rect: rect}
-	} else {
-		pix := make([]byte, w*h*4)
-		for i, j := 0, 0; i < len(pix); i, j = i+4, j+3 {
-			pix[i], pix[i+1], pix[i+2], pix[i+3] = raw[j], raw[j+1], raw[j+2], 0xFF
+	cs := colourSpace{n: 1}
+	if !stencil {
+		var why string
+		if cs, why = readColourSpace(f, xobj.Get("ColorSpace"), 0, true); cs.fam == famNone {
+			return nil, 0, errors.New(why)
 		}
-		img = &image.NRGBA{Pix: pix, Stride: int(w) * 4, Rect: rect}
 	}
+	s, decoded, err := readSamples(f, xobj, cs.n, false, limit)
+	if err != nil {
+		return nil, decoded, err
+	}
+	var alpha []byte
+	if !stencil {
+		var d int64
+		alpha, d = imageAlpha(f, xobj, &s, limit-decoded)
+		decoded += d
+	}
+	// The pixels: a byte each for one component and no mask, else four.
+	per := int64(4)
+	if alpha == nil && cs.n == 1 {
+		per = 1
+	}
+	if need := per * int64(s.width) * int64(s.height); need > limit-decoded {
+		return nil, decoded, file.ErrTruncated
+	}
+	img, px := raster(f, xobj, &s, &cs, stencil, alpha)
+	decoded += px
 	var out bytes.Buffer
 	if err := png.Encode(&out, img); err != nil {
 		return nil, decoded, err

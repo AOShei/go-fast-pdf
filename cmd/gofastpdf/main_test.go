@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -222,6 +224,12 @@ func TestDisplay(t *testing.T) {
 		{[]string{"--exclude-display=no_ink"}, "in plain sight white on white"},
 		{[]string{"-exclude-display=hidden"}, "in plain sight not painted white on white"},
 		{[]string{"-exclude-display=hidden+no_ink"}, "in plain sight white on white"},
+		{[]string{"-exclude-display=no_ink,hidden"}, "in plain sight white on white"},
+		{[]string{"-exclude-display=all"}, "in plain sight white on white"},
+		{[]string{"-exclude-display=true"}, "in plain sight white on white"},
+		// Empty or false: nothing is left out, as in every go-fast command.
+		{[]string{"-exclude-display="}, "in plain sight not painted white on white"},
+		{[]string{"-exclude-display=false"}, "in plain sight not painted white on white"},
 	} {
 		for _, format := range []string{"text", "markdown"} {
 			out, stderr, status := command(t, append(append([]string{"-quiet", "-format", format}, c.args...), path)...)
@@ -230,11 +238,69 @@ func TestDisplay(t *testing.T) {
 			}
 		}
 	}
-	// A reason that is not one, as the old ones are not.
-	for _, old := range []string{"-exclude-display=low_contrast", "-deep-hidden", "-exclude-hidden"} {
-		if _, _, status := command(t, old, path); status != 2 {
+	// A reason that is not one, as the old ones are not; the error names
+	// the reasons.
+	for _, old := range []string{"-exclude-display=low_contrast", "-exclude-display=unknown", "-deep-hidden", "-exclude-hidden"} {
+		_, stderr, status := command(t, old, path)
+		if status != 2 {
 			t.Errorf("%s: status %d", old, status)
 		}
+		if strings.HasPrefix(old, "-exclude-display") && !strings.Contains(stderr, "the reasons are hidden, no_ink\n") {
+			t.Errorf("%s: %q", old, stderr)
+		}
+	}
+}
+
+// TestRenderFlags checks the flags for the renderers that every go-fast
+// command has (COMMAND_FLAGS.md in the workspace of the libraries).
+func TestRenderFlags(t *testing.T) {
+	var pages []pdftest.PageSpec
+	for n := 1; n <= 4; n++ {
+		spec := pdftest.PageSpec{Content: fmt.Sprintf("BT /F1 9 Tf 72 760 Td (Annual Report of the Society) Tj ET "+
+			"BT /F1 12 Tf 72 600 Td (The body of page %d says something of its own.) Tj ET", n)}
+		if n == 1 {
+			spec.Extra = "/AA << /O << /S /JavaScript /JS (console.println\\('page'\\)) >> >>"
+		}
+		pages = append(pages, spec)
+	}
+	b := pdftest.New()
+	file := b.Add("<< /Type /Filespec /F (notes.txt) /EF << /F " + strconv.Itoa(b.AddStream("/Type /EmbeddedFile", []byte("a note"))) + " 0 R >> >>")
+	b = pdftest.Doc(pdftest.DocOptions{Base: b}, pages...)
+	b.Set(b.Root, fmt.Sprintf("<< /Type /Catalog /Pages %d 0 R /Names << /EmbeddedFiles << /Names [(notes.txt) %d 0 R] >> "+
+		"/JavaScript << /Names [(init) << /S /JavaScript /JS (this.print\\(\\);) >>] >> >> >>", b.Root+1, file))
+	path := write(t, "render.pdf", b.Bytes())
+
+	for _, c := range []struct {
+		args      []string
+		has, hasn []string
+	}{
+		{nil, []string{"page 4 says", "[child 1: notes.txt]"}, []string{"Annual Report", "console", "this.print", "[page 1]"}},
+		{[]string{"-furniture"}, []string{"Annual Report", "page 4 says"}, nil},
+		// A page's script in its place on the page, and the stored part.
+		{[]string{"-stored"}, []string{"console.println", "this.print"}, nil},
+		{[]string{"-part-markers"}, []string{"[page 1]", "[page 4]"}, nil},
+		{[]string{"-children=false"}, []string{"page 4 says"}, []string{"[child"}},
+	} {
+		out, stderr, status := command(t, append(append([]string{"-quiet", "-format", "text"}, c.args...), path)...)
+		if status != 0 {
+			t.Fatalf("%v: status %d, %s", c.args, status, stderr)
+		}
+		for _, s := range c.has {
+			if !strings.Contains(out, s) {
+				t.Errorf("%v: no %q in %q", c.args, s, out)
+			}
+		}
+		for _, s := range c.hasn {
+			if strings.Contains(out, s) {
+				t.Errorf("%v: %q in %q", c.args, s, out)
+			}
+		}
+	}
+	if out, _, _ := command(t, "-quiet", "-stored", "-format", "text", path); strings.Index(out, "console") > strings.Index(out, "page 2 says") {
+		t.Errorf("the script of page 1 is not on page 1: %q", out)
+	}
+	if out, _, _ := command(t, "-quiet", "-part-markers", "-format", "markdown", path); !strings.Contains(out, "<!-- page 1 -->") {
+		t.Errorf("markdown with -part-markers: %q", out)
 	}
 }
 

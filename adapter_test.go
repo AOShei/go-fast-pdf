@@ -166,27 +166,41 @@ func checkContract(doc *gofastcore.Document, opts *gofastcore.Options) error {
 		return fmt.Errorf("source format %q", doc.Source.Format)
 	}
 	// The rendered text holds the words of the blocks, all of them and
-	// in their order, and the Markdown is there when the text is.
-	var words []string
-	for p, b := range doc.AllBlocks() {
-		// The renderers leave running headers and footers out, and the
-		// stored part unless asked for it.
-		if !b.Kind.Furniture() && p.Kind != gofastcore.PartStored {
-			// The renderers put a marker back in front of its block.
-			words = append(words, strings.Fields(b.Marker)...)
-			words = append(words, strings.Fields(b.Text)...)
-			if b.Table != nil { // a table row by row, cell by cell
-				for _, row := range b.Table.Rows {
-					for _, cell := range row {
-						words = append(words, strings.Fields(cell)...)
-					}
+	// in their order, and the Markdown is there when the text is. The
+	// renderers leave running headers and footers out, and stored data,
+	// in the stored part or on a page (a page's scripts), unless asked
+	// for it.
+	var words, withStored []string
+	for _, b := range doc.AllBlocks() {
+		if b.Kind.Furniture() {
+			continue
+		}
+		var w []string
+		// The renderers put a marker back in front of its block.
+		w = append(w, strings.Fields(b.Marker)...)
+		w = append(w, strings.Fields(b.Text)...)
+		if b.Table != nil { // a table row by row, cell by cell
+			for _, row := range b.Table.Rows {
+				for _, cell := range row {
+					w = append(w, strings.Fields(cell)...)
 				}
 			}
+		}
+		withStored = append(withStored, w...)
+		if b.Attrs[gofastcore.AttrStored] == "" {
+			words = append(words, w...)
 		}
 	}
 	text := doc.Text()
 	if got := strings.Fields(text); !reflect.DeepEqual(got, words) && len(got)+len(words) > 0 {
 		return fmt.Errorf("the rendered text has %d words and the blocks have %d, or they differ", len(got), len(words))
+	}
+	var all strings.Builder
+	if err := doc.WriteText(&all, &gofastcore.RenderOptions{Stored: true}); err != nil {
+		return err
+	}
+	if got := strings.Fields(all.String()); !reflect.DeepEqual(got, withStored) && len(got)+len(withStored) > 0 {
+		return fmt.Errorf("the text rendered with stored data has %d words and the blocks have %d, or they differ", len(got), len(withStored))
 	}
 	// Markdown shows an image where the plain text has nothing.
 	if opts.Images == gofastcore.ImagesNone && (strings.TrimSpace(doc.Markdown()) == "") != (strings.TrimSpace(text) == "") {
@@ -221,6 +235,12 @@ func checkContract(doc *gofastcore.Document, opts *gofastcore.Options) error {
 		for j := range p.Blocks {
 			b := &p.Blocks[j]
 			where := fmt.Sprintf("page %d, block %d", p.Number, j)
+			// The one stored data a page holds is its scripts: the
+			// renderers leave out every block marked stored, so anything
+			// else marked so would vanish from the page's text.
+			if s := b.Attrs[gofastcore.AttrStored]; s != "" && (s != gofastcore.StoredMacro || b.Kind != gofastcore.KindCode) {
+				return fmt.Errorf("%s: a %s block marked stored %q", where, b.Kind, s)
+			}
 			switch b.Kind {
 			case gofastcore.KindImage:
 				if opts.Images == gofastcore.ImagesNone {

@@ -138,7 +138,11 @@ the file declares, and judges nothing.
   and `pdf.deep_hidden_incomplete`; the command's `-deep-hidden`. Its `-exclude-hidden` is
   `-exclude-display`.
 - The stored part and a page's scripts have no reason; `Attrs["stored"]` says what they are. The
-  renderers leave the stored part out unless `RenderOptions.Stored` asks for it.
+  renderers leave both out unless `RenderOptions.Stored` asks for them (go-fast-core `d8ba98e`); a
+  script then stands on its page.
+- The command has the render flags of every go-fast command: `-furniture`, `-stored`, `-part-markers`,
+  `-children` (on by default) and `-exclude-display`, which now takes `=all`, and with an empty value
+  leaves nothing out.
 - Text off the page is placed among the other text by where it is, no longer at the end of its page.
 
 ## v0.1.1 and v0.1.0 (2025-12-25)

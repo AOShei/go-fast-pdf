@@ -79,9 +79,16 @@ gofastpdf --exclude-display --format text document.pdf
 
 # Only text with the reasons named is left out
 gofastpdf --exclude-display=hidden --format text document.pdf
+
+# Text with the running headers and footers, the scripts and the stored part,
+# and a line before each page saying which it is
+gofastpdf --furniture --stored --part-markers --format text document.pdf
 ```
 
-JSON always has everything, with what the file declares about each block. Warnings of a file that
+The flags for Markdown and text are those of every go-fast command: `--furniture`, `--stored`,
+`--part-markers`, `--exclude-display[=reasons]`, and `--children` (on by default: a line naming each
+attached file; `--children=false` leaves them out). JSON always has everything, with what the file
+declares about each block. Warnings of a file that
 was read are named on standard error (`--quiet` leaves that out); a file that cannot be
 read is reported there and makes the exit status 1.
 
@@ -216,7 +223,8 @@ Settings that only PDF has are fields of `gofastpdf.Extractor`. The
 - **What a file stores and shows nowhere** - scripts, the metadata packet, entries of the file's own making
   in the document information, form fields on no page, the filled-in data of an XFA form, text after the
   last `%%EOF`: read as text, never run, with `Attrs["stored"]` saying what each is. A page's scripts are
-  on the page; the rest is in a last part of kind `stored`, which the renderers leave out unless asked
+  on the page; the rest is in a last part of kind `stored`. The renderers leave both out unless asked
+  (`RenderOptions.Stored`, the command's `-stored`)
 - **Lines and words** - `Page.Lines` gives every line with its font and size and the box of each word
 
 ## Output

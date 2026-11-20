@@ -355,9 +355,10 @@ func (b *builder) joinLine(prev, ln *line) {
 	case prev != nil && (prev.tab && !prev.gap || ln.tab && !ln.gap):
 		// Rows stay rows.
 		out = append(out, '\n')
-	case n >= 2 && out[n-2] == 0xC2 && out[n-1] == 0xAD:
-		// A soft hyphen is there only because the line ends: the word
-		// continues.
+	case endsWithSoftHyphen(out) && startsWithLetter(t):
+		// A soft hyphen between the letters of a word is there only
+		// because the line ends: it goes, and the word is whole again.
+		// Anywhere else it stays, as any character does.
 		out = out[:n-2]
 	case endsWithHyphen(out) && startsWithLetter(t):
 		// A hyphen at the end of a line may belong to the word or to
@@ -382,6 +383,17 @@ func endsWithHyphen(t []byte) bool {
 		return false
 	}
 	r, _ := utf8.DecodeLastRune(t[:n])
+	return unicode.IsLetter(r) || unicode.IsDigit(r)
+}
+
+// endsWithSoftHyphen reports whether text ends with a letter or digit
+// followed by a soft hyphen (U+00AD).
+func endsWithSoftHyphen(t []byte) bool {
+	n := len(t)
+	if n < 3 || t[n-2] != 0xC2 || t[n-1] != 0xAD {
+		return false
+	}
+	r, _ := utf8.DecodeLastRune(t[:n-2])
 	return unicode.IsLetter(r) || unicode.IsDigit(r)
 }
 

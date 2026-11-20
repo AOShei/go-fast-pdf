@@ -261,8 +261,9 @@
 // only blocks of a page with Attrs["stored"]; so that every stored datum
 // is found, look at the attribute of every block, not only at the stored
 // part. The renderers of the shared model leave out the stored part and
-// a page's scripts unless RenderOptions.Stored asks for them; a script
-// then stands in its place on its page.
+// a page's scripts unless RenderOptions.Stored asks for them, or
+// RenderOptions.StoredKinds for some kinds ("macro" for the scripts
+// alone); a script then stands in its place on its page.
 //
 // A value is given once, and values that say nothing in words (a yes or
 // no, a number, a date, an identifier) are left out; anything with

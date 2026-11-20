@@ -44,7 +44,8 @@
 //
 // Settings that only PDF has are the fields of Extractor, whose methods
 // are the functions of this package: the size one stream may decode
-// to, and how much of what was parsed is kept.
+// to, how much of what was parsed is kept, and whether tables are looked
+// for by their rules.
 //
 // The command gofastpdf, in cmd/gofastpdf, writes files as JSON,
 // Markdown or text.
@@ -111,7 +112,8 @@
 // prose (30 words at the median), and it is not the frame of a page or
 // lines on a picture. The header rows are found as for tables found by
 // alignment. A page that draws a great many lines, a map or a hatching,
-// is not followed past 131,072 path operators. A table whose columns
+// is not followed past 131,072 path operators. Extractor.NoRuledTables
+// leaves ruled tables out, and saves what following the paths costs. A table whose columns
 // stand apart neither with white space nor with rules is not found: its
 // text is in paragraph blocks, a row a line with its cells apart by tabs.
 //

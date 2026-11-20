@@ -209,11 +209,14 @@ type pageTables struct {
 // none.
 func (s *structure) pageTables(tags []tag) *pageTables {
 	var pt *pageTables
-	tableOf := map[int64]int32{}
+	var tableOf map[int64]int32 // made at the first cell: most pages have none
 	for i := range tags {
 		t := &tags[i]
 		if t.cell == 0 {
 			continue
+		}
+		if tableOf == nil {
+			tableOf = map[int64]int32{}
 		}
 		if pt != nil {
 			if _, ok := pt.cellOf[t.cell]; ok {

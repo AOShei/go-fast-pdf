@@ -243,13 +243,14 @@ func (e *Extractor) page(f *file.File, p *file.Page, opts *gofastcore.Options, w
 	}
 	// The tables of a tagged PDF that the page's content is in.
 	tables := w.structure.pageTables(tags)
-	lopts := layout.Options{
-		Images: opts.Images != gofastcore.ImagesNone, NoHiddenChecks: e.noHiddenChecks,
-		Deep: opts.DeepHidden, MaxDeepSteps: e.maxDeepSteps, Lines: w.lines,
-		Spans: opts.Spans, Links: links, Heading: headingOf,
-	}
-	tables.options(tags, &lopts)
 	res := extract.Page(f, p, extract.Options{Shapes: opts.DeepHidden, MaxShapes: e.MaxShapes, Words: w.lines, Stop: w.stop, Use: func(c *extract.Content) {
+		// Made here, where nothing outside holds it: it stays off the heap.
+		lopts := layout.Options{
+			Images: opts.Images != gofastcore.ImagesNone, NoHiddenChecks: e.noHiddenChecks,
+			Deep: opts.DeepHidden, MaxDeepSteps: e.maxDeepSteps, Lines: w.lines,
+			Spans: opts.Spans, Links: links, Heading: headingOf,
+		}
+		tables.options(tags, &lopts)
 		lay = layout.Build(layout.Page{M: m, Width: width, Height: height}, c, lopts)
 		if tables.drop(&lay) {
 			// Tables that the page does not bear out are its text again.

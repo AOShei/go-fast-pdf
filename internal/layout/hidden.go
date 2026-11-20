@@ -159,6 +159,13 @@ func (b *builder) prepare() {
 		if !b.opts.NoHiddenChecks {
 			p.hidden = b.reasons(r, &p, pageBox)
 		}
+		// Visible text in a cell of a table is the table's. Hidden text
+		// stays out of it, laid out with the rest of its set.
+		if b.opts.Cell != nil && p.hidden == 0 {
+			if k := b.opts.Cell(r.MCID); k >= 0 && int(k) < len(b.opts.CellTable) && b.opts.CellTable[k] >= 0 && int(b.opts.CellTable[k]) < b.opts.Tables {
+				p.cell = k + 1
+			}
+		}
 		// What the contrast check could say of the run: by default only
 		// of one drawn before anything else was painted.
 		if fill, stroke := painted(r.Mode); (fill || stroke) && !b.opts.NoHiddenChecks && p.hidden&gofastcore.HiddenTextLayer == 0 {

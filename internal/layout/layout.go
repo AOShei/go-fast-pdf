@@ -67,6 +67,15 @@ type Options struct {
 	// that the content under a marked-content identifier is part of, 0
 	// for none (see Style.Heading).
 	Heading func(mcid int32) uint8
+	// Cell, when set, gives the cell of a table of a tagged PDF that the
+	// content under a marked-content identifier is in: an index into
+	// CellTable, -1 for none. CellTable gives the table of each cell, an
+	// index from 0 to Tables-1. The visible text of each cell is laid out
+	// by itself, and each table that has some is one block of kind table,
+	// with its cells' text in Result.CellText (tables.go).
+	Cell      func(mcid int32) int32
+	CellTable []int32
+	Tables    int
 }
 
 // Result is the page as blocks.
@@ -97,6 +106,15 @@ type Result struct {
 	// block has the zero Style.
 	Styles []Style
 	Stats  Stats
+	// CellText is the text of each cell of Options.Cell, "" for a cell
+	// with none, and Tables the table of each block of kind table, in
+	// the order of the blocks.
+	CellText []string
+	Tables   []int32
+	// CellBox is the box of the text of each cell, and CellSize the size
+	// of its largest text; zero for a cell without text.
+	CellBox  []gofastcore.Rect
+	CellSize []float64
 }
 
 // Style is how the text of a block is set: by its line with the most
@@ -219,39 +237,62 @@ func Build(page Page, c *extract.Content, opts Options) Result {
 	b.prepare()
 	b.group()
 
-	// Each group is laid out by itself.
-	hiddenFrom := -1
+	// Each group is laid out by itself: the visible text, the text of
+	// each cell of a table, and the text hidden for each set of reasons.
+	hiddenFrom, cellsFrom := -1, -1
 	for lo := 0; lo < len(b.order); {
 		hi := lo + 1
-		k := b.pieces[b.order[lo]].hidden
-		for hi < len(b.order) && b.pieces[b.order[hi]].hidden == k {
+		at := &b.pieces[b.order[lo]]
+		for hi < len(b.order) && b.pieces[b.order[hi]].hidden == at.hidden && b.pieces[b.order[hi]].cell == at.cell {
 			hi++
 		}
 		first := len(b.blocks)
 		b.layoutGroup(b.order[lo:hi])
-		if b.pieces[b.order[lo]].hidden != 0 && hiddenFrom < 0 {
-			hiddenFrom = first
+		switch {
+		case at.hidden != 0:
+			if hiddenFrom < 0 {
+				hiddenFrom = first
+			}
+		case at.cell != 0:
+			if cellsFrom < 0 {
+				cellsFrom = first
+			}
+			for i := first; i < len(b.blocks); i++ {
+				b.blocks[i].cell = at.cell
+			}
 		}
 		lo = hi
 	}
 	if hiddenFrom < 0 {
 		hiddenFrom = len(b.blocks)
 	}
+	if cellsFrom < 0 {
+		cellsFrom = hiddenFrom
+	}
+	hiddenTo := len(b.blocks)
 
-	// The visible blocks in reading order.
-	visible := make([]int32, hiddenFrom)
+	// The visible blocks in reading order, and the tables among them.
+	visible := make([]int32, cellsFrom)
 	for i := range visible {
 		visible[i] = int32(i)
 	}
 	b.readingOrder(visible)
+	var cellText []string
+	var cellBox []gofastcore.Rect
+	var cellSize []float64
+	if cellsFrom < hiddenFrom {
+		var set []int32
+		cellText, cellBox, cellSize, set = b.tables(cellsFrom, hiddenFrom)
+		visible = b.insertByPosition(visible, set)
+	}
 
 	// The other blocks go among them by position: each set in its own
 	// reading order, and what is off the page at the end.
 	final := visible
 	var offPage []int32
-	for lo := hiddenFrom; lo < len(b.blocks); {
+	for lo := hiddenFrom; lo < hiddenTo; {
 		hi := lo + 1
-		for hi < len(b.blocks) && b.blocks[hi].hidden == b.blocks[lo].hidden {
+		for hi < hiddenTo && b.blocks[hi].hidden == b.blocks[lo].hidden {
 			hi++
 		}
 		set := make([]int32, hi-lo)
@@ -268,12 +309,17 @@ func Build(page Page, c *extract.Content, opts Options) Result {
 	}
 	final = append(final, offPage...)
 
-	res := Result{Controls: b.controls, RightToLeft: b.rtl, DeepIncomplete: b.incomplete, Stats: b.stats}
+	res := Result{Controls: b.controls, RightToLeft: b.rtl, DeepIncomplete: b.incomplete, Stats: b.stats, CellText: cellText, CellBox: cellBox, CellSize: cellSize}
 	res.Blocks = make([]gofastcore.Block, 0, len(final)+len(c.Images)*btoi(opts.Images))
 	for _, i := range final {
 		bl := &b.blocks[i]
+		kind := gofastcore.KindParagraph
+		if bl.table > 0 {
+			kind = gofastcore.KindTable
+			res.Tables = append(res.Tables, bl.table-1)
+		}
 		res.Blocks = append(res.Blocks, gofastcore.Block{
-			Kind:   gofastcore.KindParagraph,
+			Kind:   kind,
 			Text:   bl.text,
 			Origin: gofastcore.OriginInferred,
 			Hidden: bl.hidden,
@@ -442,6 +488,7 @@ func (b *builder) trim() {
 type piece struct {
 	run    int32
 	hidden gofastcore.Hidden
+	cell   int32 // one more than the cell of a table it is in, 0 for none
 	class  uint8 // direction of writing, in steps of five degrees
 	dup    bool  // the same text is printed here by an earlier run
 	// apart is set when the piece and the one before it on its line are
@@ -485,12 +532,17 @@ func (b *builder) group() {
 			continue
 		}
 		b.order = append(b.order, int32(i))
-		mixed = mixed || b.pieces[i].hidden != 0
+		mixed = mixed || b.pieces[i].hidden != 0 || b.pieces[i].cell != 0
 	}
 	if !mixed {
 		return
 	}
+	// The visible text, then that of each cell, then the hidden text.
 	sortStable(b.order, func(i, j int32) bool {
-		return b.pieces[i].hidden < b.pieces[j].hidden
+		p, q := &b.pieces[i], &b.pieces[j]
+		if p.hidden != q.hidden {
+			return p.hidden < q.hidden
+		}
+		return p.cell < q.cell
 	})
 }

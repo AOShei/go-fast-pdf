@@ -205,6 +205,19 @@ func (st *state) image(part *gofastcore.Part, ref imageRef, inline *int) {
 				"the data of an image on the page is not included: "+printable(why))
 		}
 	}
+	defer func() {
+		if r := recover(); r != nil {
+			// A panic in the decoders, the colour spaces or the functions:
+			// the image's block stays, without its data (internalError).
+			img.MIME, img.Data = "", nil
+			if !part.Has(gofastcore.WarnPartFailed) {
+				part.Warn(gofastcore.SeverityError, gofastcore.WarnPartFailed, "an image on the page could not be read: "+internalError(r))
+			}
+		}
+	}()
+	if panicHook != nil {
+		panicHook("image")
+	}
 	var src imageSrc
 	if ref.obj == 0 {
 		// An image in the content stream, or one that is not an object

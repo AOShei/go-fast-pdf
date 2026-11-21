@@ -107,6 +107,18 @@ func (e *Extractor) ExtractFile(ctx context.Context, path string, opts *gofastco
 	return f.Document(ctx)
 }
 
+// internalError is the message of a panic that a recover stopped: a
+// defect of the library, which ends one page, one image or the reading
+// of the catalog and not the process. Fuzzing fails on the words
+// "internal error" (checkContract), so the recovers hide no defect.
+func internalError(r any) string {
+	return cleanString(fmt.Sprintf("internal error: %v", r))
+}
+
+// panicHook, when set by a test, is called where a panic is recovered
+// from: "page", "image", "describe", "child".
+var panicHook func(where string)
+
 // Warning codes that only this library uses. Each states a fact about
 // the file or about what was done with it.
 const (
@@ -206,12 +218,26 @@ func (e *Extractor) page(f *file.File, p *file.Page, opts *gofastcore.Options, w
 	part := &out.part
 	part.Kind, part.Number = gofastcore.PartPage, p.Number
 	defer part.Finish()
+	defer func() {
+		if r := recover(); r != nil {
+			// A panic anywhere in the page: its layout, tables, notes. The
+			// page is a failed part with nothing else, as one that could
+			// not be read (internalError).
+			width, height := part.Width, part.Height
+			out = pageOut{done: true}
+			part.Kind, part.Number, part.Width, part.Height = gofastcore.PartPage, p.Number, width, height
+			part.Warn(gofastcore.SeverityError, gofastcore.WarnPartFailed, internalError(r))
+		}
+	}()
 	if p.Err != nil {
 		part.Warn(gofastcore.SeverityError, gofastcore.WarnPartFailed, cleanString(p.Err.Error()))
 		return out
 	}
 	m, width, height := p.Display()
 	part.Width, part.Height = width, height
+	if panicHook != nil {
+		panicHook("page")
+	}
 
 	var lay layout.Result
 	images := 0

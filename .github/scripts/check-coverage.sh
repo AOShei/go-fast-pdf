@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# Fails if the tests run too small a share of the statements
-# (IMPLEMENTATION_PLAN.md, Phase 8). The profile is one made with
+# Fails if the tests run too small a share of the statements. The profile is one made with
 # -coverpkg=./..., in which a statement appears once for every test
 # binary; it counts as run if any of them ran it.
 #

@@ -1,8 +1,8 @@
 name: Fuzz campaign
 
-# The long fuzzing before a release (IMPLEMENTATION_PLAN.md, Phase 8 and
-# section 4.6): every target for some hours, each in a job of its own. A
-# runner has four processors, so 14 targets for two hours are 112
+# The long fuzzing before a release: every target of
+# .github/fuzz-targets.txt for some hours, each in a job of its own. A
+# runner has four processors, so each target for two hours is eight
 # processor hours. Started by hand:
 #
 #   gh workflow run fuzz-campaign.yml -f hours=2

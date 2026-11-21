@@ -42,7 +42,7 @@ type corpusFile struct {
 	// Expect is a text file, relative to testdata, with the words the
 	// document contains.
 	Expect string `json:"expect,omitempty"`
-	// Tier is A, B or C (IMPLEMENTATION_PLAN.md section 4.3).
+	// Tier is A, B or C (tierFloor).
 	Tier    string `json:"tier"`
 	Licence string `json:"licence"`
 	// Golden stores this library's own output under testdata/golden.
@@ -71,8 +71,7 @@ func readJSON(t *testing.T, path string, v any) {
 
 func round4(x float64) float64 { return math.Round(x*1e4) / 1e4 }
 
-// tierFloor is the word-level F1 every file of a tier must reach
-// (IMPLEMENTATION_PLAN.md, section 4.3). Tier A is text in Latin script
+// tierFloor is the word-level F1 every file of a tier must reach. Tier A is text in Latin script
 // from the common producers; tier B is other scripts with a ToUnicode
 // mapping; tier C is text that needs more than the file's mappings:
 // scripts written from right to left, the tables of the legacy Chinese,
@@ -189,8 +188,8 @@ func TestCorpus(t *testing.T) {
 	}
 }
 
-// Invariants that hold for every input (IMPLEMENTATION_PLAN.md section
-// 4.2), checked on the fixtures and on any corpus file that is present.
+// Invariants that hold for every input, checked on the fixtures and on
+// any corpus file that is present.
 func TestInvariants(t *testing.T) {
 	var files []corpusFile
 	readJSON(t, "testdata/corpus.json", &files)

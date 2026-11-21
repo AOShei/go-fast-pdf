@@ -185,7 +185,8 @@ for _, line := range lines {
 ```
 
 Options are `gofastcore.Options`: `Workers`, `Images` (a block for each image, which is the default; its data too; or none), `Password`,
-`Parts` (a range of pages), `Limits`, `Spans` and `Child` (an extractor for attached files).
+`Keys` (private keys, for a file encrypted for a certificate), `Parts` (a range of pages), `Limits`, `Spans` and `Child` (an
+extractor for attached files).
 Settings that only PDF has are fields of `gofastpdf.Extractor`. The
 [package documentation](https://pkg.go.dev/github.com/AOShei/go-fast-pdf) says what each does for PDF.
 
@@ -323,7 +324,7 @@ file can be read from many goroutines, and the result is the same for any number
 - **A soak run** over 3,186 files and 50,569 pages, each file in a process of its own under a time limit
   and a memory ceiling, with the default options and with `Spans`: no crash, no file over its
   limits, every result within the contract of the shared model.
-- **Fuzzing** of 14 targets, 30 seconds each on every change and an hour each every night. The
+- **Fuzzing** of every target listed in `.github/fuzz-targets.txt`, 30 seconds each on every change and an hour each every night. The
   decompressor is compared with `compress/zlib` on every input.
 - **Budgets**: the allocations per page of the benchmark documents, and the instructions a benchmark
   executes against the last release.
@@ -347,7 +348,9 @@ file can be read from many goroutines, and the result is the same for any number
   programs are read, and the legacy Chinese, Japanese and Korean encodings are built in. What no table
   says cannot be read: Type 3 fonts, TrueType subsets without cmap and post tables, CID-keyed CFF fonts
   of no collection. Their glyphs are read by their codes where those are ASCII, or reported as unmapped
-- **Images** - JBIG2 images are listed without their data. CMYK is made RGB without a colour profile,
+- **Images** - JBIG2 images are listed without their data, as are images that cannot be made PNG:
+  samples of other than 1, 2, 4, 8 or 16 bits, a Pattern colour space, inks whose function cannot be
+  read or would take too long, damaged data; the warning `image.unsupported_encoding` says why. CMYK is made RGB without a colour profile,
   and CalRGB is read as RGB, so their colours are near but not as a profile would make them. JPEG and JPEG 2000 are handed on without their masks
 - **Tagged PDF** - of the structure tree, headings, tables, lists and the descriptions of figures are
   read, and its order where the white space of a page leaves the order open; where white space separates

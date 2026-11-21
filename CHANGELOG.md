@@ -73,7 +73,9 @@ files made to exhaust it, and is several times faster. The tag follows that of g
 - **What a file stores and shows nowhere** is extracted: scripts, the metadata packet, entries
   of the file's own making in the document information, form fields on no page, the filled-in data of an
   XFA form (which only Adobe's viewer shows). A page's scripts are on
-  the page; the rest is in a last part of kind `stored`. Nothing is run.
+  the page; the rest is in a last part of kind `stored`. Each block of it says what it is in
+  `Attrs["stored"]`, and the renderers leave it out unless `RenderOptions.Stored` asks for it. Nothing
+  is run.
 - **Outline, page labels, document information, attached files** (through `Options.Child`). The
   metadata packet (XMP) gives the lists of authors and keywords, an entry for each item, and fills in what
   the document information leaves out.
@@ -102,7 +104,9 @@ files made to exhaust it, and is several times faster. The tag follows that of g
 - **Limits** on input size, decoded size, the text of a document, pages, nesting and more; see
   [SECURITY.md](SECURITY.md). Decoded bytes and text are counted for a document and the files attached to
   it together. Cancellation through the context, also inside a long page.
-- **The command `gofastpdf`**: JSON, Markdown or text, for files and directories.
+- **The command `gofastpdf`**: JSON, Markdown or text, for files and directories, with the render flags
+  every go-fast command shares: `-furniture`, `-stored` (all of it, or kinds: `-stored=macro,form_field`),
+  `-part-markers`, `-children` (on by default) and `-exclude-display` (`=all`, or reasons).
 - **A decompressor of its own** for zlib streams (`internal/inflate`), about twice as fast as
   `compress/zlib` on the streams of a PDF, and checked against it on every input by a fuzz target.
 
@@ -155,39 +159,14 @@ What "ready for production" was taken to mean, and what each point was measured 
 | Correct text | Word-level F1 against `pdftotext`: at least 0.988 on each of the 27 born-digital Latin files of the fixture corpus (the floor is 0.98), 1.0 on each of the 8 files in other scripts (floor 0.95). Public corpus: mean F1 0.914 and order 0.849 over 1,650 files; 0.983 and 0.907 on the 200 ordinary documents of GovDocs1 |
 | Conforms to the shared model | Every document of the runs above passes `Validate` and the contract checks, and is equal after a round trip through JSON |
 | Honest failure | 21 files that need a password and 15 that are not readable PDFs return the matching error; 27 pages that cannot be read are parts with `part.failed`. No file gives text that is not valid UTF-8 |
-| Reports what the file declares | Every declaration has a fixture that asserts its reason and that the other text is unchanged; every former inferred case (white on white, a 1-point font, text off the page, under an image or a shape, outside a clip) has one that asserts no reason; characters that display as nothing survive |
+| Reports what the file declares | Every declaration has a fixture that asserts its reason and that the other text is unchanged; every case that is not a declaration (white on white, a 1-point font, text off the page, under an image or a shape, outside a clip) has one that asserts no reason; characters that display as nothing survive |
 | Safe for concurrent use | The suite passes under the race detector on linux/amd64, linux/arm64, darwin/arm64 and windows/amd64; one open file is read from many goroutines; the result is the same for 1 and 8 workers on every file of the corpus |
 | Fast | Budgets for allocations per page are tests; the nightly job compares every benchmark with the last release on one runner; the comparison with other libraries is one command |
 | Stable API | The public surface is a snapshot under test; every exported name is documented; ten examples run as tests |
-| Standard library and go-fast modules only | Checked by CI on every change |
+| Standard library and go-fast-core only | Checked by CI on every change |
 
 Display reasons in the soak run, as blocks (and files with such a block), of 795,587 blocks of text in
 3,150 files: `hidden` 89 (10), `no_ink` 34,583 (92).
-
-### Changed before the release: declared, not judged
-
-The tree of v0.2.0 at first judged whether text could be seen, by nine reasons and an option for deeper
-checks. That was replaced before the release (go-fast-core schema 0.2): the library reports only what
-the file declares, and judges nothing.
-
-- `Block.Hidden`, `Line.Hidden` and the `gofastcore.Hidden` type are `Display`; the JSON key is
-  `display`. The reasons are `hidden` and `no_ink`.
-- Gone, with no replacement: the reasons `tiny`, `low_contrast`, `off_page`, `clipped`, `occluded`,
-  `invisible_chars` and `text_layer` (the text of a scan is `no_ink`); `Options.DeepHidden`,
-  `Extractor.MaxShapes`, `Document.HiddenChecked` and `File.HiddenChecked`; the warnings `text.hidden`
-  and `pdf.deep_hidden_incomplete`; the command's `-deep-hidden`. Its `-exclude-hidden` is
-  `-exclude-display`.
-- The stored part and a page's scripts have no reason; `Attrs["stored"]` says what they are. The
-  renderers leave both out unless `RenderOptions.Stored` asks for them (go-fast-core `d8ba98e`); a
-  script then stands on its page.
-- The command has the render flags of every go-fast command: `-furniture`, `-stored`, `-part-markers`,
-  `-children` (on by default) and `-exclude-display`, which now takes `=all`, and with an empty value
-  leaves nothing out.
-- The command's `-stored` takes kinds: `-stored=macro` shows the scripts alone, each on its page,
-  `-stored=macro,form_field` those two kinds; alone, `=true` or `=all` it shows everything, and `=false`
-  or empty nothing. An unknown kind is an error that lists them (go-fast-core `d4cd8e2`, which also
-  makes a field note stored data and a thematic break always native; this library emits neither).
-- Text off the page is placed among the other text by where it is, no longer at the end of its page.
 
 ## v0.1.1 and v0.1.0 (2025-12-25)
 

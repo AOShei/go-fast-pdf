@@ -27,7 +27,7 @@ import (
 	"github.com/AOShei/go-fast-pdf/internal/pdftest"
 )
 
-// The public corpus (IMPLEMENTATION_PLAN.md section 4.5): several
+// The public corpus: several
 // thousand PDFs from public test suites and collections, downloaded by
 // testdata/fetch.sh into a cache outside the repository.
 //

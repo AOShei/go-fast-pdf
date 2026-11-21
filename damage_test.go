@@ -11,7 +11,7 @@ import (
 	"github.com/AOShei/go-fast-pdf/internal/pdftest"
 )
 
-// The damage suite (IMPLEMENTATION_PLAN.md, Phase 2): valid files are
+// The damage suite: valid files are
 // damaged in the ways files are damaged in practice, and each must still
 // give the text of the undamaged file.
 

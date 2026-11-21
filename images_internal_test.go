@@ -47,12 +47,12 @@ func FuzzImageData(f *testing.F) {
 			return
 		}
 		xobj := fl.Object(1)
-		kind := kindOfImage(fl, xobj)
+		kind := kindOfImage(fl, imageSrc{v: xobj})
 		if !kind.samples {
 			return
 		}
 		const limit = 1 << 22
-		out, decoded, err := imageData(fl, xobj, kind, limit)
+		out, decoded, err := imageData(fl, imageSrc{v: xobj}, kind, limit)
 		if decoded > 2*limit {
 			t.Fatalf("%d bytes decoded, limit %d", decoded, limit)
 		}

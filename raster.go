@@ -279,7 +279,8 @@ var errNotSamples = errors.New("not samples")
 // its filters, and CCITT fax, whose samples are of 1 bit. JPEG data is
 // decoded too when jpg is set, into 8-bit gray: for a soft mask. limit
 // bounds the bytes decoded; decoded says how many were.
-func readSamples(f *file.File, xobj syntax.Value, n int, jpg bool, limit int64) (s samples, decoded int64, err error) {
+func readSamples(f *file.File, src imageSrc, n int, jpg bool, limit int64) (s samples, decoded int64, err error) {
+	xobj := src.v
 	w, _ := f.Resolve(xobj.Get("Width")).Integer()
 	h, _ := f.Resolve(xobj.Get("Height")).Integer()
 	bpc, _ := f.Resolve(xobj.Get("BitsPerComponent")).Integer()
@@ -290,7 +291,7 @@ func readSamples(f *file.File, xobj syntax.Value, n int, jpg bool, limit int64) 
 		return s, 0, fmt.Errorf("an image of %d by %d", w, h)
 	}
 	s = samples{width: int(w), height: int(h), bpc: int(bpc), n: n}
-	raw, codec, err := f.DecodeImage(xobj, []byte{}, limit)
+	raw, codec, err := src.decode(f, limit)
 	decoded = int64(len(raw))
 	if err != nil {
 		return s, decoded, err
@@ -533,7 +534,7 @@ func imageAlpha(f *file.File, xobj syntax.Value, s *samples, limit int64) (alpha
 	w, h := s.width, s.height
 	switch m := f.Resolve(xobj.Get("SMask")); {
 	case m.Kind == syntax.Stream:
-		ms, d, err := readSamples(f, m, 1, true, limit)
+		ms, d, err := readSamples(f, imageSrc{v: m}, 1, true, limit)
 		decoded += d
 		if err != nil || int64(w*h) > limit-decoded {
 			return nil, decoded
@@ -558,7 +559,7 @@ func imageAlpha(f *file.File, xobj syntax.Value, s *samples, limit int64) (alpha
 	case syntax.Stream:
 		// A stencil: where its sample, decoded, is 1 the image is left
 		// out.
-		ms, d, err := readSamples(f, m, 1, false, limit)
+		ms, d, err := readSamples(f, imageSrc{v: m}, 1, false, limit)
 		decoded += d
 		if err != nil || ms.bpc != 1 || int64(w*h) > limit-decoded {
 			return nil, decoded

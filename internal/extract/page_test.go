@@ -13,6 +13,7 @@ import (
 	gofastcore "github.com/AOShei/go-fast-core"
 	"github.com/AOShei/go-fast-pdf/internal/file"
 	"github.com/AOShei/go-fast-pdf/internal/pdftest"
+	"github.com/AOShei/go-fast-pdf/internal/syntax"
 )
 
 func open(t testing.TB, data []byte, limits file.Limits) *file.File {
@@ -182,12 +183,21 @@ func TestImages(t *testing.T) {
 				img := b.AddStream("/Type /XObject /Subtype /Image /Width 640 /Height 480 /ColorSpace /DeviceRGB /BitsPerComponent 8", []byte("not decoded"))
 				return fmt.Sprintf("/XObject << /Im1 %d 0 R >>", img)
 			})
-		got := extractAll(t, f, Options{Images: true})[0].Images
+		got := extractAll(t, f, Options{Images: true, InlineDicts: true})[0].Images
+		// The inline image's dictionary, written out; its data is kept
+		// only when asked for.
+		if len(got) == 3 {
+			d := got[1].Dict
+			if w, _ := d.Get("Width").Integer(); w != 4 || !d.Get("ColorSpace").IsName("DeviceRGB") || got[1].Data != nil {
+				t.Errorf("inline dictionary %+v, data %q", d, got[1].Data)
+			}
+			got[1].Dict = syntax.Value{}
+		}
 		unit := Quad{0, 0, 1, 0, 1, 1, 0, 1}
 		want := []Image{
 			{Name: "/Im1", Obj: 1, Rect: [4]float64{72, 500, 200, 100}, Quad: Quad{72, 500, 272, 500, 272, 600, 72, 600},
 				Width: 640, Height: 480, ColorSpace: "/DeviceRGB", MCID: -1},
-			{Inline: true, Rect: [4]float64{0, 0, 1, 1}, Quad: unit, Width: 4, Height: 2, ColorSpace: "/RGB", MCID: -1},
+			{Inline: true, Rect: [4]float64{0, 0, 1, 1}, Quad: unit, Width: 4, Height: 2, ColorSpace: "/DeviceRGB", MCID: -1},
 			{Name: "/Im1", Obj: 1, Rect: [4]float64{0, 0, 1, 1}, Quad: unit, Width: 640, Height: 480, ColorSpace: "/DeviceRGB", MCID: -1},
 		}
 		if fmt.Sprint(got) != fmt.Sprint(want) {
@@ -219,7 +229,7 @@ func TestImages(t *testing.T) {
 			odd := b.AddStream("/Type /XObject /Subtype /Image /Width -3 /Height 99999999999999999999", nil)
 			return fmt.Sprintf("/XObject << /Odd %d 0 R >>", odd)
 		})
-		got := extractAll(t, f, Options{Images: true})[0].Images
+		got := extractAll(t, f, Options{Images: true, InlineDicts: true})[0].Images
 		want := [][2]float64{{0, 1 << 30}, {2, 3}, {0, 1 << 30}}
 		if len(got) != len(want) {
 			t.Fatalf("%d images", len(got))
@@ -237,7 +247,7 @@ func TestImages(t *testing.T) {
 			outer := b.AddFlate(fmt.Sprintf("/Type /XObject /Subtype /Form /Resources << /XObject << /In %d 0 R /I %d 0 R >> >>", inner, img), []byte("/In Do /I Do"))
 			return fmt.Sprintf("/XObject << /Outer %d 0 R >>", outer)
 		})
-		if got := extractAll(t, f, Options{Images: true})[0].Images; len(got) != 3 {
+		if got := extractAll(t, f, Options{Images: true, InlineDicts: true})[0].Images; len(got) != 3 {
 			t.Errorf("%d images, want 3", len(got))
 		}
 	})

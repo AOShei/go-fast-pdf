@@ -347,8 +347,8 @@ file can be read from many goroutines, and the result is the same for any number
   programs are read, and the legacy Chinese, Japanese and Korean encodings are built in. What no table
   says cannot be read: Type 3 fonts, TrueType subsets without cmap and post tables, CID-keyed CFF fonts
   of no collection. Their glyphs are read by their codes where those are ASCII, or reported as unmapped
-- **Images** - JBIG2 images, images in Separation and DeviceN colours, and images inside content streams
-  are listed without their data. CMYK is made RGB without a colour profile, so its colours are near but
+- **Images** - JBIG2 images and images in Separation and DeviceN colours are listed without their
+  data. CMYK is made RGB without a colour profile, so its colours are near but
   not as a profile would make them. JPEG and JPEG 2000 are handed on without their masks
 - **Tagged PDF** - of the structure tree, headings, tables, lists and the descriptions of figures are
   read, and its order where the white space of a page leaves the order open; where white space separates

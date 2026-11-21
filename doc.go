@@ -317,9 +317,12 @@
 //     masked makes the PNG's alpha. A stencil mask, which paints in the
 //     colour current where it is drawn, is black where it paints and
 //     white elsewhere. Damaged fax data gives the rows before the damage,
-//     the rest white. JBIG2, images in colour spaces made by functions
-//     (Separation, DeviceN), and images inside content streams have no
-//     data, and their page gets image.unsupported_encoding. With
+//     the rest white. An image inside a content stream is read as an
+//     image object is: its abbreviated keys, filters and colour spaces
+//     written out, a colour space it names looked up in the resources,
+//     and its data running to EI, or as far as its /L says. JBIG2 and
+//     images in colour spaces made by functions (Separation, DeviceN)
+//     have no data, and their page gets image.unsupported_encoding. With
 //     ImagesNone there are no image
 //     blocks. In a tagged PDF an image drawn as part of a figure that
 //     the structure tree describes (/Alt) has that description as its

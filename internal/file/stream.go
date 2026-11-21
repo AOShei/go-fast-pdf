@@ -104,7 +104,25 @@ func (f *File) decodeTo(stm syntax.Value, dst []byte, limit int64, decrypt bool,
 			return dst, damage
 		}
 	}
+	return f.filter(stm, raw, dst, limit, depth, codec, damage)
+}
 
+// DecodeImageBytes is DecodeImage for the data of an inline image: raw,
+// with the filters its dictionary names. It is part of a content stream,
+// decrypted with it, and is not decrypted again.
+func (f *File) DecodeImageBytes(dict syntax.Value, raw, dst []byte, limit int64) (data []byte, codec string, err error) {
+	if limit <= 0 {
+		limit = f.limits.MaxStreamBytes
+	}
+	data, err = f.filter(dict, raw, dst, limit, 0, &codec, nil)
+	return data, codec, err
+}
+
+// filter applies the filters that the dictionary of a stream names to
+// its data, raw. damage is an error of decryption, returned when nothing
+// worse happens.
+func (f *File) filter(stm syntax.Value, raw, dst []byte, limit int64, depth int, codec *string, damage error) ([]byte, error) {
+	var err error
 	filters := f.resolve(stm.Get("Filter"), depth+1)
 	parms := f.resolve(stm.Get("DecodeParms"), depth+1)
 	var names, parmList []syntax.Value

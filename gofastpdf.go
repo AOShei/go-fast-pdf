@@ -10,6 +10,7 @@ import (
 	"github.com/AOShei/go-fast-pdf/internal/extract"
 	"github.com/AOShei/go-fast-pdf/internal/file"
 	"github.com/AOShei/go-fast-pdf/internal/layout"
+	"github.com/AOShei/go-fast-pdf/internal/syntax"
 )
 
 // Format is the name of the format in Source.Format.
@@ -173,6 +174,10 @@ type imageRef struct {
 	block  int32
 	obj    int64 // the object number of an image XObject, 0 for none
 	inline bool
+	// The dictionary of an inline image, and its data when data is
+	// asked for (extract.Image).
+	dict syntax.Value
+	data []byte
 }
 
 // want says what a page is read for besides its part.
@@ -233,32 +238,35 @@ func (e *Extractor) page(f *file.File, p *file.Page, opts *gofastcore.Options, w
 	}
 	// The tables of a tagged PDF that the page's content is in.
 	tables := w.structure.pageTables(tags)
-	res := extract.Page(f, p, extract.Options{Words: w.lines, Rules: !e.NoRuledTables, Stop: w.stop, Use: func(c *extract.Content) {
-		// Made here, where nothing outside holds it: it stays off the heap.
-		lopts := layout.Options{
-			Images: opts.Images != gofastcore.ImagesNone, Lines: w.lines,
-			Spans: opts.Spans, Links: links, Heading: headingOf, Item: itemOf, Rank: rankOf,
-		}
-		tables.options(tags, &lopts)
-		lay = layout.Build(layout.Page{M: m, Width: width, Height: height}, c, lopts)
-		if tables.drop(&lay) {
-			// Tables that the page does not bear out are its text again.
-			lay = layout.Build(layout.Page{M: m, Width: width, Height: height}, c, lopts)
-		}
-		images = len(c.Images)
-		for k, i := range lay.Images {
-			if i >= 0 {
-				// The description of the figure the image is part of.
-				if mc := c.Images[i].MCID; mc >= 0 && int(mc) < len(tags) && tags[mc].alt != "" {
-					lay.Blocks[k].Text = tags[mc].alt
-				}
-				if tags != nil {
-					lay.Styles[k].Marked = c.Images[i].MCID + 1
-				}
-				out.images = append(out.images, imageRef{block: int32(k), obj: c.Images[i].Obj, inline: c.Images[i].Inline})
+	res := extract.Page(f, p, extract.Options{Words: w.lines, Rules: !e.NoRuledTables, Stop: w.stop,
+		InlineDicts: opts.Images != gofastcore.ImagesNone, InlineData: opts.Images == gofastcore.ImagesData,
+		Use: func(c *extract.Content) {
+			// Made here, where nothing outside holds it: it stays off the heap.
+			lopts := layout.Options{
+				Images: opts.Images != gofastcore.ImagesNone, Lines: w.lines,
+				Spans: opts.Spans, Links: links, Heading: headingOf, Item: itemOf, Rank: rankOf,
 			}
-		}
-	}})
+			tables.options(tags, &lopts)
+			lay = layout.Build(layout.Page{M: m, Width: width, Height: height}, c, lopts)
+			if tables.drop(&lay) {
+				// Tables that the page does not bear out are its text again.
+				lay = layout.Build(layout.Page{M: m, Width: width, Height: height}, c, lopts)
+			}
+			images = len(c.Images)
+			for k, i := range lay.Images {
+				if i >= 0 {
+					// The description of the figure the image is part of.
+					if mc := c.Images[i].MCID; mc >= 0 && int(mc) < len(tags) && tags[mc].alt != "" {
+						lay.Blocks[k].Text = tags[mc].alt
+					}
+					if tags != nil {
+						lay.Styles[k].Marked = c.Images[i].MCID + 1
+					}
+					out.images = append(out.images, imageRef{block: int32(k), obj: c.Images[i].Obj, inline: c.Images[i].Inline,
+						dict: c.Images[i].Dict, data: c.Images[i].Data})
+				}
+			}
+		}})
 	out.lines, out.styles = lay.Lines, lay.Styles
 	out.decoded, out.external, out.stats = res.Decoded, res.External, lay.Stats
 	out.actualDiffers, out.actualLonger, out.longGlyph = res.ActualDiffers, res.ActualLonger, res.LongGlyphText

@@ -359,9 +359,7 @@ func (f *File) begin(ctx context.Context) (context.Context, *state) {
 		// The outline was cut when it was read, at the limit of this
 		// file. Nothing is left for the pages.
 		st.outlineCut = true
-		for !st.text.Spent() {
-			st.text.Take(math.MaxInt32)
-		}
+		st.text.Exhaust()
 	}
 	return ctx, st
 }
@@ -377,7 +375,7 @@ func (st *state) end() {
 // settle makes the shared count of decoded bytes say what this document
 // has left.
 func (st *state) settle() {
-	st.dec.Take(st.dec.Left() - st.budget)
+	st.dec.Settle(st.budget)
 }
 
 // stored is the part for what the file holds and shows on no page:

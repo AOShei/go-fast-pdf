@@ -179,7 +179,7 @@ func TestEveryExportedIdentifierIsDocumented(t *testing.T) {
 func TestEveryWarningCodeHasAConstant(t *testing.T) {
 	constants := map[string]bool{}
 	for _, code := range []string{
-		gofastpdf.WarnGlyphTextAssumed, gofastpdf.WarnFontMissing,
+		gofastpdf.WarnGlyphTextAssumed, gofastpdf.WarnGlyphTextByOutline, gofastpdf.WarnFontMissing,
 		gofastpdf.WarnContentStreamDamaged, gofastpdf.WarnContentStreamUnreadable, gofastpdf.WarnContentBytesSkipped,
 		gofastpdf.WarnObjectUnreadable, gofastpdf.WarnPageTreeDamaged, gofastpdf.WarnXRefSectionUnreadable,
 		gofastpdf.WarnXRefEntryUnreadable, gofastpdf.WarnStringUndecryptable,

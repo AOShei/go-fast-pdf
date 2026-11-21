@@ -119,6 +119,10 @@ type Shown struct {
 	// Assumed is the number of codes whose text is taken from the code
 	// itself, because the font does not say what its glyph is.
 	Assumed int
+	// ByOutline is the number of codes whose text is that of a glyph of a
+	// known font with the same outline (glyphs.go): the file gives their
+	// glyphs none.
+	ByOutline int
 }
 
 const replacement = "�"
@@ -193,7 +197,10 @@ func (f *Font) Append(dst, s []byte) ([]byte, Shown) {
 			}
 		}
 		if !ok && cidOK && f.tt != nil {
-			dst, ok = f.tt.appendText(dst, cid)
+			var outline bool
+			if dst, ok, outline = f.tt.appendText(dst, cid); outline {
+				sh.ByOutline++
+			}
 		}
 		if !ok {
 			dst = append(dst, replacement...)

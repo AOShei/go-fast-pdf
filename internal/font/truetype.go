@@ -48,26 +48,32 @@ type trueTypeText struct {
 	texts map[int]string // by glyph, those of more than one character
 	// pieces is set when a glyph's text is a piece of a letter (IsPiece).
 	pieces atomic.Bool
-	gids   []byte // the CIDToGIDMap stream, two bytes a CID; nil for Identity
+	// byOutline holds the glyphs whose text is that of a known glyph with
+	// their outline (glyphs.go), a bit each.
+	byOutline []uint64
+	gids      []byte // the CIDToGIDMap stream, two bytes a CID; nil for Identity
 }
 
-// appendText appends the text of a CID; false for none.
-func (t *trueTypeText) appendText(dst []byte, cid uint32) ([]byte, bool) {
+// appendText appends the text of a CID; false for none. outline is set
+// when the text is that of a known glyph with the same outline, and not
+// one the program gives.
+func (t *trueTypeText) appendText(dst []byte, cid uint32) (out []byte, ok, outline bool) {
 	t.once.Do(t.read)
 	gid := cid
 	if t.gids != nil {
 		if int(cid)*2+1 >= len(t.gids) {
-			return dst, false
+			return dst, false, false
 		}
 		gid = uint32(binary.BigEndian.Uint16(t.gids[2*cid:]))
 	}
+	outline = int(gid>>6) < len(t.byOutline) && t.byOutline[gid>>6]&(1<<(gid&63)) != 0
 	if int(gid) < len(t.chars) && t.chars[gid] != 0 {
-		return utf8.AppendRune(dst, t.chars[gid]), true
+		return utf8.AppendRune(dst, t.chars[gid]), true, outline
 	}
 	if s, ok := t.texts[int(gid)]; ok {
-		return append(dst, s...), true
+		return append(dst, s...), true, outline
 	}
-	return dst, false
+	return dst, false, false
 }
 
 func (t *trueTypeText) read() {
@@ -112,6 +118,10 @@ func (t *trueTypeText) read() {
 			for i, gid := range gids {
 				if txt := knownText(hashes[i], kf); txt != "" {
 					t.set(gid, txt)
+					for len(t.byOutline) <= gid>>6 {
+						t.byOutline = append(t.byOutline, 0)
+					}
+					t.byOutline[gid>>6] |= 1 << (gid & 63)
 				}
 			}
 		}

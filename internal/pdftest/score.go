@@ -4,6 +4,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/AOShei/go-fast-pdf/internal/charset"
 )
 
 // Score compares extracted text with reference text at word level.
@@ -21,21 +23,26 @@ type Score struct {
 }
 
 var normalizer = strings.NewReplacer(
-	"\ufb00", "ff", "\ufb01", "fi", "\ufb02", "fl", "\ufb03", "ffi", "\ufb04", "ffl", "\ufb05", "st", "\ufb06", "st",
 	"\u00a0", " ", // no-break space
 	"\u00ad", "", // soft hyphen
+	// The controls of the direction of writing, which pdftotext puts
+	// round each line written from right to left.
+	"\u200e", "", "\u200f", "", "\u202a", "", "\u202b", "", "\u202c", "", "\u202d", "", "\u202e", "",
+	"\u2066", "", "\u2067", "", "\u2068", "", "\u2069", "",
 	"\u2010", "-", "\u2011", "-", // hyphen, non-breaking hyphen
 )
 
 // Words splits text into the words the scorer compares. Both texts are
 // first brought to the conventions of the shared model, so that a
 // reference that follows other conventions is not counted as different:
-// ligatures are expanded, soft hyphens removed, a word broken by a
+// ligatures and Arabic presentation forms are their letters
+// (charset.Letters), soft hyphens and the controls of the direction of
+// writing removed, a word broken by a
 // hyphen at the end of a line is joined with its hyphen kept, and a
 // control character is U+FFFD. The text is then split on white space.
 // Case and punctuation are kept.
 func Words(text string) []string {
-	return strings.FieldsFunc(conventions(normalizer.Replace(text)), unicode.IsSpace)
+	return strings.FieldsFunc(conventions(charset.Letters(normalizer.Replace(text))), unicode.IsSpace)
 }
 
 // conventions joins words broken at a line end and replaces control

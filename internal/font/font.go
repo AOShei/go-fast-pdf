@@ -171,7 +171,17 @@ func (f *Font) Append(dst, s []byte) ([]byte, Shown) {
 		// the TrueType program.
 		ok := false
 		if f.toUni != nil {
-			dst, ok = f.toUni.appendText(dst, code, n)
+			if f.tt == nil {
+				dst, ok = f.toUni.appendText(dst, code, n)
+			} else {
+				before := len(dst)
+				dst, ok = f.toUni.appendText(dst, code, n)
+				if ok && len(dst) == before+1 && dst[before] == 0 {
+					// U+0000, which Firefox writes for a glyph it has no
+					// text for: the program's glyph may have some.
+					dst, ok = dst[:before], false
+				}
+			}
 		}
 		if !ok && f.unicode != 0 {
 			dst, ok = appendUnicode(dst, code, n, f.unicode)
@@ -183,9 +193,7 @@ func (f *Font) Append(dst, s []byte) ([]byte, Shown) {
 			}
 		}
 		if !ok && cidOK && f.tt != nil {
-			if r := f.tt.char(cid); r != 0 {
-				dst, ok = utf8.AppendRune(dst, r), true
-			}
+			dst, ok = f.tt.appendText(dst, cid)
 		}
 		if !ok {
 			dst = append(dst, replacement...)
@@ -198,6 +206,14 @@ func (f *Font) Append(dst, s []byte) ([]byte, Shown) {
 		}
 	}
 	return charset.LettersIn(dst, start), sh
+}
+
+// HasPieces reports whether a code of the font may stand for a piece of
+// a letter of a known font (IsPiece), which the interpreter puts
+// together into letters (Compose). It is known once a code of the font
+// has had no text but its glyph's.
+func (f *Font) HasPieces() bool {
+	return f.tt != nil && f.tt.pieces.Load()
 }
 
 // CodeLen returns the number of bytes of the first character code of s,

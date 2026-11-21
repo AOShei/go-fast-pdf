@@ -89,6 +89,11 @@ files made to exhaust it, and is several times faster. The tag follows that of g
   stand; numbers and Latin words within them read from left to right, ligatures keep their letters in
   order, brackets are mirrored where the file gives the glyph drawn. The warning `pdf.rtl_visual_order` is
   gone with the need for it.
+- **Arabic as Firefox prints it.** Arabic presentation forms are written as their letters. A mark drawn
+  by itself on the glyph before it is read with that glyph. The letters that Firefox's subsets of the
+  Noto fonts draw in pieces without characters (a body and its dots) are read by the outlines of their
+  glyphs, for Noto Sans, Naskh and Kufi Arabic, Regular and Bold: a page printed by Firefox reads as its
+  source, where pdftotext reads few of its letters.
 - **Limits** on input size, decoded size, the text of a document, pages, nesting and more; see
   [SECURITY.md](SECURITY.md). Decoded bytes and text are counted for a document and the files attached to
   it together. Cancellation through the context, also inside a long page.

@@ -34,47 +34,77 @@ func lookup(name string) (string, bool) {
 	return string(glyphSeqs[pos : pos+count]), true
 }
 
-// --- ligatures ---
+// --- ligatures and presentation forms ---
 
 // ligatures are the letters of the Latin ligatures U+FB00 to U+FB06.
 // Text leaves this library with the letters and never with the ligature
 // character, whichever of the two a file states: "fi" is what a reader
 // sees and what a search looks for, and the single glyph is how a font
-// happens to draw it. None is longer than the three bytes of the
-// character it replaces.
+// happens to draw it.
+//
+// So with the Arabic presentation forms, U+FB50 to U+FDFF and U+FE70 to
+// U+FEFF (arabicforms_gen.go): the form of a letter at the start, in the
+// middle or at the end of a word is the letter, and a ligature its
+// letters. They are the shapes a font draws, which some files give as
+// the text of their glyphs.
 var ligatures = [...]string{"ff", "fi", "fl", "ffi", "ffl", "st", "st"}
 
 const ligatureFirst, ligatureLast = 0xFB00, 0xFB06
 
-// letters returns a character as text, a ligature as its letters.
+// formLetters returns the letters of a ligature or a presentation form;
+// false for any other character.
+func formLetters(r rune) (string, bool) {
+	switch {
+	case r >= ligatureFirst && r <= ligatureLast:
+		return ligatures[r-ligatureFirst], true
+	case r >= arabicFormsFirst && r <= arabicFormsLast:
+		i := r - arabicFormsFirst
+		if t := arabicFormText[arabicFormOffs[i]:arabicFormOffs[i+1]]; t != "" {
+			return t, true
+		}
+	}
+	return "", false
+}
+
+// letters returns a character as text, a ligature or a presentation
+// form as its letters.
 func letters(r rune) string {
-	if r >= ligatureFirst && r <= ligatureLast {
-		return ligatures[r-ligatureFirst]
+	if t, ok := formLetters(r); ok {
+		return t
 	}
 	return string(r)
 }
 
-// ligatureAt reports whether b starts with one of the ligatures, which
-// are EF AC 80 to EF AC 86 in UTF-8, and which.
-func ligatureAt[T string | []byte](b T) (int, bool) {
-	if len(b) >= 3 && b[0] == 0xEF && b[1] == 0xAC && b[2] >= 0x80 && b[2] <= 0x86 {
-		return int(b[2] - 0x80), true
+// formAt returns the letters of the ligature or presentation form that
+// b starts with. All are three bytes in UTF-8, the first of them 0xEF.
+func formAt[T string | []byte](b T) (string, bool) {
+	if len(b) < 3 || b[0] != 0xEF || b[1]&0xC0 != 0x80 || b[2]&0xC0 != 0x80 {
+		return "", false
 	}
-	return 0, false
+	return formLetters(rune(b[1]&0x3F)<<6 | rune(b[2]&0x3F) | 0xF000)
 }
 
-// Letters returns s with the Latin ligatures written as their letters.
+// Letters returns s with the ligatures and presentation forms written as
+// their letters.
 func Letters(s string) string {
-	i := strings.Index(s, "\xef\xac")
-	if i < 0 {
-		return s
+	i := 0
+	for {
+		k := strings.IndexByte(s[i:], 0xEF)
+		if k < 0 {
+			return s
+		}
+		i += k
+		if _, ok := formAt(s[i:]); ok {
+			break
+		}
+		i++
 	}
 	var sb strings.Builder
-	sb.Grow(len(s))
+	sb.Grow(len(s) + 8)
 	sb.WriteString(s[:i])
 	for i < len(s) {
-		if k, ok := ligatureAt(s[i:]); ok {
-			sb.WriteString(ligatures[k])
+		if t, ok := formAt(s[i:]); ok {
+			sb.WriteString(t)
 			i += 3
 			continue
 		}
@@ -84,8 +114,8 @@ func Letters(s string) string {
 	return sb.String()
 }
 
-// LettersIn does to b[from:] what Letters does to a string, in place,
-// and returns b, which can have become shorter.
+// LettersIn does to b[from:] what Letters does to a string and returns
+// b, which can have become shorter or longer.
 func LettersIn(b []byte, from int) []byte {
 	i := from
 	for {
@@ -94,23 +124,24 @@ func LettersIn(b []byte, from int) []byte {
 			return b
 		}
 		i += k
-		if _, ok := ligatureAt(b[i:]); ok {
+		if _, ok := formAt(b[i:]); ok {
 			break
 		}
 		i++
 	}
-	w := i
-	for i < len(b) {
-		if k, ok := ligatureAt(b[i:]); ok {
-			w += copy(b[w:], ligatures[k])
-			i += 3
+	// The letters of a form can be longer than it: they are written
+	// apart and copied back.
+	tail := make([]byte, 0, len(b)-i+16)
+	for j := i; j < len(b); {
+		if t, ok := formAt(b[j:]); ok {
+			tail = append(tail, t...)
+			j += 3
 			continue
 		}
-		b[w] = b[i]
-		w++
-		i++
+		tail = append(tail, b[j])
+		j++
 	}
-	return b[:w]
+	return append(b[:i], tail...)
 }
 
 // isPrivateUse reports whether text is in the private use area, where

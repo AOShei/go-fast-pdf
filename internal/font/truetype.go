@@ -3,6 +3,7 @@ package font
 import (
 	"encoding/binary"
 	"sync"
+	"sync/atomic"
 	"unicode/utf8"
 
 	"github.com/AOShei/go-fast-pdf/internal/charset"
@@ -20,8 +21,10 @@ import (
 // characters reach shows the first of them, other than one for private
 // use. Subtables for Unicode are read, in formats 0, 4, 6 and 12; one of
 // a symbol font (platform 3, encoding 0) gives codes of its own and no
-// characters. The program is read the first time a code of the font has
-// no text otherwise, not when the font is loaded.
+// characters. A glyph the cmap does not reach has the character of its
+// name in the post table, or else the text of a known glyph with its
+// outline (glyphs.go). The program is read the first time a code of the
+// font has no text otherwise, not when the font is loaded.
 
 const (
 	// maxProgramBytes bounds the font program that is read for its cmap.
@@ -41,24 +44,30 @@ type trueTypeText struct {
 	gidMap  syntax.Value // CIDToGIDMap: a stream, or anything else for Identity
 
 	once  sync.Once
-	chars []rune // by glyph
-	gids  []byte // the CIDToGIDMap stream, two bytes a CID; nil for Identity
+	chars []rune         // by glyph
+	texts map[int]string // by glyph, those of more than one character
+	// pieces is set when a glyph's text is a piece of a letter (IsPiece).
+	pieces atomic.Bool
+	gids   []byte // the CIDToGIDMap stream, two bytes a CID; nil for Identity
 }
 
-// char returns the character of a CID, 0 for none.
-func (t *trueTypeText) char(cid uint32) rune {
+// appendText appends the text of a CID; false for none.
+func (t *trueTypeText) appendText(dst []byte, cid uint32) ([]byte, bool) {
 	t.once.Do(t.read)
 	gid := cid
 	if t.gids != nil {
 		if int(cid)*2+1 >= len(t.gids) {
-			return 0
+			return dst, false
 		}
 		gid = uint32(binary.BigEndian.Uint16(t.gids[2*cid:]))
 	}
-	if int(gid) >= len(t.chars) {
-		return 0
+	if int(gid) < len(t.chars) && t.chars[gid] != 0 {
+		return utf8.AppendRune(dst, t.chars[gid]), true
 	}
-	return t.chars[gid]
+	if s, ok := t.texts[int(gid)]; ok {
+		return append(dst, s...), true
+	}
+	return dst, false
 }
 
 func (t *trueTypeText) read() {
@@ -82,15 +91,50 @@ func (t *trueTypeText) read() {
 			continue
 		}
 		if txt, ok := charset.GlyphText(name); ok {
-			if r, n := utf8.DecodeRuneInString(txt); n == len(txt) {
-				for len(t.chars) <= gid {
-					t.chars = append(t.chars, 0)
+			t.set(gid, txt)
+		}
+	}
+	// A glyph with no character yet: that of the glyph with its outline
+	// in the known font that the program has most outlines of.
+	// Only those glyphs are looked at, and only they say which font it is.
+	if g, ok := newGlyfTables(tables); ok {
+		var gids []int
+		var hashes []uint64
+		for gid := 1; gid < g.n; gid++ {
+			if gid < len(t.chars) && t.chars[gid] != 0 || t.texts[gid] != "" {
+				continue
+			}
+			if h := g.hash(gid, 0); h != 0 {
+				gids, hashes = append(gids, gid), append(hashes, h)
+			}
+		}
+		if kf := knownFont(hashes); kf >= 0 {
+			for i, gid := range gids {
+				if txt := knownText(hashes[i], kf); txt != "" {
+					t.set(gid, txt)
 				}
-				t.chars[gid] = r
 			}
 		}
 	}
 	t.f, t.program, t.gidMap = nil, syntax.Value{}, syntax.Value{}
+}
+
+// set gives glyph gid the text txt.
+func (t *trueTypeText) set(gid int, txt string) {
+	if r, _ := utf8.DecodeRuneInString(txt); IsPiece(r) {
+		t.pieces.Store(true)
+	}
+	if r, n := utf8.DecodeRuneInString(txt); n == len(txt) {
+		for len(t.chars) <= gid {
+			t.chars = append(t.chars, 0)
+		}
+		t.chars[gid] = r
+		return
+	}
+	if t.texts == nil {
+		t.texts = map[int]string{}
+	}
+	t.texts[gid] = txt
 }
 
 // sfntTables returns the tables of a TrueType or OpenType program by

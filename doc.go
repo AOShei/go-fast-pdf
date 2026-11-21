@@ -397,8 +397,10 @@
 // "inter-national". A soft hyphen at the end of a line, between the
 // letters of a word, is dropped and the word joined again; anywhere else
 // it stays.
-// Ligatures are written as their letters. A character the file gives no
-// meaning for is U+FFFD, and so is a control character.
+// Ligatures are written as their letters, and so are the Arabic
+// presentation forms, the forms of letters at the start, in the middle
+// and at the end of a word. A character the file gives no meaning for is
+// U+FFFD, and so is a control character.
 //
 // Two characters in a block's text are put there by this package. A tab
 // stands where two pieces of a line are more than twice the font size
@@ -433,7 +435,13 @@
 // file does not. A CIDFont of type 2 whose CIDs are of no collection
 // takes the characters of its glyphs from the cmap of its TrueType
 // program, or their names in its 'post' table, read the first time a
-// code has no text otherwise. A simple font without a ToUnicode CMap
+// code has no text otherwise; a glyph neither gives a character has the
+// text of the glyph with its outline in a known font. The known fonts
+// are Noto Sans, Noto Naskh and Noto Kufi Arabic, Regular and Bold, of
+// the versions the table was made from: Firefox embeds subsets of them
+// whose ToUnicode CMap gives U+0000 (read as no text) to the pieces a
+// letter is drawn in, its body without its dots and the dots, and the
+// pieces are put together into the letter. A simple font without a ToUnicode CMap
 // that names no encoding has its program's: the encoding of a Type 1 or
 // CFF program, as glyph names, unless most of its letters are not their
 // codes' (names scrambled by the program that made them); for a symbolic
@@ -457,7 +465,10 @@
 // right to left are mirrored where the file gives the glyph drawn and
 // not the character it stands for, which is told by which reading pairs
 // them. The paragraphs of such lines are found as for others, with the
-// start of a line at its right.
+// start of a line at its right. A mark (a vowel sign, a hamza, the dots
+// of a letter drawn in pieces) that the page draws by itself on the
+// glyph before it, however far up or down, is read with that glyph, and
+// a letter and the hamza on it are the letter with hamza.
 //
 // # What the file declares
 //

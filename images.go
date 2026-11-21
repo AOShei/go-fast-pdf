@@ -73,8 +73,7 @@ type imageKind struct {
 // delivered. Nothing is decoded.
 //
 // JPEG and JPEG 2000 data is handed over as it is. Samples, and CCITT
-// fax data, are written as PNG (raster.go). JBIG2 is not delivered, nor
-// are images in colour spaces made by functions (Separation, DeviceN).
+// fax data, are written as PNG (raster.go). JBIG2 is not delivered.
 func kindOfImage(f *file.File, src imageSrc) imageKind {
 	xobj := src.v
 	if xobj.Kind != syntax.Stream && !(src.inline && xobj.Kind == syntax.Dict) {
@@ -103,7 +102,7 @@ func kindOfImage(f *file.File, src imageSrc) imageKind {
 	if mask := f.Resolve(xobj.Get("ImageMask")); mask.Kind == syntax.Bool && mask.N != 0 {
 		return png
 	}
-	cs, why := readColourSpace(f, xobj.Get("ColorSpace"), 0, false)
+	cs, why := readColourSpace(f, xobj.Get("ColorSpace"), 0, 0)
 	if cs.fam == famNone {
 		return imageKind{why: why}
 	}
@@ -140,14 +139,23 @@ func imageData(f *file.File, src imageSrc, kind imageKind, limit int64) (data []
 	if mask := f.Resolve(xobj.Get("ImageMask")); mask.Kind == syntax.Bool && mask.N != 0 {
 		stencil = true
 	}
+	if limit <= 0 {
+		// A limit of 0 would only check the colour space.
+		return nil, 0, file.ErrTruncated
+	}
 	cs := colourSpace{n: 1}
 	if !stencil {
 		var why string
-		if cs, why = readColourSpace(f, xobj.Get("ColorSpace"), 0, true); cs.fam == famNone {
-			return nil, 0, errors.New(why)
+		if cs, why = readColourSpace(f, xobj.Get("ColorSpace"), 0, limit); cs.fam == famNone {
+			return nil, cs.decoded, errors.New(why)
 		}
 	}
-	s, decoded, err := readSamples(f, src, cs.n, false, limit)
+	if cs.decoded >= limit {
+		// The function's samples took it all; a limit of 0 is none.
+		return nil, cs.decoded, file.ErrTruncated
+	}
+	s, decoded, err := readSamples(f, src, cs.n, false, limit-cs.decoded)
+	decoded += cs.decoded
 	if err != nil {
 		return nil, decoded, err
 	}
@@ -165,8 +173,11 @@ func imageData(f *file.File, src imageSrc, kind imageKind, limit int64) (data []
 	if need := per * int64(s.width) * int64(s.height); need > limit-decoded {
 		return nil, decoded, file.ErrTruncated
 	}
-	img, px := raster(f, xobj, &s, &cs, stencil, alpha)
+	img, px, err := raster(f, xobj, &s, &cs, stencil, alpha)
 	decoded += px
+	if err != nil {
+		return nil, decoded, err
+	}
 	var out bytes.Buffer
 	if err := pngEncoder.Encode(&out, img); err != nil {
 		return nil, decoded, err

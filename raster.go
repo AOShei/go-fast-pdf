@@ -11,6 +11,7 @@ import (
 
 	"github.com/AOShei/go-fast-pdf/internal/ccitt"
 	"github.com/AOShei/go-fast-pdf/internal/file"
+	"github.com/AOShei/go-fast-pdf/internal/function"
 	"github.com/AOShei/go-fast-pdf/internal/syntax"
 )
 
@@ -29,10 +30,13 @@ import (
 //     ICC profile is not read;
 //   - Lab is made RGB through CIE XYZ, its white point made the white
 //     of sRGB;
+//   - Separation and DeviceN (and NChannel) are inks: the file gives a
+//     function of their tints (internal/function) that makes a colour of
+//     another of these spaces, its alternate, and that colour is
+//     delivered. Separation's All and None are made so too;
 //   - Indexed picks a colour of its table, of any of these.
 //
-// Separation, DeviceN and Pattern are not delivered: their colours are
-// made by a function of the file, which is not evaluated.
+// Pattern is not delivered.
 //
 // What the image's samples cannot say is said by its mask, which makes
 // pixels transparent: a soft mask (SMask, an image of gray samples whose
@@ -55,7 +59,14 @@ const (
 	// maxColourSpaceDepth bounds the colour spaces followed from one: an
 	// ICC profile's alternate, the base of an indexed one.
 	maxColourSpaceDepth = 8
+	// maxColourants is the most inks of a DeviceN colour space.
+	maxColourants = 32
 )
+
+// maxFunctionWork bounds the work of the function of a colour space over
+// one image, in operations (function.Func.Cost): about a second. It is a
+// variable for its test.
+var maxFunctionWork = 1 << 28
 
 // family is the kind of a colour space, as far as its samples go.
 type family int
@@ -67,6 +78,7 @@ const (
 	famCMYK
 	famLab
 	famIndexed
+	famFunc // Separation, DeviceN
 )
 
 // colourSpace is what is needed of a colour space to make colours of
@@ -81,12 +93,20 @@ type colourSpace struct {
 	palette []color.NRGBA
 	gray    bool
 	hival   int
+	// Separation and DeviceN: the function of the tints, the colour space
+	// it makes colours of, and room for its inputs and outputs.
+	fn          *function.Func
+	alt         *colourSpace
+	fnIn, fnOut []float64
+	// decoded is the bytes decoded for the table and the function.
+	decoded int64
 }
 
 // readColourSpace reads the colour space of an image. why says what is
 // not delivered, when fam is famNone. The table of an indexed colour
-// space is read only when full is set.
-func readColourSpace(f *file.File, v syntax.Value, depth int, full bool) (cs colourSpace, why string) {
+// space, and the samples of a sampled function, are read only when limit
+// is not 0, up to limit bytes.
+func readColourSpace(f *file.File, v syntax.Value, depth int, limit int64) (cs colourSpace, why string) {
 	if depth > maxColourSpaceDepth {
 		return cs, "a colour space that refers to itself"
 	}
@@ -119,7 +139,7 @@ func readColourSpace(f *file.File, v syntax.Value, depth int, full bool) (cs col
 			return colourSpace{fam: famCMYK, n: 4}, ""
 		}
 		if alt := arg(1).Get("Alternate"); !alt.IsNull() {
-			return readColourSpace(f, alt, depth+1, full)
+			return readColourSpace(f, alt, depth+1, limit)
 		}
 		return cs, fmt.Sprintf("an ICC profile of %d components", n)
 	case "Lab":
@@ -131,7 +151,7 @@ func readColourSpace(f *file.File, v syntax.Value, depth int, full bool) (cs col
 		}
 		return cs, ""
 	case "Indexed", "I":
-		base, why := readColourSpace(f, arg(1), depth+1, full)
+		base, why := readColourSpace(f, arg(1), depth+1, limit)
 		if base.fam == famNone || base.fam == famIndexed {
 			if why == "" {
 				why = "an indexed colour space on an indexed one"
@@ -142,8 +162,8 @@ func readColourSpace(f *file.File, v syntax.Value, depth int, full bool) (cs col
 		if !ok || hival < 0 || hival > 255 {
 			return cs, "an indexed colour space without a table of up to 256 colours"
 		}
-		cs = colourSpace{fam: famIndexed, n: 1, hival: int(hival), gray: true}
-		if !full {
+		cs = colourSpace{fam: famIndexed, n: 1, hival: int(hival), gray: true, decoded: base.decoded}
+		if limit == 0 {
 			return cs, ""
 		}
 		table := arg(3)
@@ -169,7 +189,32 @@ func readColourSpace(f *file.File, v syntax.Value, depth int, full bool) (cs col
 		}
 		return cs, ""
 	case "Separation", "DeviceN", "NChannel":
-		return cs, "a colour space of type " + name.NameString()
+		kind := name.NameString()
+		n := 1
+		if kind != "Separation" {
+			n = len(arg(1).Elems())
+			if n == 0 || n > maxColourants {
+				return cs, fmt.Sprintf("a colour space of type %s of %d inks", kind, n)
+			}
+		}
+		alt, why := readColourSpace(f, arg(2), depth+1, limit)
+		switch alt.fam {
+		case famNone:
+			return cs, why
+		case famIndexed, famFunc:
+			return cs, "a colour space of type " + kind + " whose alternate is not a colour space of colours"
+		}
+		// An alternate of colours decodes nothing: the limit is the
+		// function's.
+		fn, decoded, err := function.Parse(f, arg(3), limit)
+		if err != nil {
+			return colourSpace{decoded: decoded}, fmt.Sprintf("a colour space of type %s: %v", kind, err)
+		}
+		if fn.In() != n || fn.Out() < alt.n {
+			return cs, fmt.Sprintf("a colour space of type %s of %d inks and %d components, its function of %d inputs and %d outputs", kind, n, alt.n, fn.In(), fn.Out())
+		}
+		return colourSpace{fam: famFunc, n: n, fn: fn, alt: &alt, fnIn: make([]float64, n), fnOut: make([]float64, fn.Out()),
+			decoded: decoded}, ""
 	case "":
 		return cs, "an image without a colour space"
 	}
@@ -207,6 +252,10 @@ func (cs *colourSpace) colour(c []float64) color.NRGBA {
 	case famLab:
 		r, g, bl := labToRGB(c[0], c[1], c[2])
 		return color.NRGBA{b(r), b(g), b(bl), 255}
+	case famFunc:
+		copy(cs.fnIn, c)
+		cs.fn.Eval(cs.fnIn, cs.fnOut)
+		return cs.alt.colour(cs.fnOut[:cs.alt.n])
 	}
 	return color.NRGBA{A: 255}
 }
@@ -410,7 +459,7 @@ func decodeArray(f *file.File, xobj syntax.Value, n int, def func(c int) (float6
 // raster makes an image of samples: of the colour space cs, or a
 // stencil mask, with alpha (nil for none) of one byte a pixel. It
 // returns the image and the bytes of its pixels.
-func raster(f *file.File, xobj syntax.Value, s *samples, cs *colourSpace, stencil bool, alpha []byte) (image.Image, int64) {
+func raster(f *file.File, xobj syntax.Value, s *samples, cs *colourSpace, stencil bool, alpha []byte) (image.Image, int64, error) {
 	w, h := s.width, s.height
 	rect := image.Rect(0, 0, w, h)
 	maxv := s.maxValue()
@@ -436,7 +485,7 @@ func raster(f *file.File, xobj syntax.Value, s *samples, cs *colourSpace, stenci
 	}
 	// One sample a pixel, and no mask: a palette, which PNG writes at the
 	// depth of the samples.
-	if alpha == nil && s.n == 1 && (stencil || cs.fam == famIndexed || cs.fam == famGray && s.bpc <= 4) {
+	if alpha == nil && s.n == 1 && (stencil || cs.fam == famIndexed || cs.fam == famFunc || cs.fam == famGray && s.bpc <= 4) {
 		pal := make(color.Palette, maxv+1)
 		for v := range pal {
 			x := tables[0][v]
@@ -459,7 +508,7 @@ func raster(f *file.File, xobj syntax.Value, s *samples, cs *colourSpace, stenci
 				row[x] = uint8(s.at(x, y, 0))
 			}
 		}
-		return img, int64(len(img.Pix))
+		return img, int64(len(img.Pix)), nil
 	}
 	if alpha == nil && cs.fam == famGray {
 		img := image.NewGray(rect)
@@ -473,10 +522,14 @@ func raster(f *file.File, xobj syntax.Value, s *samples, cs *colourSpace, stenci
 				row[x] = lut[s.at(x, y, 0)]
 			}
 		}
-		return img, int64(len(img.Pix))
+		return img, int64(len(img.Pix)), nil
 	}
 	img := image.NewNRGBA(rect)
 	comps := make([]float64, s.n)
+	var tint *tints
+	if cs.fam == famFunc && !stencil {
+		tint = newTints(cs, tables)
+	}
 	// Device colours by a table of each component; Lab and indexed
 	// colours pixel by pixel.
 	var luts [][]uint8
@@ -511,6 +564,12 @@ func raster(f *file.File, xobj syntax.Value, s *samples, cs *colourSpace, stenci
 				i := int(math.Round(tables[0][s.at(x, y, 0)]))
 				col := cs.palette[min(max(i, 0), cs.hival)]
 				p[0], p[1], p[2] = col.R, col.G, col.B
+			case tint != nil:
+				col, ok := tint.at(s, x, y)
+				if !ok {
+					return nil, 0, errors.New("the colour space's function would take too long over the image")
+				}
+				p[0], p[1], p[2] = col.R, col.G, col.B
 			default:
 				for c := range comps {
 					comps[c] = tables[c][s.at(x, y, c)]
@@ -524,7 +583,73 @@ func raster(f *file.File, xobj syntax.Value, s *samples, cs *colourSpace, stenci
 			}
 		}
 	}
-	return img, int64(len(img.Pix))
+	return img, int64(len(img.Pix)), nil
+}
+
+// tints makes the colours of the samples of a colour space made by a
+// function. Of one ink, the colour of each sample is made once; of more,
+// the colours last made are kept by their samples, and the work of the
+// function over the image is bounded by maxFunctionWork.
+type tints struct {
+	cs     *colourSpace
+	tables [][]float64 // the value of each sample of each ink
+	one    []color.NRGBA
+	// A cache of colours by their samples, a byte each, for up to eight
+	// inks.
+	keys       []uint64
+	set        []bool
+	cols       []color.NRGBA
+	comps      []float64
+	work, cost int
+}
+
+const tintCacheBits = 12
+
+func newTints(cs *colourSpace, tables [][]float64) *tints {
+	t := &tints{cs: cs, tables: tables, comps: make([]float64, cs.n), cost: max(cs.fn.Cost(), 1)}
+	switch {
+	case cs.n == 1:
+		t.one = make([]color.NRGBA, len(tables[0]))
+		for v := range t.one {
+			t.one[v] = cs.colour([]float64{tables[0][v]})
+		}
+	case cs.n <= 8:
+		t.keys = make([]uint64, 1<<tintCacheBits)
+		t.set = make([]bool, 1<<tintCacheBits)
+		t.cols = make([]color.NRGBA, 1<<tintCacheBits)
+	}
+	return t
+}
+
+// at returns the colour of pixel x of row y; ok is false when the work
+// is spent.
+func (t *tints) at(s *samples, x, y int) (col color.NRGBA, ok bool) {
+	if t.one != nil {
+		return t.one[s.at(x, y, 0)], true
+	}
+	slot := -1
+	if t.keys != nil {
+		var key uint64
+		for c := range t.comps {
+			key = key<<8 | uint64(s.at(x, y, c))
+		}
+		slot = int(key * 0x9E3779B97F4A7C15 >> (64 - tintCacheBits))
+		if t.set[slot] && t.keys[slot] == key {
+			return t.cols[slot], true
+		}
+		t.keys[slot], t.set[slot] = key, true
+	}
+	if t.work += t.cost; t.work > maxFunctionWork {
+		return col, false
+	}
+	for c := range t.comps {
+		t.comps[c] = t.tables[c][s.at(x, y, c)]
+	}
+	col = t.cs.colour(t.comps)
+	if slot >= 0 {
+		t.cols[slot] = col
+	}
+	return col, true
 }
 
 // imageAlpha reads the mask of an image of samples s: how opaque each

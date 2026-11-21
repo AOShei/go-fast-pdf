@@ -62,6 +62,8 @@ files made to exhaust it, and is several times faster. The tag follows that of g
   colours with their Decode arrays, CCITT fax images (Group 3 and 4, decoded by this library), and
   stencil masks; soft masks, mask images and colour-key masks make the alpha. Images inside content
   streams (inline images) are delivered the same way, their abbreviations and named colour spaces read.
+  Images in inks (Separation, DeviceN, NChannel) are made colours by the file's function of their
+  tints, of any of the four types: sampled, exponential, stitching and PostScript calculator.
 - **Forms and annotations.** The appearances of annotations are read as part of the page: the values
   that filled form fields show, stamps, notes written on the page. What is written in a comment is a
   `note` block; the value of a field that shows nothing is a block with the field's name; the options of a list or

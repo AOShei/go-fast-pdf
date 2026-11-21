@@ -186,6 +186,12 @@ func imageData(f *file.File, fr *function.Reader, src imageSrc, kind imageKind, 
 		return nil, decoded, err
 	}
 	var out bytes.Buffer
+	if m, ok := img.(*sampleImage); ok && m.rows() {
+		if err := writeSamplePNG(&out, m); err != nil {
+			return nil, decoded, err
+		}
+		return out.Bytes(), decoded, nil
+	}
 	if err := pngEncoder.Encode(&out, img); err != nil {
 		return nil, decoded, err
 	}

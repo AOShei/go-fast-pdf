@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.2.0 (not yet tagged)
+## v0.2.0 (2026-11-21)
 
 The library was rebuilt. It returns the document model shared by the go-fast libraries
 ([go-fast-core](https://github.com/AOShei/go-fast-core)), reads files that v0.1 could not, is bounded on
@@ -142,11 +142,11 @@ more in that time: it reads the text that v0.1.1 dropped and lays it out.
 
 | | v0.1.1 | v0.2.0 |
 |---|---:|---:|
-| 1,000 synthetic pages | 61.9 ms | 21.2 ms |
-| A 157-page manual with graphics | 29.1 ms | 9.3 ms |
-| A 3-page text document | 0.278 ms | 0.121 ms |
-| Resolving every object of a file that keeps them in object streams | 411 ms | 1.8 ms |
-| Allocations per page of the synthetic document | 975 | 20 |
+| 1,000 synthetic pages | 61.9 ms | 21.7 ms |
+| A 157-page manual with graphics | 29.1 ms | 10.0 ms |
+| A 3-page text document | 0.278 ms | 0.122 ms |
+| Resolving every object of a file that keeps them in object streams | 411 ms | 1.6 ms |
+| Allocations per page of the synthetic document | 975 | 21 |
 
 Against other libraries, see the table in the README, which `go run ./bench/compare` writes.
 
@@ -156,9 +156,9 @@ What "ready for production" was taken to mean, and what each point was measured 
 
 | Property | Measured |
 |---|---|
-| Never crashes | 3,186 files and 50,569 pages read, each file in a process of its own, with the default options and with a second set of options: no panic, no stack overflow, no hang. Fuzzing: 14 targets for an hour each on machines of four processors, 56 processor hours and 2.3 billion inputs, with nothing found |
-| Bounded resources | In that run no file took more than 5 s of the 60 s allowed or more than 711 MiB of the 1 GiB allowed, for a process that reads the file twice and checks the results. The limits and fixed bounds are listed in SECURITY.md; cancellation is tested between pages and inside a long page. The text and the number of blocks of a document, with the files attached to it, are bounded by `MaxTextBytes` |
-| Correct text | Word-level F1 against `pdftotext`: at least 0.988 on each of the 27 born-digital Latin files of the fixture corpus (the floor is 0.98), 1.0 on each of the 8 files in other scripts (floor 0.95). Public corpus: mean F1 0.914 and order 0.849 over 1,650 files; 0.983 and 0.907 on the 200 ordinary documents of GovDocs1 |
+| Never crashes | 3,186 files and 50,995 pages read, each file in a process of its own, with the default options and with a second set of options: no panic, no stack overflow, no hang. Fuzzing: 24 targets for an hour each on machines of four processors, 96 processor hours and 3.3 billion inputs, with nothing found |
+| Bounded resources | In that run no file took more than 2.8 s of the 60 s allowed or more than 570 MiB of the 1 GiB allowed, for a process that reads the file twice and checks the results. The limits and fixed bounds are listed in SECURITY.md; cancellation is tested between pages and inside a long page. The text and the number of blocks of a document, with the files attached to it, are bounded by `MaxTextBytes` |
+| Correct text | Word-level F1 against `pdftotext`: at least 0.988 on each of the 27 born-digital Latin files of the fixture corpus (the floor is 0.98), 1.0 on each of the 8 files in other scripts (floor 0.95). Public corpus: mean F1 0.923 and order 0.860 over 1,650 files; 0.983 and 0.908 on the 200 ordinary documents of GovDocs1 |
 | Conforms to the shared model | Every document of the runs above passes `Validate` and the contract checks, and is equal after a round trip through JSON |
 | Honest failure | 21 files that need a password and 15 that are not readable PDFs return the matching error; 27 pages that cannot be read are parts with `part.failed`. No file gives text that is not valid UTF-8 |
 | Reports what the file declares | Every declaration has a fixture that asserts its reason and that the other text is unchanged; every case that is not a declaration (white on white, a 1-point font, text off the page, under an image or a shape, outside a clip) has one that asserts no reason; characters that display as nothing survive |
@@ -167,8 +167,8 @@ What "ready for production" was taken to mean, and what each point was measured 
 | Stable API | The public surface is a snapshot under test; every exported name is documented; ten examples run as tests |
 | Standard library and go-fast-core only | Checked by CI on every change |
 
-Display reasons in the soak run, as blocks (and files with such a block), of 795,587 blocks of text in
-3,150 files: `hidden` 89 (10), `no_ink` 34,583 (92).
+Display reasons in the soak run, as blocks (and files with such a block), of 729,492 blocks of text in
+3,150 files: `hidden` 89 (10), `no_ink` 34,580 (92).
 
 ## v0.1.1 and v0.1.0 (2025-12-25)
 

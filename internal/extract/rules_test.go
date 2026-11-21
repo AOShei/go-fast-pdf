@@ -76,8 +76,8 @@ func TestRawNumber(t *testing.T) {
 	for _, s := range []string{"0", "12", "-12", "+12", "3.25", "-.5", ".5", "5.", "-0", "007", "1.000001",
 		"123456789012345678", "0.000000000000000001", ".", "-", "1.2.3", "--1", "1e5", "abc", ""} {
 		want, _ := syntax.ParseNumber([]byte(s), 0)
-		if got := rawNumber([]byte(s)); got != want.F && !(got != got && want.F != want.F) {
-			t.Errorf("%q: %g, the parser %g", s, got, want.F)
+		if got := rawNumber([]byte(s)); got != want.Number() && !(got != got && want.Number() != want.Number()) {
+			t.Errorf("%q: %g, the parser %g", s, got, want.Number())
 		}
 	}
 }

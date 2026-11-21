@@ -696,8 +696,8 @@ func (font *Font) parseSimple(f *file.File, dict syntax.Value, toUni *cmap) {
 			switch item.Kind {
 			case syntax.Int, syntax.Real:
 				code = -1
-				if item.F >= 0 && item.F < 256 {
-					code = int(item.F)
+				if f := item.Number(); f >= 0 && f < 256 {
+					code = int(f)
 				}
 			case syntax.Name:
 				if code >= 0 && code < 256 {

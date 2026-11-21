@@ -44,7 +44,7 @@ func (o Operand) Float() float64 {
 		return 0
 	}
 	v, _ := syntax.ParseNumber(o.Raw, 0)
-	return v.F
+	return v.Number()
 }
 
 // IsNumber reports whether o is a number.

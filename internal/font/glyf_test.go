@@ -162,6 +162,27 @@ func TestToUnicodeNUL(t *testing.T) {
 	}
 }
 
+// A code whose text is that of a known glyph with its outline is
+// counted (Shown.ByOutline); one whose text the file gives is not. The
+// table's outlines are those of the Noto fonts, which no test program
+// has: the glyph is marked as the lookup marks it.
+func TestShownByOutline(t *testing.T) {
+	toUni := "1 begincodespacerange <0000> <FFFF> endcodespacerange 2 beginbfchar <0001> <0000> <0002> <0043> endbfchar"
+	program := pdftest.Stream("", string(sfnt(map[string][]byte{"cmap": format4()})))
+	f := load(t, "<< /Type /Font /Subtype /Type0 /BaseFont /Test /Encoding /Identity-H /DescendantFonts [3 0 R] /ToUnicode 4 0 R >>",
+		"<< /Type /FontDescriptor /FontName /Test /FontFile2 2 0 R >>",
+		program,
+		"<< /Type /Font /Subtype /CIDFontType2 /BaseFont /Test /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor 1 0 R /CIDToGIDMap /Identity >>",
+		pdftest.Stream("", toUni))
+	if _, sh := show(f, "\x00\x01\x00\x02"); sh.ByOutline != 0 {
+		t.Errorf("from the cmap: %d by outline", sh.ByOutline)
+	}
+	f.tt.byOutline = []uint64{1 << 1}
+	if got, sh := show(f, "\x00\x01\x00\x02\x00\x01"); got != "ACA" || sh.ByOutline != 2 {
+		t.Errorf("glyph 1 by its outline: %q, %d", got, sh.ByOutline)
+	}
+}
+
 // A part scaled one way, two ways, or by a matrix, or placed by points:
 // each its own hash.
 func TestOutlineHashScaled(t *testing.T) {

@@ -269,6 +269,7 @@ type interp struct {
 
 	unmapped    int
 	assumed     int
+	byOutline   int
 	fontMissing bool
 
 	formActive []uint32
@@ -382,6 +383,10 @@ func (in *interp) finish() {
 		in.warn(gofastcore.SeverityInfo, "pdf.glyph_text_assumed",
 			fmt.Sprintf("%d characters on the page are set in fonts that do not say which characters their glyphs are; they were read as the characters their codes stand for", in.assumed))
 	}
+	if in.byOutline > 0 {
+		in.warn(gofastcore.SeverityInfo, "pdf.glyph_text_by_outline",
+			fmt.Sprintf("%d characters on the page are set in glyphs that the file gives no text; they were read by their outlines, which are those of glyphs of Noto Sans, Naskh or Kufi Arabic (Regular or Bold, versions 2.013, 2.021 and 2.110)", in.byOutline))
+	}
 	if in.fontMissing {
 		in.warn(gofastcore.SeverityWarning, "pdf.font_missing",
 			"text on the page is set in a font that its resources do not define; it was read with the standard encoding")
@@ -461,7 +466,7 @@ func (in *interp) reset(f *file.File, p *file.Page, opts Options, res *Result) {
 	in.gaps, in.joins, in.images, in.clusters = in.gaps[:0], in.joins[:0], in.images[:0], in.clusters[:0]
 	in.pending = in.pending[:0]
 	in.prev, in.full, in.rtlLine, in.joints = lineEnd{}, false, false, in.joints[:0]
-	in.unmapped, in.assumed, in.fontMissing = 0, 0, false
+	in.unmapped, in.assumed, in.byOutline, in.fontMissing = 0, 0, 0, false
 	in.formActive, in.formCalls = in.formActive[:0], 0
 	in.clips, in.textClip, in.clipPainted = 0, 0, in.clipPainted[:0]
 	in.breaks, in.marks, in.stopped = in.breaks[:0], in.marks[:0], false

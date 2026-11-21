@@ -114,6 +114,11 @@ const (
 	// that does not say which characters its glyphs are; they were read
 	// as the characters their codes stand for.
 	WarnGlyphTextAssumed = "pdf.glyph_text_assumed"
+	// WarnGlyphTextByOutline: characters on the page are set in glyphs
+	// that the file gives no text; they were read by their outlines,
+	// which are those of glyphs of the Noto Arabic fonts the library
+	// knows (Sans, Naskh and Kufi, Regular and Bold, one version each).
+	WarnGlyphTextByOutline = "pdf.glyph_text_by_outline"
 	// WarnFontMissing: text on the page is set in a font that the page's
 	// resources do not define.
 	WarnFontMissing = "pdf.font_missing"

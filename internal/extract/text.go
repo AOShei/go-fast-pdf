@@ -400,6 +400,7 @@ func (in *interp) showCodes(f *font.Font, raw []byte) {
 		in.text, sh = f.Append(in.text, raw)
 		in.unmapped += sh.Unmapped
 		in.assumed += sh.Assumed
+		in.byOutline += sh.ByOutline
 		if in.opts.Words {
 			in.markSpaces(f, raw)
 		}
@@ -482,6 +483,7 @@ func (in *interp) showCodes(f *font.Font, raw []byte) {
 		in.clusters = in.clusters[:clustersFrom]
 		in.unmapped -= sh.Unmapped
 		in.assumed -= sh.Assumed
+		in.byOutline -= sh.ByOutline
 		p.sx, p.sy = x0, y0
 		if n := len(in.runs); n > 0 {
 			in.runs[n-1].LX, in.runs[n-1].LY = x0, y0

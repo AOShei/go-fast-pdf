@@ -136,6 +136,65 @@ func TestRuledTable(t *testing.T) {
 		}
 	})
 
+	t.Run("one string across a column rule", func(t *testing.T) {
+		// The entries of the last two columns are one run: strings that
+		// stand less than a font size apart, the room between them across
+		// the rule at 300. One goes on after a gap, the other after a
+		// space it ends with and a kern.
+		content := ruledGrid(xs, ys) + ruledCells(xs, ys, rows[:1]) +
+			set("F1", 10, 76, 668, "North Bay") + "BT /F1 10 Tf 272 668 Td [(12.5) -800 (140)] TJ ET\n" +
+			set("F1", 10, 76, 648, "South Cove") + "BT /F1 10 Tf 276 648 Td [(8.0 ) -400 (97)] TJ ET\n"
+		got := tableBlocks(t, ruledDoc(content))
+		want := `table inferred continued=false header=1 merges=[]
+  | Station | Depth | Count |
+  | North Bay | 12.5 | 140 |
+  | South Cove | 8.0 | 97 |
+`
+		if got != want {
+			t.Errorf("got:\n%s\nwant:\n%s", got, want)
+		}
+	})
+
+	t.Run("rows that begin at each code", func(t *testing.T) {
+		// Rules between the columns only, and entries of one line or
+		// two: a row begins at each line of the first column, and the
+		// unit stands on the last line of its entry.
+		xs, ys := []int{72, 140, 330, 430}, []int{700, 680, 620}
+		content := ruledGrid(xs, ys) + ruledCells(xs, ys, []row{{true, []string{"Code", "Description", "Unit"}}}) +
+			set("F1", 10, 76, 668, "3241") + set("F1", 10, 144, 668, "All petroleum products") +
+			set("F1", 10, 76, 656, "32411") + set("F1", 10, 144, 656, "Refined products, made") +
+			set("F1", 10, 144, 646, "in a refinery") + set("F1", 10, 334, 646, "1,000 bbl") +
+			set("F1", 10, 76, 634, "32412") + set("F1", 10, 144, 634, "Asphalt paving") + set("F1", 10, 334, 634, "short tons")
+		got := tableBlocks(t, ruledDoc(content))
+		want := `table inferred continued=false header=1 merges=[]
+  | Code | Description | Unit |
+  | 3241 | All petroleum products |  |
+  | 32411 | Refined products, made in a refinery | 1,000 bbl |
+  | 32412 | Asphalt paving | short tons |
+`
+		if got != want {
+			t.Errorf("got:\n%s\nwant:\n%s", got, want)
+		}
+	})
+
+	t.Run("a name of two lines is one row", func(t *testing.T) {
+		// The first column has two lines, but the last goes on from its
+		// first line, which fills the cell, to its second: one row.
+		xs, ys := []int{72, 180, 300, 500}, []int{700, 680, 640}
+		content := ruledGrid(xs, ys) + ruledCells(xs, ys, []row{{true, []string{"Product", "Maker", "Contents"}}}) +
+			set("F1", 10, 76, 668, "Natures Nutrition") + set("F1", 10, 76, 656, "Formula One") +
+			set("F1", 10, 184, 668, "Affiliated") + set("F1", 10, 184, 656, "International") +
+			set("F1", 10, 304, 668, "Ma-huang, cola nut, hawthorn") + set("F1", 10, 304, 656, "berry, saw palmetto")
+		got := tableBlocks(t, ruledDoc(content))
+		want := `table inferred continued=false header=1 merges=[]
+  | Product | Maker | Contents |
+  | Natures Nutrition Formula One | Affiliated International | Ma-huang, cola nut, hawthorn berry, saw palmetto |
+`
+		if got != want {
+			t.Errorf("got:\n%s\nwant:\n%s", got, want)
+		}
+	})
+
 	t.Run("bars filled for rules", func(t *testing.T) {
 		var sb strings.Builder
 		for _, y := range ys {
@@ -244,6 +303,33 @@ func TestRuledNotTables(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// A run cut by a rule of a grid that is no table reads as it did: the
+// letters of a label set apart, a line of the grid between two of them.
+func TestRuledCutKeepsText(t *testing.T) {
+	xs, ys := []int{72, 200, 300, 400, 450, 500}, []int{700, 680, 660, 640, 620, 600}
+	content := ruledGrid(xs, ys) + set("F1", 10, 72, 625, "0") + set("F1", 10, 200, 625, "10") +
+		"BT /F1 10 Tf 170 690 Td [(C) -400 (o) -400 (u) -400 (n) -400 (t) -400 (y)] TJ ET\n" +
+		"BT /F1 10 Tf 230 670 Td [(Harbour) -600 (and) -600 (coast)] TJ ET\n"
+	data := ruledDoc(content).bytes()
+	var texts [2]string
+	for i, off := range []bool{false, true} {
+		e := &gofastpdf.Extractor{NoRuledTables: off}
+		doc, err := e.Extract(context.Background(), bytes.NewReader(data), int64(len(data)), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, b := range doc.Parts[0].Blocks {
+			if b.Kind == gofastcore.KindTable {
+				t.Fatalf("a table:\n%s", tablesOf(doc.Parts[0]))
+			}
+			texts[i] += b.Text + "\n"
+		}
+	}
+	if texts[0] != texts[1] || !strings.Contains(texts[0], "Harbour and coast") {
+		t.Errorf("with rules:\n%s\nwithout:\n%s", texts[0], texts[1])
 	}
 }
 

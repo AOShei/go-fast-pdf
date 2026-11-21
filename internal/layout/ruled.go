@@ -5,8 +5,12 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	gofastcore "github.com/AOShei/go-fast-core"
+
+	"github.com/AOShei/go-fast-pdf/internal/extract"
 )
 
 // Tables found by their rules.
@@ -28,8 +32,9 @@ import (
 // more have text, the text of a cell is no paragraph of prose, and it
 // does not lie on a picture. A line that the grid's edge cuts through
 // stays out of the table; where a quarter of the lines in the grid or
-// more are such, the rules frame something else and are no table. Rows and
-// columns with no text are left out. The header rows are found as in
+// more are such, the rules frame something else and are no table. Text
+// drawn in one go across an upright rule is cut there first (cutRuns).
+// Rows and columns with no text are left out. The header rows are found as in
 // tables found by alignment: the first rows, all in bold, over rows that
 // are not.
 //
@@ -135,6 +140,173 @@ func joinRules(rs []arule) []arule {
 		out = append(out, r)
 	}
 	return out
+}
+
+// Runs cut by the rules of a grid.
+//
+// A run is text that the page draws in one go, and it can hold the
+// entries of two cells of a row: the interpreter joins strings that
+// stand less than a font size apart. Where a string goes on from the
+// one before it across an upright rule of a grid, the run is cut there:
+// what stands on the two sides of a drawn line is not one piece of text.
+// Where the two strings end and begin is known (extract.Join), and the
+// rule must lie in the room between them, where nothing is drawn. The
+// spaces of the file there go with the second part; a space that the
+// interpreter put in goes with neither, and the layout weighs the gap
+// between the two parts as it weighed that space. So the text of the
+// line is what it was, and the line is laid out as before unless the
+// grid is a table.
+
+// cutRuns finds the grids of the page and cuts the runs that their
+// upright rules pass through. It cuts a copy: the content is the
+// caller's, and may be laid out again.
+func (b *builder) cutRuns() {
+	c := b.c
+	if len(c.Rules) < 4 || len(c.Runs) == 0 {
+		return
+	}
+	b.gridsDone = true
+	hs, vs := b.displayRules()
+	if len(hs) < 2 || len(vs) < 2 {
+		return
+	}
+	b.grids = ruleGrids(hs, vs)
+	if len(b.grids) == 0 {
+		return
+	}
+	var ups []arule
+	for _, g := range b.grids {
+		ups = append(ups, g.vs...)
+	}
+	slices.SortFunc(ups, func(a, c arule) int { return cmp.Compare(a.at, c.at) })
+
+	var out []extract.Run // the runs, once one is cut
+	var cuts []runCut
+	for i := range c.Runs {
+		r := &c.Runs[i]
+		cuts = b.runCuts(cuts[:0], r, ups)
+		if len(cuts) == 0 {
+			if out != nil {
+				out = append(out, *r)
+			}
+			continue
+		}
+		if out == nil {
+			out = append(make([]extract.Run, 0, len(c.Runs)+len(cuts)), c.Runs[:i]...)
+		}
+		out = cutRun(out, r, cuts)
+	}
+	if out != nil {
+		cc := *c
+		cc.Runs = out
+		b.c = &cc
+	}
+}
+
+// runCut is a place where a run is cut: the first byte of the spaces
+// there, in the run's text, and where they begin and end on the line in
+// the page's coordinates. put is set for a space that the interpreter
+// put in.
+type runCut struct {
+	at             int32
+	x0, y0, x1, y1 float64
+	put            bool
+}
+
+// runCuts appends the places where the upright rules ups, in the order
+// of their places, pass between two strings of the run r.
+func (b *builder) runCuts(dst []runCut, r *extract.Run, ups []arule) []runCut {
+	if r.Len < 3 || r.Back || r.RTL || r.ActualText || r.Vertical() {
+		return dst
+	}
+	if dx, _ := b.direction(r.Dx, r.Dy); dx < 0.9999 {
+		return dst // written along the displayed page's x axis only
+	}
+	sx, sy := b.toDisplay(r.X0, r.Y0)
+	ex, _ := b.toDisplay(r.X1, r.Y1)
+	k0 := sort.Search(len(ups), func(k int) bool { return ups[k].at > sx })
+	if k0 == len(ups) || ups[k0].at >= ex {
+		return dst
+	}
+	joins, gaps := b.c.Joins, b.c.Gaps
+	j := sort.Search(len(joins), func(i int) bool { return joins[i].Off > r.Off })
+	if j == len(joins) || joins[j].Off >= r.Off+r.Len {
+		return dst
+	}
+	text := b.c.Text[r.Off : r.Off+r.Len]
+	_, ny := b.direction(r.Nx, r.Ny)
+	mid := sy + ny*0.3*r.Size*b.scale // the middle of the glyphs
+	for ; j < len(joins) && joins[j].Off < r.Off+r.Len; j++ {
+		jn := &joins[j]
+		i := jn.Off - r.Off
+		// The spaces at the join: those the string before ends with,
+		// or the space put in, or those the string begins with.
+		s, e := i, i
+		for s > 0 && text[s-1] == ' ' {
+			s--
+		}
+		for e < r.Len && text[e] == ' ' {
+			e++
+		}
+		if s == 0 || e == r.Len || s == e {
+			continue
+		}
+		// The room between the two strings: from the last glyph before
+		// the spaces of the string before to the first glyph after those
+		// of the string after.
+		before, after := float64(i-s), float64(e-i)
+		put := false
+		if g := sort.Search(len(gaps), func(k int) bool { return gaps[k].Off >= jn.Off-1 }); g < len(gaps) && gaps[g].Off == jn.Off-1 {
+			before, put = before-1, true // put in: it has no width
+		}
+		w := r.SpaceWidth
+		c := runCut{at: s, put: put && e-s == 1,
+			x0: jn.X0 - before*w*r.Dx, y0: jn.Y0 - before*w*r.Dy,
+			x1: jn.X1 + after*w*r.Dx, y1: jn.Y1 + after*w*r.Dy}
+		d0, _ := b.toDisplay(c.x0, c.y0)
+		d1, _ := b.toDisplay(c.x1, c.y1)
+		for k := k0; k < len(ups) && ups[k].at <= d1; k++ {
+			if v := &ups[k]; v.at >= d0 && mid >= v.lo-ruleSnap && mid <= v.hi+ruleSnap {
+				if n := len(dst); n == 0 || dst[n-1].at < c.at {
+					dst = append(dst, c)
+				}
+				break
+			}
+		}
+	}
+	return dst
+}
+
+// cutRun appends the parts of r cut at cuts, which are in order. Each
+// part after the first begins with the spaces of the file it was cut at,
+// and where the text after them begins.
+func cutRun(dst []extract.Run, r *extract.Run, cuts []runCut) []extract.Run {
+	along := func(x, y float64) float64 { return (x-r.X0)*r.Dx + (y-r.Y0)*r.Dy }
+	last := along(r.LX, r.LY)
+	for k := 0; k <= len(cuts); k++ {
+		p := *r
+		start, end := int32(0), r.Len
+		if k > 0 {
+			c := &cuts[k-1]
+			start = c.at
+			if c.put {
+				start++
+			}
+			p.X0, p.Y0 = c.x1, c.y1
+			p.Glyphs, p.Unmapped, p.Assumed = 0, 0, 0
+		}
+		if k < len(cuts) {
+			end = cuts[k].at
+			p.X1, p.Y1 = cuts[k].x0, cuts[k].y0
+		}
+		p.Off, p.Len = r.Off+start, end-start
+		// Where its last string begins: the run's, if that is in it.
+		if a := along(p.X0, p.Y0); last < a || last > along(p.X1, p.Y1) {
+			p.LX, p.LY = p.X0, p.Y0
+		}
+		dst = append(dst, p)
+	}
+	return dst
 }
 
 // grid is the rules of one table: those that meet each other.
@@ -385,7 +557,7 @@ func (b *builder) ruledTable(first int, g grid) (blk, []int32, bool) {
 
 	// Rows of text between two rules: a table ruled between its columns
 	// and not between its rows.
-	cells, rows = b.splitRows(cells, rows)
+	cells, rows = b.splitRows(cells, rows, xs)
 
 	// The text of each cell, its lines from the top.
 	filled := 0
@@ -546,7 +718,7 @@ func (b *builder) ruledTable(first int, g grid) (blk, []int32, bool) {
 // table ruled between its columns and not between its rows. A cell of
 // several lines beside cells of one is no such band. It returns the
 // cells, renumbered, and the rows there are now.
-func (b *builder) splitRows(cells []ruledCell, rows int) ([]ruledCell, int) {
+func (b *builder) splitRows(cells []ruledCell, rows int, xs []float64) ([]ruledCell, int) {
 	mid := func(s seg) float64 { ln := &b.lines[s.line]; return (ln.y0 + ln.y1) / 2 }
 	// The bands: end[r] is the last row of the band that starts at r.
 	reach := make([]int, rows)
@@ -619,6 +791,12 @@ func (b *builder) splitRows(cells []ruledCell, rows int) ([]ruledCell, int) {
 		}
 		if full >= 2 && 5*full >= 3*filled && !b.runOn(cells, bd.r0, bd.r1) {
 			bd.bl, split = bl, true
+		} else if bd.r0 == bd.r1 {
+			keys := b.keyRows(cells, bd.r0, size, xs)
+			if keys == nil {
+				continue
+			}
+			bd.bl, split = keys, true
 		}
 	}
 	if !split {
@@ -668,6 +846,111 @@ func (b *builder) splitRows(cells []ruledCell, rows int) ([]ruledCell, int) {
 		out = append(out, parts...)
 	}
 	return out, at
+}
+
+// keyRows returns the baselines of the lines in the first column of
+// row r, a row that no cell reaches out of, when each of them begins a
+// row of text: an entry of several lines beside a code of one, in a
+// table ruled between its columns and not between its rows. It returns
+// nil unless there are two lines or more in that column, each of four
+// words or fewer and none going on from the one over it as the lines of
+// a sentence do; the next column has a line on each of their baselines;
+// and no line of another cell on such a baseline goes on from the one
+// over it: one left open, ending with a comma or a little word, or one
+// that fills most of the cell when the line starts with a small letter.
+// A value such as a unit of measure can start with one.
+//
+// xs are the places of the columns.
+func (b *builder) keyRows(cells []ruledCell, r int, size float64, xs []float64) []float64 {
+	key, next := -1, -1
+	for k := range cells {
+		if x := &cells[k]; x.r0 == r && len(x.segs) > 0 && (key < 0 || x.c0 < cells[key].c0) {
+			key = k
+		}
+	}
+	if key < 0 || len(cells[key].segs) < 2 {
+		return nil
+	}
+	for k := range cells {
+		if x := &cells[k]; x.r0 == r && len(x.segs) > 0 && x.c0 > cells[key].c1 && (next < 0 || x.c0 < cells[next].c0) {
+			next = k
+		}
+	}
+	if next < 0 {
+		return nil
+	}
+	lines := b.cellLines(cells[key].segs, size)
+	if len(lines) < 2 {
+		return nil
+	}
+	keys := make([]float64, len(lines))
+	for i, ln := range lines {
+		if len(strings.Fields(ln.text)) > 4 || i > 0 && runsOn(lines[i-1].text, ln.text) {
+			return nil
+		}
+		keys[i] = ln.y
+	}
+	beside := make([]bool, len(keys))
+	for k := range cells {
+		x := &cells[k]
+		if k == key || x.r0 != r || len(x.segs) == 0 {
+			continue
+		}
+		lines := b.cellLines(x.segs, size)
+		for i, ln := range lines {
+			at := slices.IndexFunc(keys, func(y float64) bool { return abs(ln.y-y) <= 0.5*size })
+			if at < 0 {
+				continue
+			}
+			if k == next {
+				beside[at] = true
+			}
+			if at == 0 || i == 0 {
+				continue
+			}
+			up := &lines[i-1]
+			first, _ := utf8.DecodeRuneInString(ln.text)
+			if endsOpen(up.text) || unicode.IsLower(first) && up.u1-up.u0 >= 0.6*(xs[x.c1+1]-xs[x.c0]) {
+				return nil // a sentence that goes on across the rows
+			}
+		}
+	}
+	if slices.Contains(beside, false) {
+		return nil
+	}
+	return keys
+}
+
+// textLine is a line of the text of a cell: where its middle is, across
+// the line, where it begins and ends along it, and its text.
+type textLine struct {
+	y, u0, u1 float64 // u0 and u1: where it begins and ends along the line
+	text      string
+}
+
+// cellLines returns the lines of the segments of a cell, from the top:
+// those whose middles are within half of size of each other are one.
+func (b *builder) cellLines(segs []seg, size float64) []textLine {
+	mid := func(s seg) float64 { ln := &b.lines[s.line]; return (ln.y0 + ln.y1) / 2 }
+	segs = slices.Clone(segs)
+	slices.SortStableFunc(segs, func(a, c seg) int {
+		if d := cmp.Compare(mid(a), mid(c)); d != 0 {
+			return d
+		}
+		return cmp.Compare(a.u0, c.u0)
+	})
+	var out []textLine
+	for _, s := range segs {
+		y, t := mid(s), b.segText(s)
+		if n := len(out); n > 0 && y-out[n-1].y <= 0.5*size {
+			l := &out[n-1]
+			l.text += " " + t
+			l.u0, l.u1 = min(l.u0, s.u0), max(l.u1, s.u1)
+			continue
+		}
+		out = append(out, textLine{y, s.u0, s.u1, t})
+	}
+	return out
 }
 
 // runOn reports whether the lines in the cells of rows r0 to r1 run on,

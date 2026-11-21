@@ -777,3 +777,40 @@ func TestRunsAreOptional(t *testing.T) {
 		t.Errorf("%+v", res)
 	}
 }
+
+// Joins: where a run goes on with a string that stands apart from the
+// one before it, recorded when rules are asked for.
+func TestJoins(t *testing.T) {
+	joins := func(content string, rules bool) string {
+		t.Helper()
+		f := open(t, pdftest.OnePage(content), file.Limits{})
+		var out []string
+		Page(f, &f.Pages()[0], Options{Rules: rules, Use: func(c *Content) {
+			for _, j := range c.Joins {
+				out = append(out, fmt.Sprintf("%d %.2f %.2f %.2f %.2f", j.Off, j.X0, j.Y0, j.X1, j.Y1))
+			}
+			out = append(out, fmt.Sprintf("%q in %d runs", c.Text, len(c.Runs)))
+		}})
+		return strings.Join(out, "; ")
+	}
+	for _, c := range []struct{ name, content, want string }{
+		// Helvetica: a and b are 0.556 of the size, the space 0.278.
+		{"a space put in", "BT /F1 10 Tf 100 700 Td [(ab) -800 (cd)] TJ ET",
+			`3 111.12 700.00 119.12 700.00; "ab cd" in 1 runs`},
+		{"after a string that ends with a space", "BT /F1 10 Tf 100 700 Td [(ab ) -500 (cd)] TJ ET",
+			`3 113.90 700.00 118.90 700.00; "ab cd" in 1 runs`},
+		{"none where a string goes on with no room", "BT /F1 10 Tf 100 700 Td [(ab) -10 (cd)] TJ ET",
+			`"abcd" in 1 runs`},
+		{"none where a new run begins", "BT /F1 10 Tf 100 700 Td [(ab) -3000 (cd)] TJ ET",
+			`"abcd" in 2 runs`},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if got := joins(c.content, true); got != c.want {
+				t.Errorf("got %s, want %s", got, c.want)
+			}
+		})
+	}
+	if got := joins("BT /F1 10 Tf 100 700 Td [(ab) -800 (cd)] TJ ET", false); got != `"ab cd" in 1 runs` {
+		t.Errorf("without rules: %s", got)
+	}
+}

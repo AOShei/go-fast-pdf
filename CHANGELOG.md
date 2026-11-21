@@ -32,7 +32,8 @@ files made to exhaust it, and is several times faster. The tag follows that of g
 - **Tables in files without tags** (`OriginInferred`), found by the rules they are drawn with, and
   otherwise by how their text lines up in columns: cells of several lines, cells over several columns
   (a rule missing inside a grid), header rows in bold, tables set side by side as a table each, a table
-  ruled only between its columns read row by row. Columns of prose, boxes around paragraphs, the grids of
+  ruled only between its columns read row by row, with a row at each code where entries take several
+  lines, and the entries of two cells drawn as one string split at the rule between them. Columns of prose, boxes around paragraphs, the grids of
   charts and forms left mostly empty, lists, tables of contents, code and labels repeated side by side
   are not taken for tables. Finding ruled tables costs about 5 percent of the instructions over a mixed
   set of documents; `Extractor.NoRuledTables` turns it off.

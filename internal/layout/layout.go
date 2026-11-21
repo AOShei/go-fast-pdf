@@ -240,6 +240,7 @@ func Build(page Page, c *extract.Content, opts Options) Result {
 		builders.Put(b)
 	}()
 	b.reset(page, c, opts)
+	b.cutRuns()
 	b.prepare()
 	b.group()
 

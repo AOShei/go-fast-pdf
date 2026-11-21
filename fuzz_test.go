@@ -92,6 +92,9 @@ func FuzzPage(f *testing.F) {
 		"BT /F1 12 Tf 72 500 Td (under a box) Tj ET 60 490 300 30 re f q 0 0 10 10 re W n BT /F1 12 Tf 72 300 Td (cut off) Tj ET Q /G1 gs 2 w 5 5 90 90 re B",
 		"q 400 300 m 400 355 355 400 300 400 c 245 400 200 355 200 300 c W* n /Im1 Do BT /F1 12 Tf 250 300 Td (in a circle) Tj ET Q /Sh sh /P cs /P1 scn 0 0 9 9 re f",
 		draw(10, cat(stack(72, 700, 12, paraA...), stack(320, 700, 12, paraB...))...),
+		// A ruled grid with the entries of two cells in one string.
+		"0.5 w 72 700 m 400 700 l S 72 680 m 400 680 l S 72 640 m 400 640 l S 72 700 m 72 640 l S 200 700 m 200 640 l S 300 700 m 300 640 l S 400 700 m 400 640 l S " +
+			"BT /F1 10 Tf 76 668 Td (North) Tj 196 0 Td [(12.5) -800 (140)] TJ ET BT /F1 10 Tf 76 648 Td (South) Tj 200 0 Td [(8.0 ) -400 (97)] TJ ET",
 	} {
 		f.Add(seed, uint8(0))
 	}

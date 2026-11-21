@@ -120,6 +120,19 @@ type Gap struct {
 	Width float32
 }
 
+// Join is a place where a run goes on with a string that stands apart
+// from the one before it: by a space put in (Gap), or by more room than
+// a space after a string that ends with one. Where the strings are is
+// known exactly, as it is not for the spaces inside a string.
+type Join struct {
+	// Off is where the text of the string begins in the page's text,
+	// after a space put in before it.
+	Off int32
+	// X0, Y0 is where the string before it ends, and X1, Y1 where it
+	// begins.
+	X0, Y0, X1, Y1 float64
+}
+
 // Cluster is a stretch of Content.Text that one glyph stands for.
 type Cluster struct {
 	Off, Len int32
@@ -532,6 +545,9 @@ func (in *interp) showCodes(f *font.Font, raw []byte) {
 				// where this string begins, which a kern may have moved.
 				in.breaks[n-1].X1, in.breaks[n-1].Y1 = x0, y0
 			}
+		}
+		if sep == ' ' && in.opts.Rules && len(in.joins) < maxRunsPerPage {
+			in.joins = append(in.joins, Join{Off: int32(start), X0: jointX, Y0: jointY, X1: x0, Y1: y0})
 		}
 		if len(marks) > 0 {
 			if marks[0].glyphs == 0 {

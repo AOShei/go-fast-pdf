@@ -22,7 +22,6 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime/debug"
-	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -36,88 +35,6 @@ func main() {
 	defer stop()
 	os.Exit(run(ctx, os.Args[1:], os.Stdout, os.Stderr))
 }
-
-// displayFlag is the value of -exclude-display, as every go-fast command
-// reads it: every display reason when the flag stands alone or is =true
-// or =all, none when it is =false or empty, or the reasons named,
-// separated by commas or plus signs.
-type displayFlag struct{ reasons gofastcore.Display }
-
-// IsBoolFlag lets the flag stand without a value.
-func (h *displayFlag) IsBoolFlag() bool { return true }
-
-func (h *displayFlag) String() string {
-	if h.reasons == 0 {
-		return ""
-	}
-	return h.reasons.String()
-}
-
-func (h *displayFlag) Set(v string) error {
-	switch v {
-	case "true", "all":
-		h.reasons = gofastcore.DisplayAny
-		return nil
-	case "false", "":
-		h.reasons = 0
-		return nil
-	}
-	var reasons gofastcore.Display
-	if err := reasons.UnmarshalText([]byte(strings.ReplaceAll(v, ",", "+"))); err != nil || !reasons.Valid() || reasons == 0 || reasons&gofastcore.DisplayUnknown != 0 {
-		return fmt.Errorf("unknown reason in %q; the reasons are %s", v, reasonNames)
-	}
-	h.reasons = reasons
-	return nil
-}
-
-// reasonNames lists the display reasons.
-var reasonNames = strings.ReplaceAll((gofastcore.DisplayHidden | gofastcore.DisplayNoInk).String(), "+", ", ")
-
-// storedFlag is the value of -stored, as every go-fast command reads it:
-// every kind of stored data when the flag stands alone or is =true or
-// =all, none when it is =false or empty, or the kinds named
-// (gofastcore.StoredKindNames), separated by commas or plus signs.
-type storedFlag struct {
-	all   bool
-	kinds []string
-}
-
-// IsBoolFlag lets the flag stand without a value.
-func (f *storedFlag) IsBoolFlag() bool { return true }
-
-func (f *storedFlag) String() string {
-	if f.all {
-		return "all"
-	}
-	return strings.Join(f.kinds, ",")
-}
-
-func (f *storedFlag) Set(v string) error {
-	f.all, f.kinds = false, nil
-	switch v {
-	case "true", "all":
-		f.all = true
-		return nil
-	case "false", "":
-		return nil
-	}
-	for _, kind := range strings.FieldsFunc(v, func(r rune) bool { return r == ',' || r == '+' }) {
-		if !slices.Contains(gofastcore.StoredKindNames, kind) {
-			f.kinds = nil
-			return fmt.Errorf("unknown kind %q; the kinds are %s", kind, kindNames)
-		}
-		if !slices.Contains(f.kinds, kind) {
-			f.kinds = append(f.kinds, kind)
-		}
-	}
-	if len(f.kinds) == 0 {
-		return fmt.Errorf("no kind in %q; the kinds are %s", v, kindNames)
-	}
-	return nil
-}
-
-// kindNames lists the kinds of stored data.
-var kindNames = strings.Join(gofastcore.StoredKindNames, ", ")
 
 // pageRange reads the value of -pages: "3", "2-5", "4-" or "-7".
 func pageRange(v string) (gofastcore.PartRange, error) {
@@ -179,13 +96,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	images := flags.String("images", "meta", "images: meta (a block for each, with where it is and how large), data (their bytes too) or none")
 	workers := flags.Int("workers", 0, "pages read at a time (default: one per processor)")
 	// The flags for the renderers, which every go-fast command has.
-	furniture := flags.Bool("furniture", false, "in Markdown and text, include running headers and footers")
-	var stored storedFlag
-	flags.Var(&stored, "stored", "in Markdown and text, include stored data (data the file keeps but shows nowhere): all of it, or with =kinds only those kinds (such as macro, form_field, document_variable)")
-	partMarkers := flags.Bool("part-markers", false, "in Markdown and text, put a line before each part saying which part it is")
-	var exclude displayFlag
-	flags.Var(&exclude, "exclude-display", "in Markdown and text, leave out what the file declares not displayed: all of it, or with =reasons only those reasons ("+reasonNames+"); JSON always has everything")
-	children := flags.Bool("children", true, "in Markdown and text, include embedded documents (attachments, members), each after a line naming it; -children=false leaves them out")
+	renderFlags := gofastcore.AddRenderFlags(flags)
+	flags.Lookup("stored").Usage += "; a PDF file has macro, document_variable, custom_xml, form_field and after_end"
 	quiet := flags.Bool("quiet", false, "do not report the warnings of files that were read")
 	showVersion := flags.Bool("version", false, "print the version and exit")
 	flags.Usage = func() {
@@ -213,14 +125,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	}
 
 	opts := &gofastcore.Options{Workers: *workers, Password: *password}
-	render := &gofastcore.RenderOptions{
-		Furniture:      *furniture,
-		Stored:         stored.all,
-		StoredKinds:    stored.kinds,
-		PartMarkers:    *partMarkers,
-		ExcludeDisplay: exclude.reasons,
-		Children:       *children,
-	}
+	render := &gofastcore.RenderOptions{}
+	renderFlags.Apply(render)
 	switch *format {
 	case "json", "markdown", "text":
 	default:

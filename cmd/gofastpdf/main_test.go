@@ -288,6 +288,7 @@ func TestRenderFlags(t *testing.T) {
 		{[]string{"-stored=macro"}, []string{"console.println", "this.print", "page 4 says"}, []string{"Company"}},
 		{[]string{"--stored=document_variable"}, []string{"Company: A Company"}, []string{"console", "this.print"}},
 		{[]string{"-stored=macro+document_variable"}, []string{"console.println", "this.print", "Company: A Company"}, nil},
+		// A kind named twice is the same as once.
 		{[]string{"-stored=document_variable,macro,macro"}, []string{"console.println", "this.print", "Company: A Company"}, nil},
 		{[]string{"-stored=form_field"}, []string{"page 4 says"}, []string{"console", "this.print", "Company"}},
 		{[]string{"-part-markers"}, []string{"[page 1]", "[page 4]"}, nil},
@@ -323,7 +324,7 @@ func TestRenderFlags(t *testing.T) {
 	}
 	for _, bad := range []string{"-stored=macros", "-stored=macro,unknown", "-stored=,", "-stored=+"} {
 		_, stderr, status := command(t, bad, path)
-		if status != 2 || !strings.Contains(stderr, "the kinds are "+strings.Join(gofastcore.StoredKindNames, ", ")+"\n") {
+		if status != 2 || !strings.Contains(stderr, "the kinds are "+strings.Join(gofastcore.StoredKindNames(), ", ")+"\n") {
 			t.Errorf("%s: status %d, %q", bad, status, stderr)
 		}
 	}

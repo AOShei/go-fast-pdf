@@ -13,7 +13,7 @@ cd "$(dirname "$0")/.."
 out=${1:-/dev/stdout}
 count=${BENCH_COUNT:-5}
 {
-	echo "# commit: $(git rev-parse --short HEAD)$(git diff --quiet HEAD -- pkg cmd internal 2>/dev/null || echo ' (library code modified)')"
+	echo "# commit: $(git rev-parse --short HEAD)$(git diff --quiet HEAD -- ':(glob)*.go' internal cmd go.mod go.sum 2>/dev/null || echo ' (library code modified)')"
 	echo "# date: $(date -u +%Y-%m-%d)"
 	echo "# $(go version)"
 	echo "# cpu: $(grep -m1 'model name' /proc/cpuinfo 2>/dev/null | cut -d: -f2- | sed 's/^ //' || sysctl -n machdep.cpu.brand_string)"

@@ -41,7 +41,7 @@ Every call takes a `context.Context` and stops when it ends.
 | `Metadata.Producer` | `Metadata.Extra["producer"]` |
 | Bookmarks (not extracted) | `Document.Outline` |
 | Attached files (not extracted) | `Document.Children`, through `Options.Child` |
-| Errors as text | Errors that wrap those of `gofastcore`: `ErrMalformed`, `ErrPasswordRequired`, `ErrWrongPassword`, `ErrUnsupported`, `ErrLimitExceeded`, `ErrNoPartsSelected`. Test with `errors.Is` |
+| Errors as text | Errors that wrap those of `gofastcore`: `ErrMalformed`, `ErrPasswordRequired`, `ErrWrongPassword`, `ErrKeyRequired` (a file encrypted for certificates that no key in `Options.Keys` opens), `ErrUnsupported`, `ErrLimitExceeded`, `ErrNoPartsSelected`. Test with `errors.Is` |
 | A page that fails is named on standard error and left out | The page is a part with the warning `part.failed`, in its place |
 
 ## The text is not the same
@@ -63,7 +63,7 @@ changed, beyond that:
 
 ## JSON
 
-The JSON form is that of the shared model, `schema_version` `"0.1"`; the README shows an example. A
+The JSON form is that of the shared model, `schema_version` `"0.2"`; the README shows an example. A
 decoder for it is `encoding/json` into `gofastcore.Document`.
 
 ## Minimum Go version

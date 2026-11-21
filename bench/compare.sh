@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Compares the speed of this tree with that of a base commit, both
 # measured here and now, and fails if a benchmark got more than 10
-# percent slower (IMPLEMENTATION_PLAN.md, Phase 8).
+# percent slower.
 #
 #   bench/compare.sh            against the commit named in bench/BASE
 #   bench/compare.sh <commit>   against another one

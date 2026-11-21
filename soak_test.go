@@ -18,7 +18,7 @@ import (
 	"github.com/AOShei/go-fast-pdf/internal/pdftest"
 )
 
-// The soak test (IMPLEMENTATION_PLAN.md, Phase 8) reads every PDF in the
+// The soak test reads every PDF in the
 // corpus cache: the files of the scored corpus, and files that
 // testdata/fetch.sh puts in directories named soak-* for this test
 // alone. Those are never scored and nobody looks at what they hold; they

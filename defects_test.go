@@ -14,7 +14,7 @@ import (
 	"github.com/AOShei/go-fast-pdf/internal/pdftest"
 )
 
-// One test per defect of IMPLEMENTATION_PLAN.md section 2: correctness
+// One test per defect found while the library was built: correctness
 // (B) and crashes, hangs and resource exhaustion (C). The cases that
 // were still open used to be listed in a register, which is gone: all
 // are closed.

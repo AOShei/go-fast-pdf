@@ -11,7 +11,7 @@
 //   - pdftotext (poppler) on the path;
 //   - a Python with PyMuPDF, pypdfium2, pypdf and pdfplumber, which is
 //     ../bench-env/.venv/bin/python unless -python names another
-//     (IMPLEMENTATION_PLAN.md section 3.3 says how to make it).
+//     a virtual environment with those packages installed by pip.
 //
 // A program that is not there is left out of the table and named as
 // missing. Nothing here is imported by the library, and the Python
@@ -464,7 +464,7 @@ func render(tools []tool, kept []int, docs []document, results [][]result) (repo
   and extracting every page. The two commands are timed as processes, start to end, which adds about a
   millisecond to each of their runs.
 - go-fast-pdf does more than give text: it builds the document of the shared model, with blocks in reading
-  order, their boxes, and the checks for hidden text. The others are asked for plain text.
+  order, their boxes, headings, lists and tables. The others are asked for plain text.
 - The other programs read a page at a time on one thread, so the row to compare them with is the one with
   one worker.
 - Memory is the most that the process had resident, the interpreter included for the Python libraries.

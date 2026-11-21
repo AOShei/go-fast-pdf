@@ -13,7 +13,7 @@ import (
 	"github.com/AOShei/go-fast-pdf/internal/pdftest"
 )
 
-// The budgets of Phase 8 (IMPLEMENTATION_PLAN.md): what reading a
+// The memory budgets: what reading a
 // document may allocate, counted and in bytes, per page. A change that
 // goes over a budget either gives the memory back or raises the number
 // here, with the reason, in the same change.

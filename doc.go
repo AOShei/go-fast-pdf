@@ -1,7 +1,7 @@
 // Package gofastpdf extracts the text and structure of PDF files into
 // the document model shared by the go-fast libraries
 // (github.com/AOShei/go-fast-core). It uses the standard library and
-// the go-fast modules only, starts no program, fetches nothing, runs
+// go-fast-core only, starts no program, fetches nothing, runs
 // nothing that a file contains, and does no OCR.
 //
 //	doc, err := gofastpdf.ExtractFile(ctx, "report.pdf", nil)
@@ -323,9 +323,13 @@
 //     image object is: its abbreviated keys, filters and colour spaces
 //     written out, a colour space it names looked up in the resources,
 //     and its data running to EI, or as far as its /L says. JBIG2
-//     images have no data, and their page gets
-//     image.unsupported_encoding. With ImagesNone there are no image
-//     blocks. In a tagged PDF an image drawn as part of a figure that
+//     images have no data, nor have images that cannot be made PNG:
+//     samples of other than 1, 2, 4, 8 or 16 bits, a colour space that
+//     is not read (Pattern, an ICC profile of other than 1, 3 or 4
+//     components and no alternate, inks whose function cannot be read
+//     or would take too long), damaged data. Their page gets
+//     image.unsupported_encoding, which says why. With ImagesNone there
+//     are no image blocks. In a tagged PDF an image drawn as part of a figure that
 //     the structure tree describes (/Alt) has that description as its
 //     text. A block for every image costs under one percent of the time
 //     on most documents, and up to as much again on a page that is

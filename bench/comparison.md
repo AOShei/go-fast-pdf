@@ -36,7 +36,7 @@ Each program reads a file from the disk and gives the text of all its pages.
   and extracting every page. The two commands are timed as processes, start to end, which adds about a
   millisecond to each of their runs.
 - go-fast-pdf does more than give text: it builds the document of the shared model, with blocks in reading
-  order, their boxes, and the checks for hidden text. The others are asked for plain text.
+  order, their boxes, headings, lists and tables. The others are asked for plain text.
 - The other programs read a page at a time on one thread, so the row to compare them with is the one with
   one worker.
 - Memory is the most that the process had resident, the interpreter included for the Python libraries.

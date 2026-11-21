@@ -111,8 +111,8 @@ func visibleBlocks(p *gofastcore.Part) string {
 	return describe(&q)
 }
 
-// texts returns the text of each block of a part, with the hidden
-// reasons in front of the hidden ones: "tiny: text".
+// texts returns the text of each block of a part, with the display
+// reasons in front of the blocks that have one: "no_ink: text".
 func texts(p *gofastcore.Part) []string {
 	var out []string
 	for i := range p.Blocks {

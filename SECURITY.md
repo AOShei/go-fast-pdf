@@ -81,6 +81,8 @@ Bounds that are fixed:
 | Work of finding the grids of rules on one page | 4,194,304 comparisons; 16,384 cells for one grid |
 | Pixels of an image whose data is handed on | 268,435,456; its pixels, at one byte each for gray or a table of colours and four with a mask or in colour, count against `MaxDecodedBytes` |
 | Width of a row of CCITT fax data | 1,048,576 pixels |
+| Functions of the colour spaces of images (Separation, DeviceN) | Each function object is read once for a reading of a document, and no deeper than 8 functions within functions; 1,024 functions stitched by one, 32 in an array; 4,194,304 values read from their dictionaries over the document. A sampled function has at most 4,194,304 samples and 12 inputs; a calculator program 1 MiB and 65,536 operators, a stack of 100. Samples and programs count against `MaxDecodedBytes`, and 64 MiB of them are kept for the functions referred to again |
+| Work of those functions | 268,435,456 operations over one image, 1,073,741,824 over a reading of a document; the colour of each sample, or of each set of samples among the last 4,096, is made once. An image past it is not delivered, with `image.unsupported_encoding` |
 | A TrueType program read for its cmap | 32 MiB, and 1,048,576 characters of the subtable read; its /CIDToGIDMap 128 KiB |
 | Fonts kept for one file | 1,024 |
 | Outline items | 131,072, 64 levels deep |

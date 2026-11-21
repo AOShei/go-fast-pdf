@@ -1,4 +1,4 @@
 # The commit that bench/compare.sh measures against: the tree of the last
 # release, or of the last change that was made for speed. The nightly
 # job fails when a benchmark is more than 10 percent slower than there.
-8d604363f9ae93aecd819f82a7d8f6134cb0a5f9
+afec275076c9294fc17d346b1405244659efb2be

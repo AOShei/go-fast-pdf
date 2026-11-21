@@ -3,6 +3,8 @@ package syntax
 import (
 	"fmt"
 	"io"
+	"math"
+	"math/rand/v2"
 	"strings"
 	"testing"
 )
@@ -340,5 +342,96 @@ func TestValuesInPlace(t *testing.T) {
 	p.SetPos(2)
 	if v, _ := p.Object(); show(v) != "0" {
 		t.Errorf("SetPos: %s", show(v))
+	}
+}
+
+// referenceNumber is the float that ParseNumber gave for a real before it
+// read the digits as an integer first: the digits added up one by one.
+func referenceNumber(s string) (float64, bool) {
+	i, neg := 0, false
+	if i < len(s) && (s[i] == '+' || s[i] == '-') {
+		neg = s[i] == '-'
+		i++
+		for i < len(s) && (s[i] == '+' || s[i] == '-') {
+			i++
+		}
+	}
+	var whole uint64
+	overflow := false
+	var f float64
+	for i < len(s) && s[i] >= '0' && s[i] <= '9' {
+		d := uint64(s[i] - '0')
+		if whole > (math.MaxInt64-d)/10 {
+			overflow = true
+		}
+		whole = whole*10 + d
+		f = f*10 + float64(d)
+		i++
+	}
+	if i >= len(s) || s[i] != '.' {
+		if !overflow {
+			return 0, false // an Int
+		}
+		if neg {
+			f = -f
+		}
+		return f, true
+	}
+	i++
+	scale := 1.0
+	for i < len(s) && s[i] >= '0' && s[i] <= '9' {
+		if scale < 1e17 {
+			f = f*10 + float64(s[i]-'0')
+			scale *= 10
+		}
+		i++
+	}
+	f /= scale
+	if neg {
+		f = -f
+	}
+	return f, true
+}
+
+// A real is the same float64, to the bit, as the digits added up one by
+// one give: with whole parts of every length, below 2^53 and above it,
+// past int64, and with fractions of every length.
+func TestRealsAsBefore(t *testing.T) {
+	r := rand.New(rand.NewPCG(5, 6))
+	digits := func(n int) string {
+		b := make([]byte, n)
+		for i := range b {
+			b[i] = byte('0' + r.IntN(10))
+		}
+		return string(b)
+	}
+	var cases []string
+	for w := 0; w <= 25; w++ {
+		for f := 0; f <= 20; f += 1 + w%3 {
+			for k := 0; k < 40; k++ {
+				s := digits(w)
+				if f > 0 || w == 0 {
+					s += "." + digits(f)
+				}
+				if k%3 == 1 {
+					s = "-" + s
+				}
+				cases = append(cases, s)
+			}
+		}
+	}
+	cases = append(cases, "9007199254740992.5", "9007199254740993.5", "9007199254740991.25", "18446744073709551616", "-9223372036854775808.0", "1.", ".", "-.")
+	for _, s := range cases {
+		want, real := referenceNumber(s)
+		v, _ := ParseNumber([]byte(s), 0)
+		if !real {
+			if v.Kind != Int {
+				t.Errorf("%q: %v, want an Int", s, v.Kind)
+			}
+			continue
+		}
+		if v.Kind != Real || math.Float64bits(v.Number()) != math.Float64bits(want) {
+			t.Errorf("%q: %v %v, want Real %v", s, v.Kind, v.Number(), want)
+		}
 	}
 }

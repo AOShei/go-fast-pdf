@@ -23,13 +23,14 @@ const (
 
 // sortStable sorts s by less, keeping the order of what is equal. It
 // allocates nothing, which the sorts of package sort do.
+//
+// slices.SortStableFunc only asks whether cmp(a, b) < 0, so cmp is less
+// alone: asking less(b, a) as well, for a cmp of 1, doubled the work of
+// sorting and decided nothing (TestSortStableAsksLessOnce).
 func sortStable(s []int32, less func(a, b int32) bool) {
 	slices.SortStableFunc(s, func(a, b int32) int {
-		switch {
-		case less(a, b):
+		if less(a, b) {
 			return -1
-		case less(b, a):
-			return 1
 		}
 		return 0
 	})

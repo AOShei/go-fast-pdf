@@ -638,3 +638,18 @@ func FuzzEncryptedOpen(f *testing.F) {
 		file.Info()
 	})
 }
+
+// The data of an inline image is part of its content stream, decrypted
+// with it: it is filtered, not decrypted again.
+func TestDecodeImageBytesNotDecrypted(t *testing.T) {
+	f := newEncDoc(stdCF, "StdCF", "StdCF", true).build(t, cipherAESV2, cipherAESV2, nil)
+	dict := syntax.Value{Kind: syntax.Dict, List: []syntax.Value{
+		{Kind: syntax.Name, Data: []byte("Filter")}, {Kind: syntax.Name, Data: []byte("AHx")},
+	}}
+	if got, codec, err := f.DecodeImageBytes(dict, []byte("41 42>"), nil, 0); string(got) != "AB" || codec != "" || err != nil {
+		t.Errorf("%q, %q, %v", got, codec, err)
+	}
+	if got, codec, err := f.DecodeImageBytes(syntax.Value{Kind: syntax.Dict}, []byte("plain"), nil, 0); string(got) != "plain" || codec != "" || err != nil {
+		t.Errorf("no filter: %q, %q, %v", got, codec, err)
+	}
+}

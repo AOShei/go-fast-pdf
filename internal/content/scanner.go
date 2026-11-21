@@ -89,15 +89,16 @@ type Scanner struct {
 	// Skipped counts the bytes skipped as unreadable.
 	Skipped int
 	// InlineData is the data of the inline image whose BI operator was
-	// returned last.
-	InlineData []byte
+	// returned last, and InlineDict the bytes of its dictionary's
+	// entries, from after BI to before ID.
+	InlineData, InlineDict []byte
 }
 
 // Reset starts a new page with its first content stream.
 func (s *Scanner) Reset(data []byte) {
 	s.data, s.pos = data, 0
 	s.args, s.elems = s.args[:0], s.elems[:0]
-	s.done, s.Skipped, s.InlineData = false, 0, nil
+	s.done, s.Skipped, s.InlineData, s.InlineDict = false, 0, nil, nil
 }
 
 // Feed continues the same page with its next content stream.
@@ -360,6 +361,8 @@ func arrayEnd(data []byte, pos int) int {
 func (s *Scanner) inlineImage() {
 	data := s.data
 	s.args, s.elems = s.args[:0], s.elems[:0]
+	dictStart := s.pos
+	s.InlineDict = nil
 	for {
 		s.pos = syntax.SkipSpace(data, s.pos)
 		if s.pos >= len(data) {
@@ -373,6 +376,7 @@ func (s *Scanner) inlineImage() {
 				s.pos++
 			}
 			if string(data[start:s.pos]) == "ID" {
+				s.InlineDict = data[dictStart:start]
 				break
 			}
 			s.push(Operand{Kind: Other, Raw: data[start:s.pos]})

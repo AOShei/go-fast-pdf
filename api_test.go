@@ -52,6 +52,17 @@ func TestAPISnapshot(t *testing.T) {
 		for _, d := range f.Decls {
 			switch d := d.(type) {
 			case *ast.FuncDecl:
+				// A method of a type that is not exported is not part of
+				// the API, though its name is.
+				if d.Recv != nil && len(d.Recv.List) == 1 {
+					typ := d.Recv.List[0].Type
+					if star, ok := typ.(*ast.StarExpr); ok {
+						typ = star.X
+					}
+					if id, ok := typ.(*ast.Ident); ok && !ast.IsExported(id.Name) {
+						continue
+					}
+				}
 				d.Body, d.Doc = nil, nil
 			case *ast.GenDecl:
 				if d.Tok == token.IMPORT {

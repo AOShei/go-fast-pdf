@@ -6,11 +6,58 @@ import (
 	"fmt"
 	"image/png"
 	"strconv"
+	"strings"
+	"sync"
 
 	gofastcore "github.com/AOShei/go-fast-core"
 	"github.com/AOShei/go-fast-pdf/internal/file"
 	"github.com/AOShei/go-fast-pdf/internal/syntax"
 )
+
+// imageSrc is an image: an image XObject, or an inline image, whose
+// dictionary is v and whose data, from its content stream, is data.
+type imageSrc struct {
+	v      syntax.Value
+	data   []byte
+	inline bool
+}
+
+// decode returns the data of the image through its filters, up to the
+// codec it ends with (file.File.DecodeImage).
+func (src imageSrc) decode(f *file.File, limit int64) ([]byte, string, error) {
+	if !src.inline {
+		return f.DecodeImage(src.v, []byte{}, limit)
+	}
+	// The data runs to the white space before EI, which may be one byte
+	// of it or not: a length the dictionary gives says, and the end of
+	// JPEG data does. Samples are read for as many bytes as they need.
+	raw := src.data
+	if n, ok := src.v.Get("Length").Integer(); ok && n >= 0 && n <= int64(len(raw)) {
+		raw = raw[:n]
+	}
+	data, codec, err := f.DecodeImageBytes(src.v, raw, []byte{}, limit)
+	if codec == "DCTDecode" || codec == "DCT" {
+		end := bytes.LastIndex(data, []byte{0xFF, 0xD9})
+		if end >= 0 && len(bytes.TrimSpace(data[end+2:])) == 0 {
+			data = data[:end+2]
+		}
+	}
+	return data, codec, err
+}
+
+// pngEncoder writes the PNGs. Its buffers, a compressor's state of
+// hundreds of kilobytes, are kept for the next image: a page can have
+// thousands of small ones.
+var pngEncoder = png.Encoder{BufferPool: &pngBuffers{}}
+
+type pngBuffers struct{ p sync.Pool }
+
+func (b *pngBuffers) Get() *png.EncoderBuffer {
+	buf, _ := b.p.Get().(*png.EncoderBuffer)
+	return buf
+}
+
+func (b *pngBuffers) Put(buf *png.EncoderBuffer) { b.p.Put(buf) }
 
 // imageKind says how the data of an image can be delivered.
 type imageKind struct {
@@ -28,8 +75,9 @@ type imageKind struct {
 // JPEG and JPEG 2000 data is handed over as it is. Samples, and CCITT
 // fax data, are written as PNG (raster.go). JBIG2 is not delivered, nor
 // are images in colour spaces made by functions (Separation, DeviceN).
-func kindOfImage(f *file.File, xobj syntax.Value) imageKind {
-	if xobj.Kind != syntax.Stream {
+func kindOfImage(f *file.File, src imageSrc) imageKind {
+	xobj := src.v
+	if xobj.Kind != syntax.Stream && !(src.inline && xobj.Kind == syntax.Dict) {
 		return imageKind{why: "the image is not a stream"}
 	}
 	filters := f.Resolve(xobj.Get("Filter"))
@@ -75,9 +123,10 @@ func kindOfImage(f *file.File, xobj syntax.Value) imageKind {
 
 // imageData returns the bytes of an image as kind says they are
 // delivered, and how many bytes were decoded for it.
-func imageData(f *file.File, xobj syntax.Value, kind imageKind, limit int64) (data []byte, decoded int64, err error) {
+func imageData(f *file.File, src imageSrc, kind imageKind, limit int64) (data []byte, decoded int64, err error) {
+	xobj := src.v
 	if !kind.samples {
-		raw, codec, err := f.DecodeImage(xobj, []byte{}, limit)
+		raw, codec, err := src.decode(f, limit)
 		decoded = int64(len(raw))
 		if err != nil {
 			return nil, decoded, err
@@ -98,7 +147,7 @@ func imageData(f *file.File, xobj syntax.Value, kind imageKind, limit int64) (da
 			return nil, 0, errors.New(why)
 		}
 	}
-	s, decoded, err := readSamples(f, xobj, cs.n, false, limit)
+	s, decoded, err := readSamples(f, src, cs.n, false, limit)
 	if err != nil {
 		return nil, decoded, err
 	}
@@ -119,7 +168,7 @@ func imageData(f *file.File, xobj syntax.Value, kind imageKind, limit int64) (da
 	img, px := raster(f, xobj, &s, &cs, stencil, alpha)
 	decoded += px
 	var out bytes.Buffer
-	if err := png.Encode(&out, img); err != nil {
+	if err := pngEncoder.Encode(&out, img); err != nil {
 		return nil, decoded, err
 	}
 	return out.Bytes(), decoded, nil
@@ -135,9 +184,10 @@ func (st *state) image(part *gofastcore.Part, ref imageRef, inline *int) {
 	undelivered := func(why string) {
 		if wantData && !part.Has(gofastcore.WarnImageUnsupportedEncoding) {
 			part.Warn(gofastcore.SeverityWarning, gofastcore.WarnImageUnsupportedEncoding,
-				"the data of an image on the page is not included: "+why)
+				"the data of an image on the page is not included: "+printable(why))
 		}
 	}
+	var src imageSrc
 	if ref.obj == 0 {
 		// An image in the content stream, or one that is not an object
 		// of its own: it has no number, and gets one by its page and its
@@ -145,12 +195,16 @@ func (st *state) image(part *gofastcore.Part, ref imageRef, inline *int) {
 		// pages before it.
 		*inline++
 		img.ID = "inline-" + strconv.Itoa(part.Number) + "-" + strconv.Itoa(*inline)
-		undelivered("the image is in the page's content stream")
-		return
+		if !ref.inline {
+			undelivered("the image is not an object of its own")
+			return
+		}
+		src = imageSrc{v: ref.dict, data: ref.data, inline: true}
+	} else {
+		img.ID = "obj-" + strconv.FormatInt(ref.obj, 10)
+		src = imageSrc{v: f.Object(ref.obj)}
 	}
-	img.ID = "obj-" + strconv.FormatInt(ref.obj, 10)
-	xobj := f.Object(ref.obj)
-	kind := kindOfImage(f, xobj)
+	kind := kindOfImage(f, src)
 	img.MIME = kind.mime
 	if !wantData || st.images[img.ID] {
 		return
@@ -164,7 +218,7 @@ func (st *state) image(part *gofastcore.Part, ref imageRef, inline *int) {
 		st.imagesCut = true
 		return
 	}
-	data, decoded, err := imageData(f, xobj, kind, min(st.budget, f.Limits().MaxStreamBytes))
+	data, decoded, err := imageData(f, src, kind, min(st.budget, f.Limits().MaxStreamBytes))
 	st.budget -= decoded
 	switch {
 	case err == file.ErrTruncated:
@@ -174,4 +228,16 @@ func (st *state) image(part *gofastcore.Part, ref imageRef, inline *int) {
 	default:
 		img.Data = data
 	}
+}
+
+// printable returns s for a message: a reason can quote a name of the
+// file, which can hold any byte. Control characters are '?', and bytes
+// that are no UTF-8 are U+FFFD.
+func printable(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7F {
+			return '?'
+		}
+		return r
+	}, strings.ToValidUTF8(s, "\uFFFD"))
 }

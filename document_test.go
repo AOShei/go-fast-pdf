@@ -134,10 +134,6 @@ func TestTextlessPages(t *testing.T) {
 				}
 				part := &mustExtract(t, d.bytes(), &gofastcore.Options{Images: mode}).Parts[0]
 				got := codes(part.Warnings)
-				if mode == gofastcore.ImagesData && strings.Contains(c.name, "inline") {
-					// The data of an inline image is not delivered.
-					got = remove(got, gofastcore.WarnImageUnsupportedEncoding)
-				}
 				if !reflect.DeepEqual(got, c.want) {
 					t.Errorf("warnings %v, want %v", got, c.want)
 				}
@@ -318,10 +314,16 @@ func TestImages(t *testing.T) {
 		} else if r, g, b, a := got.At(0, 0).RGBA(); r|g|b != 0 || a != 0xFFFF {
 			t.Errorf("CMYK black is %d %d %d %d", r>>8, g>>8, b>>8, a>>8)
 		}
+		// An image in the content stream is delivered as the others are.
+		if got, err := png.Decode(bytes.NewReader(byID["inline-3-1"][0].Data)); err != nil {
+			t.Errorf("inline image: %v", err)
+		} else if g, _, _, _ := got.At(0, 0).RGBA(); uint8(g>>8) != 0x80 || got.Bounds().Dx() != 1 {
+			t.Errorf("inline image: %d, %v", g>>8, got.Bounds())
+		}
 		// What cannot be delivered is a block with its size and no
 		// data, and the page says so: samples too short, damaged fax
-		// data, an image in the content stream.
-		for _, id := range []string{"obj-6", "obj-7", "inline-3-1"} {
+		// data.
+		for _, id := range []string{"obj-6", "obj-7"} {
 			imgs := byID[id]
 			if len(imgs) != 1 || imgs[0].Data != nil || imgs[0].Width == 0 || imgs[0].Height == 0 {
 				t.Errorf("%s: %+v", id, imgs)
@@ -330,10 +332,11 @@ func TestImages(t *testing.T) {
 		if doc.Parts[0].Has(gofastcore.WarnImageUnsupportedEncoding) {
 			t.Error("page 1: every image was delivered, yet the page has image.unsupported_encoding")
 		}
-		for _, n := range []int{1, 2} {
-			if !doc.Parts[n].Has(gofastcore.WarnImageUnsupportedEncoding) {
-				t.Errorf("page %d: no image.unsupported_encoding", n+1)
-			}
+		if !doc.Parts[1].Has(gofastcore.WarnImageUnsupportedEncoding) {
+			t.Error("page 2: no image.unsupported_encoding")
+		}
+		if doc.Parts[2].Has(gofastcore.WarnImageUnsupportedEncoding) {
+			t.Error("page 3: its inline image was delivered, yet the page has image.unsupported_encoding")
 		}
 	})
 

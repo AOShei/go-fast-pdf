@@ -48,6 +48,11 @@ type Image struct {
 	// MCID is the marked-content identifier the image is drawn under, as
 	// for a run; -1 for none.
 	MCID int32
+	// Dict is the dictionary of an inline image, its entries written out
+	// (inline.go), and Data its data as the content stream has it, when
+	// Options.InlineData is set.
+	Dict syntax.Value
+	Data []byte
 }
 
 // Content is what a page's content streams draw, as the interpreter
@@ -83,6 +88,9 @@ type Content struct {
 type Options struct {
 	// Images returns the images on the page in Result.Images.
 	Images bool
+	// InlineDicts reads the dictionary of each inline image into
+	// Image.Dict, and InlineData keeps its data in Image.Data.
+	InlineDicts, InlineData bool
 	// Runs returns the page's runs in Result.Runs.
 	Runs bool
 	// Words records where the spaces of the text are on the page, in
@@ -449,6 +457,7 @@ func (in *interp) reset(f *file.File, p *file.Page, opts Options, res *Result) {
 	in.tm, in.tlm = identity, identity
 	in.mc, in.offDepth, in.actual, in.inActual, in.mcid = in.mc[:0], 0, in.actual[:0], 0, -1
 	in.text, in.runs = in.text[:0], in.runs[:0]
+	clear(in.images) // the dictionaries and data of inline images
 	in.gaps, in.joins, in.images, in.clusters = in.gaps[:0], in.joins[:0], in.images[:0], in.clusters[:0]
 	in.pending = in.pending[:0]
 	in.prev, in.full, in.rtlLine, in.joints = lineEnd{}, false, false, in.joints[:0]
@@ -752,7 +761,7 @@ func (in *interp) operator(scan *content.Scanner, op []byte, args []content.Oper
 	case "sh":
 		in.painted()
 	case "BI":
-		in.inlineImage(args)
+		in.inlineImage(scan, args)
 		in.painted()
 	case "Do":
 		if a := last(args, 1); a != nil && a[0].Kind == content.Name {
@@ -1060,27 +1069,6 @@ func (in *interp) addImage(img Image) {
 	img.Quad = in.gs.ctm.quad([4]float64{0, 0, 1, 1})
 	img.MCID = in.mcid
 	in.images = append(in.images, img)
-}
-
-func (in *interp) inlineImage(args []content.Operand) {
-	img := Image{Inline: true}
-	for i := 0; i+1 < len(args); i += 2 {
-		key, val := args[i], args[i+1]
-		if key.Kind != content.Name {
-			continue
-		}
-		switch string(key.Raw) {
-		case "W", "Width":
-			img.Width = val.Float()
-		case "H", "Height":
-			img.Height = val.Float()
-		case "CS", "ColorSpace":
-			if val.Kind == content.Name {
-				img.ColorSpace = "/" + string(val.Raw)
-			}
-		}
-	}
-	in.addImage(img)
 }
 
 // drawXObject handles Do: an image is counted as painted and, when

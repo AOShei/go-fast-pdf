@@ -549,6 +549,10 @@
 //	pdf.glyph_text_assumed          characters of a font that does not
 //	                                say what its glyphs are were read as
 //	                                the characters their codes stand for
+//	pdf.glyph_text_by_outline       glyphs the file gives no text were
+//	                                read by their outlines, which are
+//	                                those of the Noto Arabic fonts the
+//	                                library knows
 //	pdf.font_missing                text is set in a font that the
 //	                                page's resources do not define
 //	pdf.content_stream_damaged      a content stream is damaged; what

@@ -100,7 +100,9 @@ files made to exhaust it, and is several times faster. The tag follows that of g
   by itself on the glyph before it is read with that glyph. The letters that Firefox's subsets of the
   Noto fonts draw in pieces without characters (a body and its dots) are read by the outlines of their
   glyphs, for Noto Sans, Naskh and Kufi Arabic, Regular and Bold: a page printed by Firefox reads as its
-  source, where pdftotext reads few of its letters.
+  source, where pdftotext reads few of its letters. Such a page has the warning
+  `pdf.glyph_text_by_outline`, with the number of characters read that way, since the file itself gives
+  those glyphs no text.
 - **Limits** on input size, decoded size, the text of a document, pages, nesting and more; see
   [SECURITY.md](SECURITY.md). Decoded bytes and text are counted for a document and the files attached to
   it together. Cancellation through the context, also inside a long page.

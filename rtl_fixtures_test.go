@@ -4,6 +4,9 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	gofastcore "github.com/AOShei/go-fast-core"
+	gofastpdf "github.com/AOShei/go-fast-pdf"
 )
 
 // The fixtures of testdata/gen-rtl.sh: Hebrew, Arabic, and English with
@@ -19,16 +22,19 @@ func TestRightToLeftFixtures(t *testing.T) {
 	// the text of the Persian yeh (U+FBFD, its final form), whose glyph
 	// is the same: that is what the file says.
 	firefoxYeh := strings.NewReplacer("\u0639\u0644\u0649 ", "\u0639\u0644\u06CC ")
+	// Firefox's Arabic is in part read by the outlines of its glyphs,
+	// which the page's warning says (byOutline).
 	for _, c := range []struct {
 		fixture, source string
 		declared        *strings.Replacer
+		byOutline       bool
 	}{
-		{"rtl-he-libreoffice", "rtl-he", nil},
-		{"rtl-he-firefox", "rtl-he", nil},
-		{"rtl-ar-libreoffice", "rtl-ar", nil},
-		{"rtl-ar-firefox", "rtl-ar", firefoxYeh},
-		{"rtl-ar-naskh-firefox", "rtl-ar", firefoxYeh},
-		{"rtl-mixed-libreoffice", "rtl-mixed", nil},
+		{"rtl-he-libreoffice", "rtl-he", nil, false},
+		{"rtl-he-firefox", "rtl-he", nil, false},
+		{"rtl-ar-libreoffice", "rtl-ar", nil, false},
+		{"rtl-ar-firefox", "rtl-ar", firefoxYeh, true},
+		{"rtl-ar-naskh-firefox", "rtl-ar", firefoxYeh, true},
+		{"rtl-mixed-libreoffice", "rtl-mixed", nil, false},
 	} {
 		t.Run(c.fixture, func(t *testing.T) {
 			src, err := os.ReadFile("testdata/src/" + c.source + ".txt")
@@ -53,8 +59,10 @@ func TestRightToLeftFixtures(t *testing.T) {
 				t.Errorf("got:\n%s\nwant:\n%s", strings.Join(got, "\n\n"), strings.Join(want, "\n\n"))
 			}
 			for i := range doc.Parts {
-				if len(doc.Parts[i].Warnings) != 0 {
-					t.Errorf("page %d: warnings %v", i+1, doc.Parts[i].Warnings)
+				ws := doc.Parts[i].Warnings
+				if c.byOutline && (len(ws) != 1 || ws[0].Code != gofastpdf.WarnGlyphTextByOutline || ws[0].Severity != gofastcore.SeverityInfo) ||
+					!c.byOutline && len(ws) != 0 {
+					t.Errorf("page %d: warnings %v", i+1, ws)
 				}
 			}
 		})

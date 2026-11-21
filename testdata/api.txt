@@ -9,6 +9,8 @@ const (
 const (
 	WarnGlyphTextAssumed = "pdf.glyph_text_assumed"
 
+	WarnGlyphTextByOutline = "pdf.glyph_text_by_outline"
+
 	WarnFontMissing = "pdf.font_missing"
 
 	WarnContentStreamDamaged = "pdf.content_stream_damaged"

@@ -22,6 +22,7 @@
 . FuzzXFAData
 ./internal/function FuzzCalculator
 . FuzzImageData
+. FuzzSamplePNG
 ./internal/ccitt FuzzDecode
 ./internal/font FuzzOutlineHashes
 ./internal/font FuzzCFFEncoding

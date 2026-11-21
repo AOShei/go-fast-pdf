@@ -65,7 +65,10 @@ files made to exhaust it, and is several times faster. The tag follows that of g
   Images in inks (Separation, DeviceN, NChannel) are made colours by the file's function of their
   tints, of any of the four types: sampled, exponential, stitching and PostScript calculator. A function
   is read once for a reading of the document however often it is referred to, and its samples and
-  program count against `MaxDecodedBytes`.
+  program count against `MaxDecodedBytes`. Images of a palette, of gray to 4 bits, and stencil masks
+  (scans among them) are written to PNG from their rows of samples as they are, and 8-bit gray, RGB
+  and CMYK are made a row at a time: a scanned file of 124 pages gives its images in 0.7 s instead of
+  5.3 s, and the PNG bytes are those of `image/png`.
 - **Forms and annotations.** The appearances of annotations are read as part of the page: the values
   that filled form fields show, stamps, notes written on the page. What is written in a comment is a
   `note` block; the value of a field that shows nothing is a block with the field's name; the options of a list or

@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"image/png"
+	"math/rand/v2"
 	"strings"
 	"testing"
 
@@ -12,6 +14,7 @@ import (
 	"github.com/AOShei/go-fast-pdf/internal/file"
 	"github.com/AOShei/go-fast-pdf/internal/function"
 	"github.com/AOShei/go-fast-pdf/internal/pdftest"
+	"github.com/AOShei/go-fast-pdf/internal/syntax"
 )
 
 // testKind and testData are kindOfImage and imageData for one image read
@@ -81,12 +84,89 @@ func FuzzImageData(f *testing.F) {
 		if err != nil {
 			t.Fatalf("not a PNG: %v", err)
 		}
+		if old := byPixel(t, fl, xobj, kind, limit); !bytes.Equal(out, old) {
+			t.Fatalf("%d bytes by rows, %d a sample at a time", len(out), len(old))
+		}
 		w, _ := fl.Resolve(xobj.Get("Width")).Integer()
 		h, _ := fl.Resolve(xobj.Get("Height")).Integer()
 		if r := got.Bounds(); int64(r.Dx()) != w || int64(r.Dy()) != h {
 			t.Fatalf("%v, want %d by %d", r, w, h)
 		}
 	})
+}
+
+// byPixel is the data of the image as raster made it before it took the
+// samples by their rows.
+func byPixel(t *testing.T, fl *file.File, xobj syntax.Value, kind imageKind, limit int64) []byte {
+	t.Helper()
+	pixelByPixel = true
+	defer func() { pixelByPixel = false }()
+	out, _, err := testData(fl, imageSrc{v: xobj}, kind, limit)
+	if err != nil {
+		t.Fatalf("a sample at a time: %v", err)
+	}
+	return out
+}
+
+// The rows of samples give the bytes that the samples one at a time give:
+// gray, RGB and CMYK of 8 bits, with a soft mask and without, palettes of
+// each depth, stencils, widths that end inside a byte.
+func TestRasterRowsArePixels(t *testing.T) {
+	const img = "/Type /XObject /Subtype /Image "
+	r := rand.New(rand.NewPCG(3, 4))
+	noise := func(n int) []byte {
+		b := make([]byte, n)
+		for i := range b {
+			b[i] = byte(r.Uint32())
+		}
+		return b
+	}
+	for _, c := range []struct {
+		space string
+		n     int
+		bpc   int
+	}{
+		{"/DeviceGray", 1, 8}, {"/DeviceRGB", 3, 8}, {"/DeviceCMYK", 4, 8},
+		{"/DeviceGray", 1, 1}, {"/DeviceGray", 1, 2}, {"/DeviceGray", 1, 4},
+		{"[/Indexed /DeviceRGB 3 <FF000000FF000000FF808080>]", 1, 2},
+		{"[/Indexed /DeviceRGB 1 <FF000000FF00>]", 1, 8},
+		{"", 1, 1}, // a stencil
+	} {
+		for _, wh := range [][2]int{{1, 1}, {7, 3}, {33, 17}, {300, 40}} {
+			for _, mask := range []bool{false, true} {
+				w, h := wh[0], wh[1]
+				dict := fmt.Sprintf("/Width %d /Height %d /BitsPerComponent %d /ColorSpace %s", w, h, c.bpc, c.space)
+				if c.space == "" {
+					dict = fmt.Sprintf("/Width %d /Height %d /ImageMask true", w, h)
+				}
+				if mask {
+					dict += " /SMask 2 0 R"
+				}
+				b := pdftest.New()
+				b.AddStream(img+dict, noise(h*((w*c.n*c.bpc+7)/8)))
+				b.AddStream(fmt.Sprintf(img+"/Width %d /Height %d /ColorSpace /DeviceGray /BitsPerComponent 8", w, h), noise(w*h))
+				b.Add("<< /Type /Catalog /Pages 4 0 R >>")
+				b.Add("<< /Type /Pages /Kids [] /Count 0 >>")
+				b.Root = 3
+				fl, err := file.Open(b.Bytes(), file.Limits{})
+				if err != nil {
+					t.Fatal(err)
+				}
+				xobj := fl.Object(1)
+				kind := testKind(fl, imageSrc{v: xobj})
+				if !kind.samples {
+					t.Fatalf("%s: not samples", dict)
+				}
+				out, _, err := testData(fl, imageSrc{v: xobj}, kind, 1<<24)
+				if err != nil {
+					t.Fatalf("%s: %v", dict, err)
+				}
+				if old := byPixel(t, fl, xobj, kind, 1<<24); !bytes.Equal(out, old) {
+					t.Errorf("%s: %d bytes by rows, %d a sample at a time", dict, len(out), len(old))
+				}
+			}
+		}
+	}
 }
 
 // The work of a colour space's function over an image is bounded: of one

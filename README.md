@@ -15,30 +15,29 @@ share.
   exhaust them.
 - It starts no program, fetches nothing, runs nothing that a file contains, and does no OCR.
 
-> **Status.** This is the tree of v0.2.0, which is not tagged yet: the go-fast libraries are released
-> together. Until then `go get github.com/AOShei/go-fast-pdf@main`. The API is not that of v0.1:
-> [MIGRATION.md](MIGRATION.md) says what became what.
+> **Status.** v0.2.0 (2026-11-21), on go-fast-core v0.1.0. The API is not that of v0.1:
+> [MIGRATION.md](MIGRATION.md) says what became what; [CHANGELOG.md](CHANGELOG.md) says what changed.
 
 ## Speed
 
 <!-- comparison:begin (written by go run ./bench/compare -readme README.md) -->
 | | Pages per second | Time against go-fast-pdf | Most memory |
 |---|---:|---:|---:|
-| go-fast-pdf | 12,571 | 1 | 27 MB |
-| go-fast-pdf, all processors | 19,627 | 0.64 times | 47 MB |
-| gofastpdf (the command) | 9,588 | 1.31 times | 17 MB |
-| pdftotext (poppler) | 2,046 | 6.14 times | 20 MB |
-| PyMuPDF | 2,237 | 5.62 times | 61 MB |
-| pypdfium2 (PDFium) | 2,226 | 5.65 times | 30 MB |
-| pypdf | 348 | 36.1 times | 71 MB |
-| pdfplumber | 57 | 222 times | 52 MB |
+| go-fast-pdf | 9,177 | 1 | 33 MB |
+| go-fast-pdf, all processors | 18,035 | 0.51 times | 66 MB |
+| gofastpdf (the command) | 7,404 | 1.24 times | 24 MB |
+| pdftotext (poppler) | 1,992 | 4.61 times | 20 MB |
+| PyMuPDF | 2,226 | 4.12 times | 61 MB |
+| pypdfium2 (PDFium) | 2,211 | 4.15 times | 30 MB |
+| pypdf | 349 | 26.3 times | 71 MB |
+| pdfplumber | 56 | 162 times | 53 MB |
 
 8 documents, 530 pages, 9.7 MB: the long documents of the public corpus's tuning set and one small one.
-Each program reads each document 5 times and its best time counts. Measured on AMD Ryzen 9 9900X 12-Core Processor (24 threads, linux/amd64) with go1.27.3-X:nodwarf5, 2026-11-19.
+Each program reads each document 5 times and its best time counts. Measured on AMD Ryzen 9 9900X 12-Core Processor (24 threads, linux/amd64) with go1.27.3-X:nodwarf5, 2026-11-21.
 The method, the versions and the time for each document are in [bench/comparison.md](bench/comparison.md).
 <!-- comparison:end -->
 
-Reading the 1,650 files of the public test corpus, damaged ones included, takes 1.2 seconds on one
+Reading the 1,650 files of the public test corpus, damaged ones included, takes 1.5 seconds on one
 thread. `go run ./bench/compare` makes the table again on your machine.
 
 ## Installation

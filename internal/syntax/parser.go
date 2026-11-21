@@ -535,10 +535,17 @@ func parseNumber(v *Value, data []byte, pos int) int {
 		v.Kind, v.N = Int, n
 		return i
 	}
-	// A real, or an integer beyond int64: the digits again, as a float.
+	// A real, or an integer beyond int64. The float of the digits before
+	// the point is what adding them up digit by digit gives: below 2^53
+	// every step of that is exact, so it is the integer read; above, the
+	// digits are added up again.
 	var f float64
-	for i = digits; i < len(data) && data[i] >= '0' && data[i] <= '9'; i++ {
-		f = f*10 + float64(data[i]-'0')
+	if !overflow && whole < 1<<53 {
+		f = float64(whole)
+	} else {
+		for i = digits; i < len(data) && data[i] >= '0' && data[i] <= '9'; i++ {
+			f = f*10 + float64(data[i]-'0')
+		}
 	}
 	if i >= len(data) || data[i] != '.' {
 		if neg {

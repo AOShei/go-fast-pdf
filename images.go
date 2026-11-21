@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"image/png"
 	"strconv"
+	"strings"
 	"sync"
 
 	gofastcore "github.com/AOShei/go-fast-core"
@@ -183,7 +184,7 @@ func (st *state) image(part *gofastcore.Part, ref imageRef, inline *int) {
 	undelivered := func(why string) {
 		if wantData && !part.Has(gofastcore.WarnImageUnsupportedEncoding) {
 			part.Warn(gofastcore.SeverityWarning, gofastcore.WarnImageUnsupportedEncoding,
-				"the data of an image on the page is not included: "+why)
+				"the data of an image on the page is not included: "+printable(why))
 		}
 	}
 	var src imageSrc
@@ -227,4 +228,16 @@ func (st *state) image(part *gofastcore.Part, ref imageRef, inline *int) {
 	default:
 		img.Data = data
 	}
+}
+
+// printable returns s for a message: a reason can quote a name of the
+// file, which can hold any byte. Control characters are '?', and bytes
+// that are no UTF-8 are U+FFFD.
+func printable(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7F {
+			return '?'
+		}
+		return r
+	}, strings.ToValidUTF8(s, "\uFFFD"))
 }

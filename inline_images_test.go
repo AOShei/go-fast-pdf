@@ -7,7 +7,9 @@ import (
 	"image/jpeg"
 	"image/png"
 	"strconv"
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	gofastcore "github.com/AOShei/go-fast-core"
 	"github.com/AOShei/go-fast-pdf/internal/pdftest"
@@ -95,11 +97,17 @@ func TestInlineImages(t *testing.T) {
 		for _, bi := range []string{
 			"BI /W 1 /H 1 /CS /G /BPC 8 /F /JBIG2Decode ID x\nEI",
 			"BI /W 1 /H 1 /CS /Unknown /BPC 8 ID x\nEI",
-			"BI /W 4 /H 4 /CS /G /BPC 8 ID x\nEI", // too short
+			"BI /W 4 /H 4 /CS /G /BPC 8 ID x\nEI",       // too short
+			"BI /W 1 /H 1 /CS /A#0F#FF /BPC 8 ID x\nEI", // a name of control characters, quoted in the message
 		} {
 			im, part := inlineImageOf(t, bi, "", gofastcore.ImagesData)
 			if im.Data != nil || !part.Has(gofastcore.WarnImageUnsupportedEncoding) {
 				t.Errorf("%s: %d bytes, warnings %v", bi, len(im.Data), part.Warnings)
+			}
+			for _, w := range part.Warnings {
+				if strings.IndexFunc(w.Message, func(r rune) bool { return r < 0x20 || r == 0x7F }) >= 0 || !utf8.ValidString(w.Message) {
+					t.Errorf("%s: message %q", bi, w.Message)
+				}
 			}
 		}
 	})

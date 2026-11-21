@@ -169,7 +169,7 @@ func TestOutlineHashScaled(t *testing.T) {
 		return append(append(u16s(0xFFFF, 0, 0, 0, 0, flag, 1), 5, 6), u16s(scales...)...)
 	}
 	glyphs := [][]byte{nil, triangleLong, scaled(0x0008|0x0002, 0x2000), scaled(0x0040|0x0002, 0x2000, 0x4000),
-		scaled(0x0080|0x0002, 0x4000, 0, 0, 0x4000), scaled(0, 0), scaled(0x0008|0x0002)}
+		scaled(0x0080|0x0002, 0x4000, 0, 0, 0x4000), scaled(0, 0), scaled(0x0008 | 0x0002)}
 	h := OutlineHashes(glyfProgram(glyphs, false))
 	seen := map[uint64]bool{}
 	for i, v := range h[2:6] {

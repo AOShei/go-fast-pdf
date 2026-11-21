@@ -72,6 +72,18 @@ type described struct {
 func (f *File) describe() *described {
 	f.once.Do(func() {
 		d, in := &f.desc, f.f
+		defer func() {
+			if r := recover(); r != nil {
+				// A panic in what the catalog leads to: none of it is
+				// read (internalError).
+				*d = described{}
+				in.Warn(gofastcore.SeverityError, WarnObjectUnreadable,
+					"the catalog: "+internalError(r)+"; the document information, outline, page labels, structure tree and attached files are not read")
+			}
+		}()
+		if panicHook != nil {
+			panicHook("describe")
+		}
 		catalog := in.Catalog()
 
 		// --- document information ---
@@ -534,7 +546,19 @@ type attachment struct {
 
 // attach makes the child document of one attached file. The file's data
 // is decoded only when there is a child extractor to give it to.
-func (st *state) child(ctx context.Context, a *attachment) *gofastcore.Document {
+func (st *state) child(ctx context.Context, a *attachment) (doc *gofastcore.Document) {
+	defer func() {
+		if r := recover(); r != nil {
+			// A panic in reading the file or in extracting it: the child
+			// is listed as one that failed (internalError).
+			doc = gofastcore.New("")
+			doc.Source.Name = a.name
+			doc.Warn(gofastcore.SeverityError, gofastcore.WarnChildFailed, "the attached file could not be read: "+internalError(r))
+		}
+	}()
+	if panicHook != nil {
+		panicHook("child")
+	}
 	f := st.f.f
 	spec := f.Resolve(a.spec)
 	if !spec.IsDict() {

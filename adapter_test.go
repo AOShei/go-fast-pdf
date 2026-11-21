@@ -146,6 +146,29 @@ func checkContract(doc *gofastcore.Document, opts *gofastcore.Options) error {
 	if err := doc.Validate(); err != nil {
 		return err
 	}
+	// A recover stopped a panic: a defect, whatever the input
+	// (internalError).
+	var internal func(d *gofastcore.Document) error
+	internal = func(d *gofastcore.Document) error {
+		ws := d.Warnings
+		for i := range d.Parts {
+			ws = append(ws[:len(ws):len(ws)], d.Parts[i].Warnings...)
+		}
+		for _, w := range ws {
+			if strings.Contains(w.Message, "internal error") {
+				return fmt.Errorf("%s: %s", w.Code, w.Message)
+			}
+		}
+		for _, c := range d.Children {
+			if err := internal(c); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if err := internal(doc); err != nil {
+		return err
+	}
 	// The JSON form decodes back to an equal document and has no null
 	// where a list is expected.
 	enc, err := json.Marshal(doc)

@@ -20,8 +20,19 @@ The library
   `input.external_reference`, and that data is not read.
 - **starts no program and writes no file.**
 - **does not panic.** An error in one page is a part with the warning `part.failed`, in its place; the
-  other pages are returned. Behind that, a page is read under a recover, so that a defect that was not
-  found is one failed page and not the end of the process.
+  other pages are returned. Behind that, recovers turn a defect that was not found into a warning whose
+  message says "internal error", and not the end of the process:
+  - each page, from its content to its layout, tables and annotations, is read under one: the page is
+    a part with `part.failed` and no blocks;
+  - so is each image: its block stays without data, and the page has `part.failed`;
+  - so is the catalog (document information, outline, page labels, structure tree, the list of
+    attached files): none of it is read, and the document has `pdf.object_unreadable`;
+  - so is each attached file: it is a child with `child.failed`.
+
+  Outside them run the opening of the file (its header, cross-reference and repair, which the fuzz
+  targets `FuzzOpen` and `FuzzRebuild` exercise most), and what reads only blocks already made: the
+  comparison of pages for running headers and footers, headings and lists. The fuzz targets fail on
+  "internal error", so the recovers hide nothing from them.
 - **stops.** Every loop over something a file decides is bounded, and the context is honoured: between
   pages, and every 1,024 operators inside a page.
 - **bounds its memory** by the limits below. Each is a number that a caller can lower.

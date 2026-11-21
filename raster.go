@@ -474,6 +474,10 @@ func decodeArray(f *file.File, xobj syntax.Value, n int, def func(c int) (float6
 // stencil mask, with alpha (nil for none) of one byte a pixel. It
 // returns the image and the bytes of its pixels. The work of a colour
 // space's function is taken from work.
+// pixelByPixel is a switch for tests: raster takes the samples one at a
+// time, as before it took rows, so that the two can be compared.
+var pixelByPixel bool
+
 func raster(f *file.File, xobj syntax.Value, s *samples, cs *colourSpace, stencil bool, alpha []byte, work *int) (image.Image, int64, error) {
 	w, h := s.width, s.height
 	rect := image.Rect(0, 0, w, h)
@@ -523,6 +527,12 @@ func raster(f *file.File, xobj syntax.Value, s *samples, cs *colourSpace, stenci
 				pal[v] = cs.colour([]float64{x})
 			}
 		}
+		if tint == nil && !pixelByPixel {
+			// The samples are the indices: PNG takes their rows as they
+			// are (writeSamplePNG). What they would take as pixels is
+			// counted as before.
+			return &sampleImage{s: s, pal: pal}, int64(w) * int64(h), nil
+		}
 		img := image.NewPaletted(rect, pal)
 		for y := 0; y < h; y++ {
 			row := img.Pix[y*img.Stride:]
@@ -548,6 +558,13 @@ func raster(f *file.File, xobj syntax.Value, s *samples, cs *colourSpace, stenci
 		}
 		for y := 0; y < h; y++ {
 			row := img.Pix[y*img.Stride:]
+			if s.bpc == 8 && !pixelByPixel {
+				// A byte a sample: the row as it is, as at reads it.
+				for x, v := range s.data[y*s.stride():][:w] {
+					row[x] = lut[v]
+				}
+				continue
+			}
 			for x := 0; x < w; x++ {
 				row[x] = lut[s.at(x, y, 0)]
 			}
@@ -567,6 +584,10 @@ func raster(f *file.File, xobj syntax.Value, s *samples, cs *colourSpace, stenci
 				luts[c][v] = uint8(math.Round(255 * min(max(tables[c][v], 0), 1)))
 			}
 		}
+	}
+	if s.bpc == 8 && !pixelByPixel && !stencil && (cs.fam == famGray || cs.fam == famRGB || cs.fam == famCMYK) {
+		deviceRows(img, s, cs.fam, luts, alpha)
+		return img, int64(len(img.Pix)), nil
 	}
 	for y := 0; y < h; y++ {
 		row := img.Pix[y*img.Stride:]
@@ -610,6 +631,45 @@ func raster(f *file.File, xobj syntax.Value, s *samples, cs *colourSpace, stenci
 		}
 	}
 	return img, int64(len(img.Pix)), nil
+}
+
+// deviceRows fills img from samples of 8 bits of a device colour space,
+// a row at a time: the colours of the loop of raster for those spaces,
+// which takes them a sample at a time.
+func deviceRows(img *image.NRGBA, s *samples, fam family, luts [][]uint8, alpha []byte) {
+	w, n, stride := s.width, s.n, s.stride()
+	for y := 0; y < s.height; y++ {
+		row := img.Pix[y*img.Stride:][:4*w]
+		src := s.data[y*stride:][:w*n]
+		switch fam {
+		case famGray:
+			for x, v := range src {
+				g := luts[0][v]
+				row[4*x], row[4*x+1], row[4*x+2] = g, g, g
+			}
+		case famRGB:
+			for x := 0; x < w; x++ {
+				row[4*x], row[4*x+1], row[4*x+2] = luts[0][src[3*x]], luts[1][src[3*x+1]], luts[2][src[3*x+2]]
+			}
+		case famCMYK:
+			for x := 0; x < w; x++ {
+				q := src[4*x : 4*x+4]
+				k := 255 - int(luts[3][q[3]])
+				row[4*x] = uint8((255 - int(luts[0][q[0]])) * k / 255)
+				row[4*x+1] = uint8((255 - int(luts[1][q[1]])) * k / 255)
+				row[4*x+2] = uint8((255 - int(luts[2][q[2]])) * k / 255)
+			}
+		}
+		if alpha == nil {
+			for x := 0; x < w; x++ {
+				row[4*x+3] = 255
+			}
+		} else {
+			for x, a := range alpha[y*w : (y+1)*w] {
+				row[4*x+3] = a
+			}
+		}
+	}
 }
 
 var errFunctionWork = errors.New("the colour space's function would take too long over the image")

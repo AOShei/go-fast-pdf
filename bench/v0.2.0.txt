@@ -14,9 +14,10 @@
 #
 # Of the two tagged ones, merge by merge: the structure tree (#29) +18% and +19%, headings (#26) +8%
 # and +1%, tagged tables (#32) +4.5% and +9%, aligned and ruled tables (#36, #37) +7% and +7%,
-# tagged lists and tree order (#39) +4% and +3.5%, the rest about nothing. A fifth of the time of
-# those documents is the structure tree: each page follows its marked content up the tree, and an
-# object is parsed again each time it is resolved (there is no cache of objects).
+# tagged lists and tree order (#39) +4% and +3.5%, the rest about nothing. Most of the cost of the
+# structure tree is parsing its elements, once each: 1,636 and 2,909 small dictionaries, about 8,000
+# instructions each. The object cache is never emptied on these files, and a larger one changes
+# nothing; the parser's cost per object (600 ns and 1.3 KB for one element) is what there is to gain.
 #
 # The public corpus, 1,650 files and 7,149 pages, read once on one thread: 1.47 s (1.17 s at 24e0dea,
 # measured the same way on the same day).

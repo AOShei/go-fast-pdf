@@ -16,6 +16,7 @@ import (
 
 	gofastcore "github.com/AOShei/go-fast-core"
 	"github.com/AOShei/go-fast-pdf/internal/file"
+	"github.com/AOShei/go-fast-pdf/internal/function"
 )
 
 // File is an open PDF file. Nothing of its pages is read until a page is
@@ -314,6 +315,14 @@ type state struct {
 	// unread is set when an attached file was not read because the text
 	// budget was spent.
 	unread bool
+
+	// funcs reads the functions of the colour spaces of the images, each
+	// once; funcWork is what is left of maxFunctionWorkAll; and kinds is
+	// how the data of each image object is delivered. They are made with
+	// the first image.
+	funcs    *function.Reader
+	funcWork int
+	kinds    map[int64]imageKind
 }
 
 // newState is the state for a page read by itself: the limits apply to

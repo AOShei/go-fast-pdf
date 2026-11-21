@@ -12,8 +12,9 @@ import (
 	"github.com/AOShei/go-fast-pdf/internal/syntax"
 )
 
-// load makes a file of the objects add puts in it, and parses the
-// function of the one it returns, its samples read up to limit bytes.
+// load makes a file of the objects add puts in it, and reads the
+// function of the one it returns, its samples and program up to limit
+// bytes; with a limit of 0 it is only checked.
 func load(t *testing.T, limit int64, add func(b *pdftest.Builder) int) (*Func, int64, error) {
 	t.Helper()
 	b := pdftest.New()
@@ -23,7 +24,12 @@ func load(t *testing.T, limit int64, add func(b *pdftest.Builder) int) (*Func, i
 	if err != nil {
 		t.Fatal(err)
 	}
-	return Parse(f, syntax.Value{Kind: syntax.Ref, N: int64(n)}, limit)
+	v := syntax.Value{Kind: syntax.Ref, N: int64(n)}
+	if limit == 0 {
+		fn, err := NewReader(f).Check(v)
+		return fn, 0, err
+	}
+	return NewReader(f).Read(v, limit)
 }
 
 // one parses one object.
@@ -349,6 +355,150 @@ func TestCalculator(t *testing.T) {
 	if fn, err := calc(t, r1, "{ foo\x01 }"); err == nil || strings.ContainsRune(err.Error(), 1) {
 		t.Errorf("%v %v", fn, err)
 	}
+}
+
+// A program counts against the limit; past it the function is cut, and a
+// program longer than any is not one. Checked, it is not decoded.
+func TestCalculatorLimit(t *testing.T) {
+	prog := "{ " + strings.Repeat("1 pop ", 100) + "}"
+	add := func(b *pdftest.Builder) int {
+		return b.Add(pdftest.Stream("/FunctionType 4 /Domain [0 1] /Range [0 1]", prog))
+	}
+	fn, decoded, err := load(t, int64(len(prog)), add)
+	must(t)(fn, err)
+	if decoded != int64(len(prog)) {
+		t.Errorf("%d bytes decoded, the program is %d", decoded, len(prog))
+	}
+	if _, _, err := load(t, int64(len(prog))-1, add); !errors.Is(err, file.ErrTruncated) {
+		t.Errorf("a limit short of the program: %v", err)
+	}
+	long := "{ " + strings.Repeat(" ", 16*maxProgram) + "}"
+	_, _, err = load(t, 1<<30, func(b *pdftest.Builder) int {
+		return b.Add(pdftest.Stream("/FunctionType 4 /Domain [0 1] /Range [0 1]", long))
+	})
+	if err == nil || errors.Is(err, file.ErrTruncated) {
+		t.Errorf("a program longer than any: %v", err)
+	}
+	// Checked: nothing is decoded, a damaged program is not seen, and
+	// the function gives zeros.
+	fn, decoded, err = load(t, 0, func(b *pdftest.Builder) int {
+		return b.Add(pdftest.Stream("/FunctionType 4 /Domain [0 1] /Range [0 1] /Filter /FlateDecode", "not flate"))
+	})
+	must(t)(fn, err)
+	if decoded != 0 {
+		t.Errorf("checked: %d bytes decoded", decoded)
+	}
+	eval(t, fn, []float64{1}, 0)
+}
+
+// open makes a file of the objects add puts in it, and returns a Reader
+// of it and the reference add returns.
+func open(t *testing.T, add func(b *pdftest.Builder) int) (*Reader, syntax.Value) {
+	t.Helper()
+	b := pdftest.New()
+	n := add(b)
+	f, err := file.Open(pdftest.Doc(pdftest.DocOptions{Base: b}, pdftest.PageSpec{}).Bytes(), file.Limits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return NewReader(f), syntax.Value{Kind: syntax.Ref, N: int64(n)}
+}
+
+// fan adds a function of depth levels of stitching functions, each of
+// which stitches k times the same function of the level below.
+func fan(b *pdftest.Builder, k, depth int) int {
+	n := b.Add("<< /FunctionType 2 /Domain [0 1] /C0 [0] /C1 [1] /N 1 >>")
+	bounds := make([]string, k-1)
+	for i := range bounds {
+		bounds[i] = fmt.Sprintf("%.6f", float64(i+1)/float64(k))
+	}
+	for range depth {
+		n = b.Add(fmt.Sprintf("<< /FunctionType 3 /Domain [0 1] /Functions [%s] /Bounds [%s] /Encode [%s] >>",
+			strings.Repeat(fmt.Sprintf("%d 0 R ", n), k), strings.Join(bounds, " "), strings.Repeat("0 1 ", k)))
+	}
+	return n
+}
+
+// A Reader reads a function that is an object once: a function that
+// refers many times to another, at every level, is read in the work of
+// its objects, not of its references; and one asked for again is the
+// same, nothing decoded again.
+func TestReaderReadsOnce(t *testing.T) {
+	r, v := open(t, func(b *pdftest.Builder) int { return fan(b, 1024, maxDepth) })
+	allocs := testing.AllocsPerRun(1, func() {
+		fn, err := r.Check(v)
+		must(t)(fn, err)
+		fn, _, err = r.Read(v, 1<<20)
+		must(t)(fn, err)
+		eval(t, fn, []float64{0}, 0)
+		eval(t, fn, []float64{1}, 1)
+	})
+	if allocs > 50000 {
+		t.Errorf("%.0f allocations", allocs)
+	}
+	if spent := maxWork - r.work; spent > 2*(maxDepth+1)*3*1024 {
+		t.Errorf("%d work for %d objects", spent, maxDepth+1)
+	}
+
+	r, v = open(t, func(b *pdftest.Builder) int {
+		return b.Add(pdftest.Stream("/FunctionType 0 /Domain [0 1] /Range [0 1] /Size [2] /BitsPerSample 8", "\x00\xFF"))
+	})
+	first, decoded, err := r.Read(v, 1<<20)
+	must(t)(first, err)
+	again, decoded2, err := r.Read(v, 1<<20)
+	must(t)(again, err)
+	if again != first || decoded != 2 || decoded2 != 0 {
+		t.Errorf("read again: the same %v, %d and %d bytes decoded", again == first, decoded, decoded2)
+	}
+	// Past what a Reader keeps, a function is read again.
+	r, v = open(t, func(b *pdftest.Builder) int {
+		return b.Add(pdftest.Stream("/FunctionType 0 /Domain [0 1] /Range [0 1] /Size [2] /BitsPerSample 8", "\x00\xFF"))
+	})
+	r.kept = maxKept
+	first, _, err = r.Read(v, 1<<20)
+	must(t)(first, err)
+	if again, decoded, _ := r.Read(v, 1<<20); again == first || decoded != 2 {
+		t.Errorf("past what is kept: the same %v, %d bytes decoded", again == first, decoded)
+	}
+	// Cut short by the limit, it is read in full under a larger one.
+	r, v = open(t, func(b *pdftest.Builder) int {
+		return b.Add(pdftest.Stream("/FunctionType 0 /Domain [0 1] /Range [0 1] /Size [2] /BitsPerSample 8", "\x00\xFF"))
+	})
+	if _, _, err := r.Read(v, 1); !errors.Is(err, file.ErrTruncated) {
+		t.Errorf("limit 1: %v", err)
+	}
+	must(t)(func() (*Func, error) { fn, _, err := r.Read(v, 2); return fn, err }())
+}
+
+// A function kept is nested no deeper where it is referred to again than
+// a function read there for the first time would be.
+func TestReaderDepth(t *testing.T) {
+	var deepest int
+	r, v := open(t, func(b *pdftest.Builder) int {
+		deepest = fan(b, 1, maxDepth)
+		return b.Add(fmt.Sprintf("<< /FunctionType 3 /Domain [0 1] /Functions [%d 0 R] /Encode [0 1] >>", deepest))
+	})
+	deep := syntax.Value{Kind: syntax.Ref, N: int64(deepest)}
+	for i, c := range []struct {
+		v  syntax.Value
+		ok bool
+	}{{deep, true}, {v, false}, {deep, true}, {v, false}} {
+		if _, err := r.Check(c.v); (err == nil) != c.ok || err != nil && err != errDeep {
+			t.Errorf("%d: %v", i, err)
+		}
+	}
+}
+
+// The work of reading is bounded over all a Reader reads; spent, a
+// function is not read, and that is said.
+func TestReaderWork(t *testing.T) {
+	r, v := open(t, func(b *pdftest.Builder) int { return fan(b, 4, 2) })
+	r.work = 5
+	if _, err := r.Check(v); err != errSpent {
+		t.Errorf("spent: %v", err)
+	}
+	r.work = maxWork
+	must(t)(r.Check(v))
 }
 
 func FuzzCalculator(f *testing.F) {

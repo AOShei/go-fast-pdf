@@ -6,7 +6,9 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"unsafe"
 
+	"github.com/AOShei/go-fast-pdf/internal/file"
 	"github.com/AOShei/go-fast-pdf/internal/syntax"
 )
 
@@ -107,19 +109,35 @@ func (p *parser) calculator(fn *Func, v syntax.Value) error {
 	if v.Kind != syntax.Stream {
 		return errors.New("a PostScript calculator function that is not a stream")
 	}
+	fn.cost = fn.m + fn.n
+	if p.check {
+		return nil
+	}
 	// A program is short; one longer than maxProgram tokens could be is
-	// not read.
-	data, err := p.f.Decode(v, nil, 16*maxProgram)
-	if err != nil {
-		return fmt.Errorf("a PostScript calculator function: %w", err)
+	// not read. Its bytes count against the limit.
+	most := int64(16 * maxProgram)
+	left := p.limit - p.decoded
+	if left <= 0 {
+		return file.ErrTruncated
+	}
+	data, err := p.f.Decode(v, nil, min(most, left))
+	p.decoded += int64(len(data))
+	switch {
+	case errors.Is(err, file.ErrTruncated) && left <= most:
+		return file.ErrTruncated
+	case errors.Is(err, file.ErrTruncated):
+		return fmt.Errorf("a PostScript calculator function of more than %d bytes", most)
+	case err != nil:
+		return fmt.Errorf("a PostScript calculator function: %v", err)
 	}
 	prog, err := compile(data)
 	if err != nil {
 		return err
 	}
 	fn.prog = prog
-	fn.cost = len(prog) + fn.m + fn.n
+	fn.cost += len(prog)
 	fn.stack = make([]value, maxStack)
+	fn.bytes = int64(len(prog))*int64(unsafe.Sizeof(instr{})) + maxStack*int64(unsafe.Sizeof(value{}))
 	return nil
 }
 
@@ -277,6 +295,11 @@ func printable(s string) string {
 // or leaves fewer numbers than the outputs, gives zeros.
 func (fn *Func) evalCalculator(in, out []float64) {
 	st := fn.stack
+	if st == nil {
+		// Only checked: its program was not read.
+		clear(out)
+		return
+	}
 	for i := range fn.m {
 		st[i] = value{x: clip(in[i], fn.domain[2*i], fn.domain[2*i+1])}
 	}

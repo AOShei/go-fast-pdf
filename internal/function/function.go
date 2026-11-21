@@ -30,6 +30,19 @@ const (
 	maxSampledInputs = 12
 	// maxSamples bounds the sample values of a sampled function.
 	maxSamples = 1 << 22
+	// maxWork bounds the work of reading the functions of one file: each
+	// function read counts one, and each number of its arrays one. A
+	// function that is an object is read once (Reader).
+	maxWork = 1 << 22
+	// maxKept bounds the bytes of samples and programs that a Reader
+	// keeps for the functions it may be asked for again.
+	maxKept = 64 << 20
+)
+
+var (
+	errDeep  = errors.New("functions nested too deeply")
+	errLoop  = errors.New("a function made of itself")
+	errSpent = errors.New("the functions of the file are more than are read")
 )
 
 // Func is a function, parsed. It is not safe for concurrent use.
@@ -39,6 +52,10 @@ type Func struct {
 	domain []float64 // 2m
 	rng    []float64 // 2n, nil for none
 	cost   int
+	// height is the depth of the functions within it, 0 for none; bytes
+	// is the size of its samples and programs, and theirs.
+	height int
+	bytes  int64
 
 	// Type 0.
 	size    []int
@@ -71,19 +88,61 @@ func (fn *Func) Out() int { return fn.n }
 // Cost is the work of one evaluation, about the operations it takes.
 func (fn *Func) Cost() int { return fn.cost }
 
-// Parse reads the function v: a function dictionary or stream, or an
-// array of functions of one output each that together make one of as
-// many outputs as there are functions. The samples of a sampled function
-// are decoded up to limit bytes; with a limit of 0 they are not read, and
-// the function is only checked. decoded says how many bytes were.
-func Parse(f *file.File, v syntax.Value, limit int64) (fn *Func, decoded int64, err error) {
-	p := parser{f: f, limit: limit, check: limit == 0}
+// A Reader reads the functions of one file: a function dictionary or
+// stream, or an array of functions of one output each that together make
+// one of as many outputs as there are functions.
+//
+// A function that is an object is read once. Where it is referred to
+// again, from the same function or another, the Reader gives what it
+// read, so that a file cannot make it read one object over and over; and
+// the work of all it reads is bounded by maxWork. Neither the Reader nor
+// the functions it gives are safe for concurrent use.
+type Reader struct {
+	f *file.File
+	// checked and read are the functions read by Check and by Read, by
+	// object number.
+	checked, read map[int64]entry
+	work          int   // what is left of maxWork
+	kept          int64 // the bytes of the functions in read
+}
+
+type entry struct {
+	fn  *Func
+	err error
+}
+
+// NewReader returns a Reader of the functions of f.
+func NewReader(f *file.File) *Reader {
+	return &Reader{f: f, work: maxWork}
+}
+
+// Check reads the function v as far as its dictionaries go: nothing is
+// decoded, neither the samples of a sampled function nor the program of
+// a calculator function, and the function gives zeros.
+func (r *Reader) Check(v syntax.Value) (*Func, error) {
+	if r.checked == nil {
+		r.checked = map[int64]entry{}
+	}
+	p := parser{r: r, f: r.f, memo: r.checked, check: true}
+	return p.parse(v, 0)
+}
+
+// Read reads the function v, its samples and programs decoded up to
+// limit bytes; decoded says how many bytes were. Past the limit, err is
+// file.ErrTruncated. A function given again decodes nothing.
+func (r *Reader) Read(v syntax.Value, limit int64) (fn *Func, decoded int64, err error) {
+	if r.read == nil {
+		r.read = map[int64]entry{}
+	}
+	p := parser{r: r, f: r.f, memo: r.read, limit: limit}
 	fn, err = p.parse(v, 0)
 	return fn, p.decoded, err
 }
 
 type parser struct {
+	r       *Reader
 	f       *file.File
+	memo    map[int64]entry
 	limit   int64
 	decoded int64
 	check   bool
@@ -91,9 +150,51 @@ type parser struct {
 
 func (p *parser) parse(v syntax.Value, depth int) (*Func, error) {
 	if depth > maxDepth {
-		return nil, errors.New("functions nested too deeply")
+		return nil, errDeep
 	}
-	v = p.f.Resolve(v)
+	num := file.RefNumber(v)
+	if num == 0 {
+		return p.value(p.f.Resolve(v), depth)
+	}
+	if e, ok := p.memo[num]; ok {
+		if e.err == nil && depth+e.fn.height > maxDepth {
+			return nil, errDeep
+		}
+		return e.fn, e.err
+	}
+	// While it is read, a reference to it is a loop.
+	p.memo[num] = entry{err: errLoop}
+	fn, err := p.value(p.f.Resolve(v), depth)
+	switch {
+	case err == errDeep || err == errSpent || errors.Is(err, file.ErrTruncated):
+		// What depends on where or when it was read is not kept.
+		delete(p.memo, num)
+	case err == nil && fn.bytes > maxKept-p.r.kept:
+		delete(p.memo, num)
+	default:
+		p.memo[num] = entry{fn, err}
+		if err == nil {
+			p.r.kept += fn.bytes
+		}
+	}
+	return fn, err
+}
+
+// value reads the function v, resolved. Where the work ran out, what
+// went wrong is that.
+func (p *parser) value(v syntax.Value, depth int) (*Func, error) {
+	if p.r.work--; p.r.work < 0 {
+		p.r.work = 0
+		return nil, errSpent
+	}
+	fn, err := p.function(v, depth)
+	if err != nil && p.r.work == 0 {
+		return nil, errSpent
+	}
+	return fn, err
+}
+
+func (p *parser) function(v syntax.Value, depth int) (*Func, error) {
 	if v.Kind == syntax.Array {
 		return p.array(v, depth)
 	}
@@ -152,9 +253,18 @@ func (p *parser) array(v syntax.Value, depth int) (*Func, error) {
 		}
 		fn.funcs = append(fn.funcs, g)
 		fn.cost += g.cost
+		fn.within(g)
 	}
 	fn.n = len(fn.funcs)
 	return fn, nil
+}
+
+// within notes that g is a function within fn.
+func (fn *Func) within(g *Func) {
+	fn.height = max(fn.height, g.height+1)
+	// The same function within twice counts twice; the sum is kept from
+	// growing past what a Reader keeps.
+	fn.bytes = min(fn.bytes+g.bytes, maxKept+1)
 }
 
 // numbers reads an array of even length from 2 to 2*max, of finite
@@ -162,6 +272,10 @@ func (p *parser) array(v syntax.Value, depth int) (*Func, error) {
 func (p *parser) numbers(v syntax.Value, unit, max int) ([]float64, bool) {
 	list := p.f.Resolve(v).Elems()
 	if len(list) == 0 || len(list)%unit != 0 || len(list) > unit*max {
+		return nil, false
+	}
+	if p.r.work -= len(list); p.r.work < 0 {
+		p.r.work = 0
 		return nil, false
 	}
 	out := make([]float64, len(list))
@@ -259,6 +373,7 @@ func (p *parser) sampled(fn *Func, v syntax.Value) error {
 	}
 	count := int(points) * fn.n
 	fn.samples = make([]float32, count)
+	fn.bytes = 4 * int64(count)
 	maxv := math.Exp2(float64(bps)) - 1
 	bit := 0
 	for i := range fn.samples {
@@ -329,6 +444,7 @@ func (p *parser) stitching(fn *Func, v syntax.Value, depth int) error {
 		}
 		fn.funcs = append(fn.funcs, g)
 		fn.cost = max(fn.cost, g.cost)
+		fn.within(g)
 	}
 	fn.cost += 4 + k
 	if fn.rng != nil && fn.funcs[0].n != fn.n {

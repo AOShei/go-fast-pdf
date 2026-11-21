@@ -2,6 +2,8 @@ package gofastpdf_test
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
@@ -10,8 +12,10 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	gofastcore "github.com/AOShei/go-fast-core"
+	gofastpdf "github.com/AOShei/go-fast-pdf"
 	"github.com/AOShei/go-fast-pdf/internal/pdftest"
 )
 
@@ -250,5 +254,75 @@ func TestImagesNotDelivered(t *testing.T) {
 	})
 	if im.MIME != "image/jpeg" || !bytes.Equal(im.Data, jpg.Bytes()) {
 		t.Errorf("a JPEG with a soft mask: %q, %d bytes", im.MIME, len(im.Data))
+	}
+}
+
+// TestColourFunctionBounds: the function of a colour space is read once
+// in a reading of a document, however often the image, or the function,
+// is referred to, and an image shown again is not read again. Each case
+// runs in a child process, its allocations bounded: without those
+// bounds, reading them takes gigabytes and seconds.
+func TestColourFunctionBounds(t *testing.T) {
+	sep := pdftest.Stream("/Type /XObject /Subtype /Image /Width 1 /Height 1 /BitsPerComponent 8 /ColorSpace [/Separation /S /DeviceGray 2 0 R]", "\x80")
+	// Five levels of stitching functions, each referring 16 times to the
+	// one below: a million functions, were each reference read.
+	const k, depth = 16, 5
+	fan := []string{sep}
+	bounds := make([]string, k-1)
+	for i := range bounds {
+		bounds[i] = fmt.Sprintf("%.6f", float64(i+1)/k)
+	}
+	for level := range depth {
+		fan = append(fan, fmt.Sprintf("<< /FunctionType 3 /Domain [0 1] /Functions [%s] /Bounds [%s] /Encode [%s] >>",
+			strings.Repeat(fmt.Sprintf("%d 0 R ", level+3), k), strings.Join(bounds, " "), strings.Repeat("0 1 ", k)))
+	}
+	fan = append(fan, "<< /FunctionType 2 /Domain [0 1] /C0 [0] /C1 [1] /N 1 >>")
+	// A program of a mebibyte, compressed to a kilobyte, and the image
+	// shown 2,000 times.
+	program := pdftest.Deflate([]byte("{" + strings.Repeat(" ", 1<<20-2) + "}"))
+	repeat := []string{sep, pdftest.Stream("/FunctionType 4 /Domain [0 1] /Range [0 1] /Filter /FlateDecode", string(program))}
+
+	for _, c := range []struct {
+		name     string
+		objects  []string
+		content  string
+		maxAlloc uint64
+	}{
+		{"fan", fan, "q 10 0 0 10 0 0 cm /Im1 Do Q", 16 << 20},
+		{"repeat", repeat, strings.Repeat("q 1 0 0 1 0 0 cm /Im1 Do Q\n", 2000), 64 << 20},
+	} {
+		data := synthDoc{Objects: c.objects, Pages: []synthPage{{Content: c.content, Resources: "/XObject << /Im1 1 0 R >>"}}}.bytes()
+		for _, mode := range []gofastcore.ImageMode{gofastcore.ImagesMeta, gofastcore.ImagesData} {
+			id := fmt.Sprintf("%s-%d", c.name, mode)
+			err := pdftest.Isolated(t, id, time.Minute, func() error {
+				var doc *gofastcore.Document
+				var err error
+				n := pdftest.AllocBytes(func() {
+					doc, err = gofastpdf.Extract(context.Background(), bytes.NewReader(data), int64(len(data)), &gofastcore.Options{Images: mode})
+				})
+				if err != nil {
+					return err
+				}
+				if n > c.maxAlloc {
+					return fmt.Errorf("allocated %d MB", n>>20)
+				}
+				images := 0
+				for _, b := range doc.Parts[0].Blocks {
+					if b.Image == nil {
+						continue
+					}
+					if images++; b.Image.MIME != "image/png" || mode == gofastcore.ImagesData && images == 1 && len(b.Image.Data) == 0 {
+						return fmt.Errorf("image %d: %q, %d bytes; warnings %v", images, b.Image.MIME, len(b.Image.Data), doc.Parts[0].Warnings)
+					}
+				}
+				if images == 0 {
+					return errors.New("no image")
+				}
+				return nil
+			})
+			if err != nil {
+				t.Errorf("%s: %v", id, err)
+			}
+		}
 	}
 }

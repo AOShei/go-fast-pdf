@@ -11,6 +11,7 @@ import (
 
 	gofastcore "github.com/AOShei/go-fast-core"
 	"github.com/AOShei/go-fast-pdf/internal/file"
+	"github.com/AOShei/go-fast-pdf/internal/function"
 	"github.com/AOShei/go-fast-pdf/internal/syntax"
 )
 
@@ -70,11 +71,12 @@ type imageKind struct {
 }
 
 // kindOfImage reads from the image's dictionary how its data can be
-// delivered. Nothing is decoded.
+// delivered, the functions of its colour space by fr. Nothing is
+// decoded.
 //
 // JPEG and JPEG 2000 data is handed over as it is. Samples, and CCITT
 // fax data, are written as PNG (raster.go). JBIG2 is not delivered.
-func kindOfImage(f *file.File, src imageSrc) imageKind {
+func kindOfImage(f *file.File, fr *function.Reader, src imageSrc) imageKind {
 	xobj := src.v
 	if xobj.Kind != syntax.Stream && !(src.inline && xobj.Kind == syntax.Dict) {
 		return imageKind{why: "the image is not a stream"}
@@ -102,7 +104,7 @@ func kindOfImage(f *file.File, src imageSrc) imageKind {
 	if mask := f.Resolve(xobj.Get("ImageMask")); mask.Kind == syntax.Bool && mask.N != 0 {
 		return png
 	}
-	cs, why := readColourSpace(f, xobj.Get("ColorSpace"), 0, 0)
+	cs, why := readColourSpace(f, fr, xobj.Get("ColorSpace"), 0, 0)
 	if cs.fam == famNone {
 		return imageKind{why: why}
 	}
@@ -121,8 +123,10 @@ func kindOfImage(f *file.File, src imageSrc) imageKind {
 }
 
 // imageData returns the bytes of an image as kind says they are
-// delivered, and how many bytes were decoded for it.
-func imageData(f *file.File, src imageSrc, kind imageKind, limit int64) (data []byte, decoded int64, err error) {
+// delivered, and how many bytes were decoded for it. The functions of
+// its colour space are read by fr, and their work over the image taken
+// from work.
+func imageData(f *file.File, fr *function.Reader, src imageSrc, kind imageKind, limit int64, work *int) (data []byte, decoded int64, err error) {
 	xobj := src.v
 	if !kind.samples {
 		raw, codec, err := src.decode(f, limit)
@@ -146,7 +150,10 @@ func imageData(f *file.File, src imageSrc, kind imageKind, limit int64) (data []
 	cs := colourSpace{n: 1}
 	if !stencil {
 		var why string
-		if cs, why = readColourSpace(f, xobj.Get("ColorSpace"), 0, limit); cs.fam == famNone {
+		if cs, why = readColourSpace(f, fr, xobj.Get("ColorSpace"), 0, limit); cs.fam == famNone {
+			if cs.cut {
+				return nil, cs.decoded, file.ErrTruncated
+			}
 			return nil, cs.decoded, errors.New(why)
 		}
 	}
@@ -173,7 +180,7 @@ func imageData(f *file.File, src imageSrc, kind imageKind, limit int64) (data []
 	if need := per * int64(s.width) * int64(s.height); need > limit-decoded {
 		return nil, decoded, file.ErrTruncated
 	}
-	img, px, err := raster(f, xobj, &s, &cs, stencil, alpha)
+	img, px, err := raster(f, xobj, &s, &cs, stencil, alpha, work)
 	decoded += px
 	if err != nil {
 		return nil, decoded, err
@@ -215,7 +222,19 @@ func (st *state) image(part *gofastcore.Part, ref imageRef, inline *int) {
 		img.ID = "obj-" + strconv.FormatInt(ref.obj, 10)
 		src = imageSrc{v: f.Object(ref.obj)}
 	}
-	kind := kindOfImage(f, src)
+	if st.funcs == nil {
+		st.funcs = function.NewReader(f)
+		st.funcWork = maxFunctionWorkAll
+		st.kinds = map[int64]imageKind{}
+	}
+	// An image shown again is not read again.
+	kind, ok := st.kinds[ref.obj]
+	if !ok || ref.obj == 0 {
+		kind = kindOfImage(f, st.funcs, src)
+		if ref.obj != 0 {
+			st.kinds[ref.obj] = kind
+		}
+	}
 	img.MIME = kind.mime
 	if !wantData || st.images[img.ID] {
 		return
@@ -229,8 +248,11 @@ func (st *state) image(part *gofastcore.Part, ref imageRef, inline *int) {
 		st.imagesCut = true
 		return
 	}
-	data, decoded, err := imageData(f, src, kind, min(st.budget, f.Limits().MaxStreamBytes))
+	work := min(maxFunctionWork, st.funcWork)
+	left := work
+	data, decoded, err := imageData(f, st.funcs, src, kind, min(st.budget, f.Limits().MaxStreamBytes), &left)
 	st.budget -= decoded
+	st.funcWork -= work - left
 	switch {
 	case err == file.ErrTruncated:
 		st.imagesCut = true

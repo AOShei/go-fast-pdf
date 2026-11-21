@@ -21,3 +21,4 @@
 ./internal/file FuzzEnvelope
 . FuzzXFAData
 ./internal/function FuzzCalculator
+. FuzzImageData

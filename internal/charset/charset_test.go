@@ -151,6 +151,15 @@ func TestLetters(t *testing.T) {
 		// Not a whole character.
 		{"a\xef\xac", "a\xef\xac"},
 		{"\xef", "\xef"},
+		// Arabic presentation forms: the letters, longer than the form
+		// for lam with alef and for the word Allah; a mark set on a
+		// space is the mark; a character that is no form stays.
+		{"\uFEE3\uFEDC\uFE98\uFE92\uFE94", "\u0645\u0643\u062A\u0628\u0629"},
+		{"\uFEFB", "\u0644\u0627"},
+		{"x\uFEFBy\uFB01z", "x\u0644\u0627yfiz"},
+		{"\uFDF2", "\u0627\u0644\u0644\u0647"},
+		{"\uFE70", "\u064B"},
+		{"\uFBB2\uFDFD", "\uFBB2\uFDFD"},
 	}
 	for _, c := range cases {
 		if got := Letters(c.in); got != c.want {

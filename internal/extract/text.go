@@ -410,6 +410,11 @@ func (in *interp) showCodes(f *font.Font, raw []byte) {
 			rtl = true
 			in.markClusters(f, raw, start)
 		}
+		// The dots of letters drawn in pieces, after the letter without
+		// them in the same string (marks.go).
+		if f.HasPieces() {
+			in.composeMarks(start, start, clustersFrom)
+		}
 	}
 	if first {
 		rtl = font.HasRightToLeft(in.text[start:])
@@ -462,6 +467,11 @@ func (in *interp) showCodes(f *font.Font, raw []byte) {
 	}
 	x1, y1 := x0+tx*ge.a+ty*ge.c, y0+tx*ge.b+ty*ge.d
 	p := &in.prev
+	// Marks drawn by themselves on the glyph before them: part of it,
+	// however far up or down they are put (marks.go).
+	if !replaced && start < len(in.text) && in.text[start] >= 0xCC && in.joinMarks(start, clustersFrom, clip, x0, y0, sh) {
+		return
+	}
 	// The same string printed again where it was printed last: the way
 	// bold type and shadows are faked. It is the same text once.
 	// Only a copy that is drawn the same way is left out here: one that a

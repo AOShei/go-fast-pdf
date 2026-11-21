@@ -236,12 +236,15 @@ type interp struct {
 
 	// rtlLine is set once letters written from right to left are shown
 	// on the line being drawn (text.go).
-	rtlLine  bool
-	joints   []joint
-	text     []byte // the text of all runs
-	runs     []Run
-	gaps     []Gap
-	joins    []Join
+	rtlLine bool
+	joints  []joint
+	text    []byte // the text of all runs
+	runs    []Run
+	gaps    []Gap
+	joins   []Join
+	// pending are the places in text of dots of known fonts that no
+	// letter has taken yet (marks.go).
+	pending  []int32
 	clusters []Cluster
 	images   []Image
 	// Where the spaces are, when words are asked for: marks are those of
@@ -336,6 +339,7 @@ func (in *interp) finish() {
 		}
 	}
 	in.endLine()
+	in.settleMarks()
 	if in.opts.Use != nil {
 		if !utf8.Valid(in.text) {
 			// Every text the fonts hand out is valid by construction;
@@ -446,6 +450,7 @@ func (in *interp) reset(f *file.File, p *file.Page, opts Options, res *Result) {
 	in.mc, in.offDepth, in.actual, in.inActual, in.mcid = in.mc[:0], 0, in.actual[:0], 0, -1
 	in.text, in.runs = in.text[:0], in.runs[:0]
 	in.gaps, in.joins, in.images, in.clusters = in.gaps[:0], in.joins[:0], in.images[:0], in.clusters[:0]
+	in.pending = in.pending[:0]
 	in.prev, in.full, in.rtlLine, in.joints = lineEnd{}, false, false, in.joints[:0]
 	in.unmapped, in.assumed, in.fontMissing = 0, 0, false
 	in.formActive, in.formCalls = in.formActive[:0], 0

@@ -3,6 +3,10 @@
 // Command gen writes the tables of package charset from their sources:
 //
 //	go run internal/charset/gen/gen.go -agl DIR -afm DIR -spec FILE -out internal/charset
+//	go run internal/charset/gen/gen.go -ucd FILE -out internal/charset
+//
+// The second writes only arabicforms_gen.go, from the Unicode Character
+// Database.
 //
 // The sources are not kept in this repository. They are:
 //
@@ -22,6 +26,12 @@
 //     made into text with "pdftotext -layout" (Poppler 26.10). The
 //     tables are checked as they are read: a different extraction that
 //     loses a row or a column stops the program.
+//   - UnicodeData.txt of the Unicode Character Database 16.0.0, from
+//     https://www.unicode.org/Public/16.0.0/ucd/UnicodeData.txt (Unicode
+//     License v3), SHA-256
+//     ff58e5823bd095166564a006e47d111130813dcf8bf234ef79fa51a870edb48f:
+//     the letters of the Arabic presentation forms, U+FB50 to U+FDFF and
+//     U+FE70 to U+FEFF, from their compatibility decompositions.
 //
 // The notices these sources ask to be kept are in NOTICE at the root of
 // the repository.
@@ -48,8 +58,13 @@ func main() {
 	afmDir := flag.String("afm", "", "directory with the AFM files of the 14 standard fonts")
 	specText := flag.String("spec", "", "the PDF specification as text, from pdftotext -layout")
 	out := flag.String("out", ".", "directory of package charset")
+	ucd := flag.String("ucd", "", "UnicodeData.txt: write arabicforms_gen.go only")
 	flag.Parse()
 	log.SetFlags(0)
+	if *ucd != "" {
+		writeArabicForms(*ucd, *out)
+		return
+	}
 
 	// --- glyph names ---
 	glyphs := map[string][]rune{}
@@ -475,4 +490,68 @@ func write(path string, src []byte) {
 	if err := os.WriteFile(path, out, 0o644); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// writeArabicForms writes arabicforms_gen.go: the letters of each Arabic
+// presentation form, by its decomposition in UnicodeData.txt. A form of a
+// mark set on a space (U+FE70) is the mark alone.
+func writeArabicForms(path, out string) {
+	const lo, hi = 0xFB50, 0xFEFF
+	texts := make([]string, hi-lo+1)
+	n := 0
+	for _, line := range lines(path) {
+		f := strings.Split(line, ";")
+		if len(f) < 6 {
+			continue
+		}
+		v, err := strconv.ParseUint(f[0], 16, 32)
+		if err != nil || v < lo || v > hi || v > 0xFDFF && v < 0xFE70 {
+			continue
+		}
+		tag, rest, ok := strings.Cut(f[5], " ")
+		switch tag {
+		case "<isolated>", "<initial>", "<medial>", "<final>", "<compat>":
+		default:
+			continue
+		}
+		if !ok {
+			log.Fatalf("bad decomposition %q", line)
+		}
+		var rs []rune
+		for _, h := range strings.Fields(rest) {
+			c, err := strconv.ParseUint(h, 16, 32)
+			if err != nil {
+				log.Fatalf("bad decomposition %q", line)
+			}
+			rs = append(rs, rune(c))
+		}
+		if len(rs) > 1 && rs[0] == ' ' {
+			rs = rs[1:]
+		}
+		texts[v-lo] = string(rs)
+		n++
+	}
+	if n < 700 {
+		log.Fatalf("only %d presentation forms", n)
+	}
+	var g bytes.Buffer
+	header(&g, "the letters of the Arabic presentation forms, from the Unicode Character Database 16.0.0")
+	var blob strings.Builder
+	offs := []int{0}
+	for _, t := range texts {
+		blob.WriteString(t)
+		offs = append(offs, blob.Len())
+	}
+	if blob.Len() > 1<<16-1 {
+		log.Fatal("the letters no longer fit 16-bit offsets")
+	}
+	fmt.Fprintf(&g, "const arabicFormsFirst, arabicFormsLast = %#x, %#x\n\n", lo, hi)
+	fmt.Fprintf(&g, "// arabicFormText holds the letters of the %d forms, one after another;\n// those of U+%04X+i are arabicFormText[arabicFormOffs[i]:arabicFormOffs[i+1]],\n// empty for a character that is no form of letters.\nconst arabicFormText = %+q\n\n", n, lo, blob.String())
+	fmt.Fprint(&g, "var arabicFormOffs = [...]uint16{")
+	for i, o := range offs {
+		sep(&g, i, 16)
+		fmt.Fprintf(&g, "%d,", o)
+	}
+	fmt.Fprint(&g, "\n}\n")
+	write(filepath.Join(out, "arabicforms_gen.go"), g.Bytes())
 }

@@ -192,7 +192,7 @@ Settings that only PDF has are fields of `gofastpdf.Extractor`. The
 ## What it reads
 
 - **Text** - fonts with and without ToUnicode maps, composite fonts, the standard encodings, the Adobe
-  Glyph List; ligatures are written as their letters
+  Glyph List; ligatures and Arabic presentation forms are written as their letters
 - **Paragraphs and reading order** - lines are joined into paragraphs; columns, tables drawn by rows, and
   pages drawn out of order are put in reading order; in a tagged PDF the order of the structure tree
   decides where the white space of the page leaves it open; text written from right to left (Hebrew,
@@ -340,7 +340,9 @@ file can be read from many goroutines, and the result is the same for any number
 - **Scripts written from right to left** - a line's direction is that of the letters at its ends or of
   most of its words, so a line of a paragraph read from right to left that is mostly Latin can be read
   the other way. Columns are read from left to right whatever the script. Glyphs that a font leaves
-  without a character (Firefox's Arabic subsets) cannot be read
+  without a character are read by their outlines only for the fonts built in (Noto Sans, Naskh and
+  Kufi Arabic, Regular and Bold, of one version each, which Firefox embeds); in other fonts they are
+  not read
 - **Fonts without any mapping** - the encodings and glyph names of embedded Type 1, CFF and TrueType
   programs are read, and the legacy Chinese, Japanese and Korean encodings are built in. What no table
   says cannot be read: Type 3 fonts, TrueType subsets without cmap and post tables, CID-keyed CFF fonts

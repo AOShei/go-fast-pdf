@@ -17,7 +17,7 @@ func show(v Value) string {
 	case Int:
 		return fmt.Sprintf("%d", v.N)
 	case Real:
-		return fmt.Sprintf("%g", v.F)
+		return fmt.Sprintf("%g", v.Number())
 	case Name:
 		return "/" + string(v.Data)
 	case String:
@@ -154,7 +154,7 @@ func TestIntegerOverflowBecomesReal(t *testing.T) {
 	p := NewParser([]byte("99999999999999999999 -99999999999999999999"), 0, 0)
 	for _, want := range []float64{1e20, -1e20} {
 		v, err := p.Object()
-		if err != nil || v.Kind != Real || v.F/want < 0.999999 || v.F/want > 1.000001 {
+		if err != nil || v.Kind != Real || v.Number()/want < 0.999999 || v.Number()/want > 1.000001 {
 			t.Errorf("got %s (%v), want a real near %g", show(v), err, want)
 		}
 	}
@@ -284,4 +284,61 @@ func FuzzParser(f *testing.F) {
 			}
 		}
 	})
+}
+
+// The values made in place on the stack, through the paths that take the
+// stack back: a dictionary's stray tokens and containers, a key whose
+// value starts nothing, nesting beyond the limit inside a dictionary, a
+// container after the stack was returned to the pool, and ParseNumber by
+// itself.
+func TestValuesInPlace(t *testing.T) {
+	for _, c := range []struct {
+		src, want string
+		skipped   int
+	}{
+		{"<< 12 /A 1 [2 3] /B (x) << /C 4 >> /D [5 << /E 6 >>] >>", `<</A 1 /B ("x") /D [5 <</E 6>>]>>`, 3},
+		{"<< /A ) /B 2 /C ] /D 3 >>", "<</B 2 /D 3>>", 2},
+		{"<< /A /B 1 /C >>", "<</A /B /C null>>", 1},
+		{"[1 ) 2 } 3]", "[1 2 3]", 2},
+		{"[<< /A [1 2 R] >> 5 0 R 7 0 obj]", "[<</A [1 2 R]>> 5 0 R 7 0 kw:obj]", 0},
+	} {
+		p := NewParser([]byte(c.src), 0, 0)
+		v, err := p.Object()
+		if err != nil || show(v) != c.want || p.Skipped != c.skipped {
+			t.Errorf("%q: %s, %v, %d skipped; want %s, %d", c.src, show(v), err, p.Skipped, c.want, c.skipped)
+		}
+	}
+	// Too deep inside a dictionary, as a stray token and as a value.
+	for _, src := range []string{"<< [[[1]]] >>", "<< /A [[[1]]] >>", "<< /A << /B [1] >> >>"} {
+		p := NewParser([]byte(src), 0, 2)
+		if _, err := p.Object(); err != ErrTooDeep {
+			t.Errorf("%q, limit 2: error %v, want ErrTooDeep", src, err)
+		}
+	}
+	// A stack larger than is kept is not returned to the pool.
+	big := "[" + strings.Repeat("1 ", maxKeptStack+10) + "]"
+	p := NewParser([]byte(big+" [7]"), 0, 0)
+	if v, err := p.Object(); err != nil || len(v.List) != maxKeptStack+10 {
+		t.Fatalf("a large array: %d elements, %v", len(v.List), err)
+	}
+	if v, err := p.Object(); err != nil || show(v) != "[7]" {
+		t.Errorf("after it: %s, %v", show(v), err)
+	}
+	for _, c := range []struct {
+		src  string
+		want string
+		end  int
+	}{
+		{"42 ", "42", 2}, {"-3.5]", "-3.5", 4}, {"99999999999999999999", "1.0000000000000002e+20", 20}, {"-.25", "-0.25", 4},
+	} {
+		v, end := ParseNumber([]byte(c.src), 0)
+		if show(v) != c.want || end != c.end {
+			t.Errorf("ParseNumber(%q): %s at %d, want %s at %d", c.src, show(v), end, c.want, c.end)
+		}
+	}
+	p = NewParser([]byte("1 0 R"), 0, 0)
+	p.SetPos(2)
+	if v, _ := p.Object(); show(v) != "0" {
+		t.Errorf("SetPos: %s", show(v))
+	}
 }

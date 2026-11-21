@@ -220,7 +220,7 @@ func rawNumber(raw []byte) float64 {
 		case c >= '0' && c <= '9':
 			if digits >= 15 {
 				v, _ := syntax.ParseNumber(raw, 0)
-				return v.F
+				return v.Number()
 			}
 			v = v*10 + float64(c-'0')
 			digits++
@@ -231,7 +231,7 @@ func rawNumber(raw []byte) float64 {
 			dot, scale = true, 1
 		default:
 			v, _ := syntax.ParseNumber(raw, 0)
-			return v.F
+			return v.Number()
 		}
 	}
 	if dot {

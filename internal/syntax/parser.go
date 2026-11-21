@@ -70,13 +70,9 @@ func (p *Parser) close(base int) []Value {
 		clear(p.stack[base:]) // nothing of the file is held by the room that is kept
 	}
 	p.stack = p.stack[:base]
-	if p.opened--; p.opened == 0 {
-		if cap(p.stack) <= maxKeptStack {
-			*p.box = p.stack
-			stacks.Put(p.box)
-		}
-		p.stack, p.box = nil, nil
-	}
+	// The stack goes back to the pool in release: a container is always
+	// read inside the open and release of Object.
+	p.opened--
 	return list
 }
 
@@ -98,34 +94,103 @@ func (p *Parser) SetPos(pos int) { p.pos = pos }
 // Object reads the next object. Two integers followed by R are returned
 // as one Ref. At the end of the data it returns io.EOF; at a byte that
 // cannot start an object it returns ErrSyntax and stays at that byte.
-func (p *Parser) Object() (Value, error) { return p.object(0) }
+func (p *Parser) Object() (Value, error) {
+	p.pos = SkipSpace(p.data, p.pos)
+	var v Value
+	if !p.atContainer() {
+		return v, p.scalar(&v)
+	}
+	base := p.open()
+	err := p.elem(0)
+	if err == nil {
+		v = p.stack[base]
+	}
+	p.release(base)
+	return v, err
+}
 
-func (p *Parser) object(depth int) (Value, error) {
+// A Value is large, and copying it through the functions that read it
+// was much of the time of reading a file's objects: so a value is made
+// where it is kept. A scalar is read into a Value given by pointer; the
+// elements of arrays and dictionaries are made in place on the stack,
+// known by their index there, since the stack grows as nested
+// containers are read.
+
+// atContainer reports whether an array or a dictionary starts at the
+// position.
+func (p *Parser) atContainer() bool {
+	if p.pos >= len(p.data) {
+		return false
+	}
+	c := p.data[p.pos]
+	return c == '[' || c == '<' && p.pos+1 < len(p.data) && p.data[p.pos+1] == '<'
+}
+
+// elem reads the next object onto the stack. On an error the stack is as
+// it was.
+func (p *Parser) elem(depth int) error {
+	p.pos = SkipSpace(p.data, p.pos)
+	i := len(p.stack)
+	p.stack = append(p.stack, Value{})
+	var err error
+	switch {
+	case p.pos >= len(p.data) || !p.atContainer():
+		err = p.scalar(&p.stack[i])
+	case p.data[p.pos] == '[':
+		err = p.array(i, depth)
+	default:
+		err = p.dict(i, depth)
+	}
+	if err != nil {
+		p.pop(i)
+	}
+	return err
+}
+
+// pop takes the stack back to n elements, clearing what was above.
+func (p *Parser) pop(n int) {
+	clear(p.stack[n:])
+	p.stack = p.stack[:n]
+}
+
+// release ends the use of the stack begun by open at base, without making
+// a list of what is on it.
+func (p *Parser) release(base int) {
+	p.pop(base)
+	if p.opened--; p.opened == 0 {
+		if cap(p.stack) <= maxKeptStack {
+			*p.box = p.stack
+			stacks.Put(p.box)
+		}
+		p.stack, p.box = nil, nil
+	}
+}
+
+// scalar reads an object that is not an array or a dictionary into v,
+// the zero Value.
+func (p *Parser) scalar(v *Value) error {
 	p.pos = SkipSpace(p.data, p.pos)
 	if p.pos >= len(p.data) {
-		return Value{}, io.EOF
+		return io.EOF
 	}
 	switch c := p.data[p.pos]; {
 	case c == '/':
-		return p.name(), nil
+		p.name(v)
 	case c == '(':
-		return p.literalString(), nil
+		*v = p.literalString()
 	case c == '<':
-		if p.pos+1 < len(p.data) && p.data[p.pos+1] == '<' {
-			return p.dict(depth)
-		}
-		return p.hexString(), nil
-	case c == '[':
-		return p.array(depth)
+		*v = p.hexString()
 	case c >= '0' && c <= '9', c == '+', c == '-', c == '.':
-		return p.numberOrRef(), nil
+		p.numberOrRef(v)
 	case class[c] == classDelim:
-		return Value{}, ErrSyntax
+		return ErrSyntax
+	default:
+		p.keyword(v)
 	}
-	return p.keyword(), nil
+	return nil
 }
 
-func (p *Parser) keyword() Value {
+func (p *Parser) keyword(v *Value) {
 	start := p.pos
 	for p.pos < len(p.data) && class[p.data[p.pos]] == classRegular {
 		p.pos++
@@ -133,16 +198,16 @@ func (p *Parser) keyword() Value {
 	tok := p.data[start:p.pos]
 	switch string(tok) {
 	case "true":
-		return Value{Kind: Bool, N: 1}
+		v.Kind, v.N = Bool, 1
 	case "false":
-		return Value{Kind: Bool}
+		v.Kind = Bool
 	case "null":
-		return Value{}
+	default:
+		v.Kind, v.Data = Keyword, tok
 	}
-	return Value{Kind: Keyword, Data: tok}
 }
 
-func (p *Parser) name() Value {
+func (p *Parser) name(v *Value) {
 	p.pos++ // the slash
 	start := p.pos
 	escaped := false
@@ -153,8 +218,10 @@ func (p *Parser) name() Value {
 		p.pos++
 	}
 	raw := p.data[start:p.pos]
+	v.Kind = Name
 	if !escaped {
-		return Value{Kind: Name, Data: raw}
+		v.Data = raw
+		return
 	}
 	out := make([]byte, 0, len(raw))
 	for i := 0; i < len(raw); i++ {
@@ -165,7 +232,7 @@ func (p *Parser) name() Value {
 		}
 		out = append(out, raw[i])
 	}
-	return Value{Kind: Name, Data: out}
+	v.Data = out
 }
 
 func isHex(c byte) bool {
@@ -303,9 +370,10 @@ func Unhex(dst, raw []byte) []byte {
 	return dst
 }
 
-func (p *Parser) array(depth int) (Value, error) {
+// array reads an array into the element i of the stack.
+func (p *Parser) array(i, depth int) error {
 	if depth >= p.maxDepth {
-		return Value{}, ErrTooDeep
+		return ErrTooDeep
 	}
 	p.pos++ // the opening bracket
 	base := p.open()
@@ -318,24 +386,25 @@ func (p *Parser) array(depth int) (Value, error) {
 			p.pos++
 			break
 		}
-		v, err := p.object(depth + 1)
+		err := p.elem(depth + 1)
 		if err == ErrTooDeep {
 			p.close(base)
-			return Value{}, err
+			return err
 		}
 		if err != nil {
 			p.pos++ // a byte that starts nothing
 			p.Skipped++
-			continue
 		}
-		p.stack = append(p.stack, v)
 	}
-	return Value{Kind: Array, List: p.close(base)}, nil
+	list := p.close(base)
+	p.stack[i].Kind, p.stack[i].List = Array, list
+	return nil
 }
 
-func (p *Parser) dict(depth int) (Value, error) {
+// dict reads a dictionary into the element i of the stack.
+func (p *Parser) dict(i, depth int) error {
 	if depth >= p.maxDepth {
-		return Value{}, ErrTooDeep
+		return ErrTooDeep
 	}
 	p.pos += 2 // the opening brackets
 	base := p.open()
@@ -353,44 +422,49 @@ func (p *Parser) dict(depth int) (Value, error) {
 		}
 		if p.data[p.pos] != '/' {
 			// Not a key. Read past whatever it is.
-			if _, err := p.object(depth + 1); err == ErrTooDeep {
+			n := len(p.stack)
+			if err := p.elem(depth + 1); err == ErrTooDeep {
 				p.close(base)
-				return Value{}, err
+				return err
 			} else if err != nil {
 				p.pos++
 			}
+			p.pop(n)
 			p.Skipped++
 			continue
 		}
-		key := p.name()
+		k := len(p.stack)
+		p.stack = append(p.stack, Value{})
+		p.name(&p.stack[k])
 		p.pos = SkipSpace(p.data, p.pos)
 		// A key directly followed by the end of the dictionary or by
 		// another key has no value: it reads as null.
-		var val Value
 		if p.pos < len(p.data) && p.data[p.pos] != '>' {
-			v, err := p.object(depth + 1)
+			err := p.elem(depth + 1)
 			if err == ErrTooDeep {
 				p.close(base)
-				return Value{}, err
+				return err
 			}
 			if err != nil {
 				p.pos++
 				p.Skipped++
-				continue
+				p.pop(k)
 			}
-			val = v
+			continue
 		}
-		p.stack = append(p.stack, key, val)
+		p.stack = append(p.stack, Value{})
 	}
-	return Value{Kind: Dict, List: p.close(base)}, nil
+	list := p.close(base)
+	p.stack[i].Kind, p.stack[i].List = Dict, list
+	return nil
 }
 
 // numberOrRef reads a number and, when it is a non-negative integer
 // followed by another and by R, the whole indirect reference.
-func (p *Parser) numberOrRef() Value {
-	v := p.number()
+func (p *Parser) numberOrRef(v *Value) {
+	p.number(v)
 	if v.Kind != Int || v.N < 0 {
-		return v
+		return
 	}
 	// Look ahead for "generation R".
 	q := SkipSpace(p.data, p.pos)
@@ -401,31 +475,36 @@ func (p *Parser) numberOrRef() Value {
 		digits++
 	}
 	if digits == 0 || q >= len(p.data) || class[p.data[q]] != classSpace {
-		return v
+		return
 	}
 	q = SkipSpace(p.data, q)
 	if q < len(p.data) && p.data[q] == 'R' && (q+1 == len(p.data) || class[p.data[q+1]] != classRegular) {
 		p.pos = q + 1
-		return Value{Kind: Ref, N: v.N, Gen: uint16(min(gen, math.MaxUint16))}
+		v.Kind, v.Gen = Ref, uint16(min(gen, math.MaxUint16))
 	}
-	return v
 }
 
 // number reads a numeric token. PDF numbers have no exponent. The token
 // ends where the number does, so "1-2" reads as two numbers, as other
 // readers treat it.
-func (p *Parser) number() Value {
-	v, end := ParseNumber(p.data, p.pos)
+func (p *Parser) number(v *Value) {
+	end := parseNumber(v, p.data, p.pos)
 	if end == p.pos {
 		end++ // cannot happen for a byte that starts a number; stay safe
 	}
 	p.pos = end
-	return v
 }
 
 // ParseNumber reads the number that starts at pos and returns it with the
 // position after it. A sign or a point with no digits reads as 0.
 func ParseNumber(data []byte, pos int) (Value, int) {
+	var v Value
+	end := parseNumber(&v, data, pos)
+	return v, end
+}
+
+// parseNumber is ParseNumber into v, the zero Value.
+func parseNumber(v *Value, data []byte, pos int) int {
 	i := pos
 	neg := false
 	if i < len(data) && (data[i] == '+' || data[i] == '-') {
@@ -436,30 +515,37 @@ func ParseNumber(data []byte, pos int) (Value, int) {
 			i++
 		}
 	}
+	// An integer, the common case, is read without a float.
+	digits := i
 	var whole uint64
 	overflow := false
-	var f float64
 	for i < len(data) && data[i] >= '0' && data[i] <= '9' {
 		d := uint64(data[i] - '0')
 		if whole > (math.MaxInt64-d)/10 {
 			overflow = true
 		}
 		whole = whole*10 + d
-		f = f*10 + float64(d)
 		i++
 	}
-	if i >= len(data) || data[i] != '.' {
-		if overflow {
-			if neg {
-				f = -f
-			}
-			return Value{Kind: Real, F: f}, i
-		}
+	if !overflow && (i >= len(data) || data[i] != '.') {
 		n := int64(whole)
 		if neg {
 			n = -n
 		}
-		return Value{Kind: Int, N: n, F: float64(n)}, i
+		v.Kind, v.N = Int, n
+		return i
+	}
+	// A real, or an integer beyond int64: the digits again, as a float.
+	var f float64
+	for i = digits; i < len(data) && data[i] >= '0' && data[i] <= '9'; i++ {
+		f = f*10 + float64(data[i]-'0')
+	}
+	if i >= len(data) || data[i] != '.' {
+		if neg {
+			f = -f
+		}
+		v.Kind, v.N = Real, int64(math.Float64bits(f))
+		return i
 	}
 	i++ // the point
 	scale := 1.0
@@ -474,7 +560,8 @@ func ParseNumber(data []byte, pos int) (Value, int) {
 	if neg {
 		f = -f
 	}
-	return Value{Kind: Real, F: f}, i
+	v.Kind, v.N = Real, int64(math.Float64bits(f))
+	return i
 }
 
 // StreamData reports whether the keyword stream follows at pos (after

@@ -6,6 +6,8 @@
 // not be modified.
 package syntax
 
+import "math"
+
 // Kind is the type of a Value.
 type Kind uint8
 
@@ -51,11 +53,10 @@ type Value struct {
 	Gen uint16
 	// Obj is the object number of a Stream.
 	Obj uint32
-	// N is the value of an Int or Bool (0 or 1), the object number of a
-	// Ref, or the data offset of a Stream.
+	// N is the value of an Int or Bool (0 or 1), the bits of the float64
+	// of a Real (Float and Number read it), the object number of a Ref,
+	// or the data offset of a Stream.
 	N int64
-	// F is the value of a Real, and of an Int as a float.
-	F float64
 	// Data is the bytes of a Name, String or Keyword.
 	Data []byte
 	// List is the elements of an Array or the entries of a Dict or Stream.
@@ -68,20 +69,24 @@ func (v Value) IsNull() bool { return v.Kind == Null }
 // IsDict reports whether v has dictionary entries: a Dict or a Stream.
 func (v Value) IsDict() bool { return v.Kind == Dict || v.Kind == Stream }
 
+// RealValue returns a Real of value f.
+func RealValue(f float64) Value { return Value{Kind: Real, N: int64(math.Float64bits(f))} }
+
 // Float returns the value of a number.
 func (v Value) Float() (float64, bool) {
-	if v.Kind == Int || v.Kind == Real {
-		return v.F, true
+	switch v.Kind {
+	case Int:
+		return float64(v.N), true
+	case Real:
+		return math.Float64frombits(uint64(v.N)), true
 	}
 	return 0, false
 }
 
 // Number returns the value of a number, or 0 for anything else.
 func (v Value) Number() float64 {
-	if v.Kind == Int || v.Kind == Real {
-		return v.F
-	}
-	return 0
+	f, _ := v.Float()
+	return f
 }
 
 // Integer returns the value of an Int, or of a Real with no fraction that
@@ -91,8 +96,8 @@ func (v Value) Integer() (int64, bool) {
 	case Int:
 		return v.N, true
 	case Real:
-		if v.F == float64(int64(v.F)) && v.F > -1e15 && v.F < 1e15 {
-			return int64(v.F), true
+		if f := math.Float64frombits(uint64(v.N)); f == float64(int64(f)) && f > -1e15 && f < 1e15 {
+			return int64(f), true
 		}
 	}
 	return 0, false

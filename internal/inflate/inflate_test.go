@@ -6,6 +6,7 @@ import (
 	"compress/zlib"
 	"errors"
 	"fmt"
+	stdAdler32 "hash/adler32"
 	"io"
 	"math/rand"
 	"testing"
@@ -367,4 +368,47 @@ func BenchmarkZlib(b *testing.B) {
 			}
 		})
 	}
+}
+
+// adler32 gives what hash/adler32 gives, for every length up to past
+// two of its reductions and for bytes that make the sums largest.
+func TestAdler32(t *testing.T) {
+	data := make([]byte, 3*adlerMax+40)
+	for i := range data {
+		data[i] = byte(i*7 + i>>8)
+	}
+	full := bytes.Repeat([]byte{0xff}, len(data))
+	for _, d := range [][]byte{data, full} {
+		for n := 0; n <= len(d); n += 1 + n/64 {
+			if got, want := adler32(d[:n]), stdAdler32.Checksum(d[:n]); got != want {
+				t.Fatalf("%d bytes: %08x, want %08x", n, got, want)
+			}
+		}
+	}
+}
+
+func FuzzAdler32(f *testing.F) {
+	f.Add([]byte("Wikipedia"))
+	f.Add(bytes.Repeat([]byte{0xff}, 2*adlerMax+17))
+	f.Fuzz(func(t *testing.T, p []byte) {
+		if got, want := adler32(p), stdAdler32.Checksum(p); got != want {
+			t.Fatalf("%08x, want %08x", got, want)
+		}
+	})
+}
+
+func BenchmarkAdler32(b *testing.B) {
+	data := samples()["text"]
+	b.Run("inflate", func(b *testing.B) {
+		b.SetBytes(int64(len(data)))
+		for b.Loop() {
+			adler32(data)
+		}
+	})
+	b.Run("hash-adler32", func(b *testing.B) {
+		b.SetBytes(int64(len(data)))
+		for b.Loop() {
+			stdAdler32.Checksum(data)
+		}
+	})
 }

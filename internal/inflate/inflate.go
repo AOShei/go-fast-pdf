@@ -11,7 +11,6 @@ package inflate
 import (
 	"encoding/binary"
 	"errors"
-	"hash/adler32"
 	"math"
 	"math/bits"
 	"sync"
@@ -37,8 +36,8 @@ var (
 const (
 	// The bits of a code that index the first level of a table. Codes
 	// longer than that go through a second level.
-	litBits  = 9
-	distBits = 6
+	litBits  = 10
+	distBits = 7
 	lenBits  = 7 // the code of the code lengths has no longer codes
 
 	maxCodeLen = 15
@@ -324,7 +323,7 @@ func Zlib(dst, src []byte, limit int64) ([]byte, error) {
 	if trailer+4 > len(src) {
 		return out, ErrShort
 	}
-	if binary.BigEndian.Uint32(src[trailer:]) != adler32.Checksum(out[base:]) {
+	if binary.BigEndian.Uint32(src[trailer:]) != adler32(out[base:]) {
 		return out, ErrChecksum
 	}
 	return out, nil

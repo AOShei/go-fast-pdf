@@ -89,7 +89,7 @@ that is newly reported.
 ### Checked before the release
 
 On the tree that is tagged: the 3,186 files of the corpora read in processes of their own, three
-times, with no crash, hang or memory failure, at most 2.3 s and 674 MiB for a file; the documents
+times, with no crash, hang or memory failure, at most 2.4 s and 675 MiB for a file; the documents
 the same as those of v0.2.0 except for the nine that gain what a bound cut; fuzzing of every target
 for an hour on machines of four processors, 3.8 billion inputs, with nothing left that it found (the
 five defects it found on the way are fixed above); the public corpus read in 1.3 s on one thread.

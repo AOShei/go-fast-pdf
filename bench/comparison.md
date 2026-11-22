@@ -4,14 +4,14 @@ Written by `go run ./bench/compare`. Do not edit: run it again.
 
 | | Pages per second | Time against go-fast-pdf | Most memory |
 |---|---:|---:|---:|
-| go-fast-pdf | 10,111 | 1 | 32 MB |
-| go-fast-pdf, all processors | 19,975 | 0.51 times | 63 MB |
-| gofastpdf (the command) | 8,014 | 1.26 times | 22 MB |
-| pdftotext (poppler) | 1,983 | 5.10 times | 20 MB |
-| PyMuPDF | 2,236 | 4.52 times | 62 MB |
-| pypdfium2 (PDFium) | 2,197 | 4.60 times | 30 MB |
-| pypdf | 350 | 28.9 times | 72 MB |
-| pdfplumber | 57 | 178 times | 52 MB |
+| go-fast-pdf | 10,011 | 1 | 30 MB |
+| go-fast-pdf, all processors | 19,773 | 0.51 times | 59 MB |
+| gofastpdf (the command) | 7,907 | 1.27 times | 24 MB |
+| pdftotext (poppler) | 1,989 | 5.03 times | 20 MB |
+| PyMuPDF | 2,234 | 4.48 times | 62 MB |
+| pypdfium2 (PDFium) | 2,202 | 4.55 times | 30 MB |
+| pypdf | 345 | 29.1 times | 72 MB |
+| pdfplumber | 56 | 178 times | 53 MB |
 
 8 documents, 530 pages, 9.7 MB: the long documents of the public corpus's tuning set and one small one.
 Each program reads each document 5 times and its best time counts. Measured on AMD Ryzen 9 9900X 12-Core Processor (24 threads, linux/amd64) with go1.27.3-X:nodwarf5, 2026-11-22.
@@ -23,9 +23,9 @@ Each program reads a file from the disk and gives the text of all its pages.
 
 | Program | Version | What is timed |
 |---|---|---|
-| go-fast-pdf | commit 3c5a9c5 | library, one worker |
-| go-fast-pdf, all processors | commit 3c5a9c5 | library, 24 workers |
-| gofastpdf (the command) | commit 3c5a9c5 | command, text output, one worker; the time of the process |
+| go-fast-pdf | commit 09513b2 | library, one worker |
+| go-fast-pdf, all processors | commit 09513b2 | library, 24 workers |
+| gofastpdf (the command) | commit 09513b2 | command, text output, one worker; the time of the process |
 | pdftotext (poppler) | 26.10.0 | command; the time of the process |
 | PyMuPDF | 2.1 | Python library; the time of its calls, without starting Python |
 | pypdfium2 (PDFium) | 5.15.2 | Python library; the time of its calls, without starting Python |
@@ -52,14 +52,14 @@ Milliseconds, best run.
 
 | Document | Pages | go-fast-pdf | go-fast-pdf, all processors | gofastpdf (the command) | pdftotext (poppler) | PyMuPDF | pypdfium2 (PDFium) | pypdf | pdfplumber |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| english.pdf (in the repository) | 3 | 0.086 | 0.137 | 1.51 | 5.12 | 1.01 | 1.22 | 3.90 | 34.7 |
-| govdocs1-000/000762.pdf | 112 | 12.8 | 3.62 | 15.3 | 54.3 | 52.7 | 55.5 | 410 | 2,095 |
-| govdocs1-000/000153.pdf | 108 | 9.13 | 6.09 | 11.4 | 40.3 | 34.9 | 41.0 | 269 | 1,272 |
-| govdocs1-000/000359.pdf | 77 | 14.2 | 5.09 | 16.4 | 44.9 | 37.0 | 37.3 | 345 | 1,568 |
-| govdocs1-000/000578.pdf | 75 | 2.71 | 2.58 | 4.29 | 32.0 | 33.2 | 27.4 | 112 | 1,214 |
-| govdocs1-000/000807.pdf | 58 | 5.45 | 3.05 | 6.80 | 36.6 | 29.0 | 25.0 | 161 | 792 |
-| govdocs1-000/000358.pdf | 52 | 2.94 | 2.58 | 4.33 | 20.4 | 19.8 | 23.7 | 82.0 | 988 |
-| govdocs1-000/000325.pdf | 45 | 5.11 | 3.38 | 6.06 | 33.6 | 29.5 | 30.1 | 130 | 1,352 |
+| english.pdf (in the repository) | 3 | 0.109 | 0.135 | 1.69 | 5.28 | 1.03 | 1.25 | 3.93 | 34.9 |
+| govdocs1-000/000762.pdf | 112 | 12.9 | 4.07 | 15.6 | 55.6 | 52.5 | 56.0 | 415 | 2,141 |
+| govdocs1-000/000153.pdf | 108 | 9.35 | 6.64 | 11.3 | 40.5 | 35.1 | 40.5 | 278 | 1,283 |
+| govdocs1-000/000359.pdf | 77 | 14.2 | 4.83 | 17.1 | 44.6 | 37.0 | 37.5 | 353 | 1,604 |
+| govdocs1-000/000578.pdf | 75 | 2.73 | 2.25 | 4.24 | 32.1 | 33.4 | 27.7 | 113 | 1,232 |
+| govdocs1-000/000807.pdf | 58 | 5.56 | 2.66 | 6.78 | 35.9 | 29.0 | 24.8 | 163 | 800 |
+| govdocs1-000/000358.pdf | 52 | 3.06 | 2.17 | 4.28 | 19.0 | 19.4 | 23.1 | 82.1 | 996 |
+| govdocs1-000/000325.pdf | 45 | 5.00 | 4.06 | 6.01 | 33.5 | 29.7 | 29.9 | 131 | 1,355 |
 
 Characters of text, as each program counts its own output:
 

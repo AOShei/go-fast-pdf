@@ -8,6 +8,11 @@
   public corpus's tuning set on one worker takes 4.5 percent fewer instructions, and the tokeniser's
   share of the time falls from 16 to 10 percent. The output is unchanged: the same JSON for all 3,253
   files of the corpora and fixtures, and a fuzz target that compares it with the reader as it was.
+- **Decompression is 9 percent faster** (#74) on the zlib streams of the tuning set, which are a fifth of
+  the time to read it: the Adler-32 checksum is computed 32 bytes at a step, 1.7 times as fast as
+  `hash/adler32`, and the first level of the decoding tables is of 10 bits for literals and 7 for
+  distances, where 9 and 6 took more second looks. Reading the tuning set takes 1.3 percent fewer
+  instructions; the output is unchanged.
 
 ## v0.2.1 (2026-11-22)
 

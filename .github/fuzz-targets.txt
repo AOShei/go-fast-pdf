@@ -5,6 +5,7 @@
 # fixed and its input is committed under the package's testdata/fuzz.
 ./internal/syntax FuzzParser
 ./internal/content FuzzScanner
+./internal/content FuzzSameAsBefore
 ./internal/font FuzzCMap
 ./internal/font FuzzFont
 ./internal/charset FuzzTextString

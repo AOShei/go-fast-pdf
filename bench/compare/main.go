@@ -11,7 +11,12 @@
 //   - pdftotext (poppler) on the path;
 //   - a Python with PyMuPDF, pypdfium2, pypdf and pdfplumber, which is
 //     ../bench-env/.venv/bin/python unless -python names another
-//     a virtual environment with those packages installed by pip.
+//     a virtual environment with those packages installed by pip;
+//   - the program of bench/tools/rust, which times the Rust libraries
+//     pdf_oxide, pdf-extract and lopdf, built with
+//     CARGO_TARGET_DIR=../../../../bench-env/rust-target cargo build --release
+//     in that directory: ../bench-env/rust-target/release/pdfbench-rust
+//     unless -rust names another.
 //
 // A program that is not there is left out of the table and named as
 // missing. Nothing here is imported by the library, and the Python
@@ -74,6 +79,7 @@ type document struct {
 
 var (
 	pythonPath = flag.String("python", filepath.Join("..", "bench-env", ".venv", "bin", "python"), "the Python that has the other libraries")
+	rustPath   = flag.String("rust", filepath.Join("..", "bench-env", "rust-target", "release", "pdfbench-rust"), "the program that times the Rust libraries (bench/tools/rust)")
 	cacheDir   = flag.String("cache", "", "the corpus cache (default: $GOFASTPDF_CACHE, or gofastpdf-corpus in the user's cache directory)")
 	repeats    = flag.Int("repeats", 5, "runs of each program on each document; the best counts")
 	budget     = flag.Duration("budget", 20*time.Second, "stop repeating a program on a document after this much time")
@@ -165,6 +171,11 @@ func compare() error {
 	for _, lib := range [][2]string{{"PyMuPDF", "pymupdf"}, {"pypdfium2 (PDFium)", "pypdfium2"}, {"pypdf", "pypdf"}, {"pdfplumber", "pdfplumber"}} {
 		tools = append(tools, tool{name: lib[0], note: "Python library; the time of its calls, without starting Python", run: func(path string) result {
 			return child(*pythonPath, "-I", script, lib[1], path, strconv.Itoa(*repeats), strconv.FormatFloat(budget.Seconds(), 'f', 1, 64))
+		}})
+	}
+	for _, lib := range []string{"pdf_oxide", "pdf-extract", "lopdf"} {
+		tools = append(tools, tool{name: lib + " (Rust)", note: "Rust library; the time of its calls, without starting the program", run: func(path string) result {
+			return child(*rustPath, lib, path, strconv.Itoa(*repeats), strconv.FormatFloat(budget.Seconds(), 'f', 1, 64))
 		}})
 	}
 

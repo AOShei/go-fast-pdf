@@ -48,6 +48,9 @@ type trueTypeText struct {
 	texts map[int]string // by glyph, those of more than one character
 	// pieces is set when a glyph's text is a piece of a letter (IsPiece).
 	pieces atomic.Bool
+	// cut is set when the program is longer than maxProgramBytes and
+	// only its beginning was read.
+	cut atomic.Bool
 	// byOutline holds the glyphs whose text is that of a known glyph with
 	// their outline (glyphs.go), a bit each.
 	byOutline []uint64
@@ -83,7 +86,8 @@ func (t *trueTypeText) read() {
 			t.gids = []byte{}
 		}
 	}
-	data, _ := t.f.Decode(t.program, nil, maxProgramBytes)
+	data, err := t.f.Decode(t.program, nil, maxProgramBytes)
+	t.cut.Store(err == file.ErrTruncated)
 	tables := sfntTables(data)
 	t.chars = glyphChars(tables["cmap"])
 	// A glyph the cmap does not reach has the character its name says.

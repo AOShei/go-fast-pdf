@@ -544,6 +544,13 @@
 // Scripts and actions are looked for on the pages that are extracted
 // and in the catalog and the form fields; no script is read.
 //
+// limit.exceeded, an error, reports what a limit cut: of the Limits, and
+// of the fixed bounds of this package that SECURITY.md lists, such as
+// the annotations read on a page or the length of a name. It is given
+// once for each limit, on the part or the document that was cut. Of the
+// warnings of the document as a whole, eight of a code are kept, in the
+// order of their messages, and one more counts the others.
+//
 // Codes that only this package uses, each for a fact about the file:
 //
 //	pdf.glyph_text_assumed          characters of a font that does not

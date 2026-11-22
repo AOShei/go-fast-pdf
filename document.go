@@ -3,6 +3,7 @@ package gofastpdf
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -20,6 +21,7 @@ import (
 const (
 	maxTreeNodes   = 1 << 16 // nodes of one name tree or number tree
 	maxTreeEntries = 1 << 20
+	maxTreeDepth   = 32
 	// maxNameBytes is the longest name of an attached file that is kept,
 	// and the longest type it may state. A file can give every one of
 	// its attached files one long string as its name; held to the length
@@ -134,8 +136,12 @@ func (f *File) describe() *described {
 
 		// --- attached files ---
 		walkTree(in, names.Get("EmbeddedFiles"), "Names", func(key, val syntax.Value) bool {
-			d.attachments = append(d.attachments, attachment{name: clipName(text(in, key)), spec: val})
-			return len(d.attachments) < maxAttachments
+			if len(d.attachments) >= maxAttachments {
+				cutWarn(in, msgAttachmentsCut)
+				return false
+			}
+			d.attachments = append(d.attachments, attachment{name: clipName(in, text(in, key)), spec: val})
+			return true
 		})
 
 		// --- what the file holds and shows nowhere ---
@@ -151,7 +157,11 @@ func (f *File) describe() *described {
 func (st *state) attach(ctx context.Context, doc *gofastcore.Document, list []attachment) {
 	seen := map[int64]bool{}
 	for i := range list {
-		if ctx.Err() != nil || len(doc.Children) >= maxAttachments {
+		if ctx.Err() != nil {
+			break
+		}
+		if len(doc.Children) >= maxAttachments {
+			cutWarn(st.f.f, msgAttachmentsCut)
 			break
 		}
 		a := &list[i]
@@ -167,11 +177,13 @@ func (st *state) attach(ctx context.Context, doc *gofastcore.Document, list []at
 	}
 }
 
-// clipName holds a name to maxNameBytes, cutting between characters.
-func clipName(s string) string {
+// clipName holds a name to maxNameBytes, cutting between characters,
+// and reports the cut to f (none when f is nil).
+func clipName(f *file.File, s string) string {
 	if len(s) <= maxNameBytes {
 		return s
 	}
+	cutWarn(f, msgNameCut)
 	n := maxNameBytes
 	for n > 0 && !utf8.RuneStart(s[n]) {
 		n--
@@ -325,12 +337,20 @@ func walkTree(f *file.File, root syntax.Value, leaf string, fn func(key, val syn
 			seen[n] = true
 		}
 		node := f.Resolve(v)
-		if nodes++; !node.IsDict() || nodes > maxTreeNodes || depth > 32 {
+		if nodes++; !node.IsDict() {
+			return true
+		}
+		if nodes > maxTreeNodes || depth > maxTreeDepth {
+			cutWarn(f, msgTreeCut)
 			return true
 		}
 		list := f.Resolve(node.Get(leaf)).Elems()
 		for i := 0; i+1 < len(list); i += 2 {
-			if entries++; entries > maxTreeEntries || !fn(f.Resolve(list[i]), list[i+1]) {
+			if entries++; entries > maxTreeEntries {
+				cutWarn(f, msgTreeCut)
+				return false
+			}
+			if !fn(f.Resolve(list[i]), list[i+1]) {
 				return false
 			}
 		}
@@ -508,7 +528,11 @@ func outline(f *file.File, dests *destinations, outlines syntax.Value, most int6
 		level int
 	}
 	stack := []entry{{outlines.Get("First"), 1}}
-	for len(stack) > 0 && len(out) < maxOutlineItems {
+	for len(stack) > 0 {
+		if len(out) >= maxOutlineItems {
+			cutWarn(f, fmt.Sprintf("the outline has more than %d entries; the rest are not read", maxOutlineItems))
+			break
+		}
 		e := stack[len(stack)-1]
 		stack = stack[:len(stack)-1]
 		if n := file.RefNumber(e.ref); n != 0 {
@@ -531,8 +555,12 @@ func outline(f *file.File, dests *destinations, outlines syntax.Value, most int6
 		if next := item.Get("Next"); !next.IsNull() {
 			stack = append(stack, entry{next, e.level})
 		}
-		if first := item.Get("First"); !first.IsNull() && e.level < maxOutlineDepth {
-			stack = append(stack, entry{first, e.level + 1})
+		if first := item.Get("First"); !first.IsNull() {
+			if e.level < maxOutlineDepth {
+				stack = append(stack, entry{first, e.level + 1})
+			} else {
+				cutWarn(f, fmt.Sprintf("the outline is nested more than %d levels deep; the entries below that are not read", maxOutlineDepth))
+			}
 		}
 	}
 	return out, false
@@ -567,7 +595,7 @@ func (st *state) child(ctx context.Context, a *attachment) (doc *gofastcore.Docu
 	name := a.name
 	for _, key := range []string{"UF", "F", "Unix", "Mac", "DOS"} {
 		if s := text(f, spec.Get(key)); s != "" {
-			name = clipName(s)
+			name = clipName(st.f.f, s)
 			break
 		}
 	}
@@ -583,7 +611,7 @@ func (st *state) child(ctx context.Context, a *attachment) (doc *gofastcore.Docu
 	}
 	mime := ""
 	if sub := f.Resolve(stream.Get("Subtype")); sub.Kind == syntax.Name {
-		mime = clipName(cleanString(strings.ToValidUTF8(sub.NameString(), "�")))
+		mime = clipName(st.f.f, cleanString(strings.ToValidUTF8(sub.NameString(), "�")))
 	}
 	size, _ := f.Resolve(f.Resolve(stream.Get("Params")).Get("Size")).Integer()
 	if size < 0 {
@@ -611,10 +639,14 @@ func (st *state) child(ctx context.Context, a *attachment) (doc *gofastcore.Docu
 		st.attachmentsCut = true
 		return opts.ExtractChild(ctx, name, mime, nil, size)
 	}
+	perStream := f.Limits().MaxStreamBytes < st.budget
 	data, err := f.Decode(stream, []byte{}, min(st.budget, f.Limits().MaxStreamBytes))
 	st.budget -= int64(len(data))
 	if err != nil {
-		if err == file.ErrTruncated {
+		switch {
+		case err == file.ErrTruncated && perStream:
+			st.attachmentsLong = true
+		case err == file.ErrTruncated:
 			st.attachmentsCut = true
 		}
 		return failed(cleanString("the attached file could not be decoded: " + err.Error()))
@@ -646,6 +678,8 @@ func (e *Extractor) annotations(f *file.File, p *file.Page, out *pageOut) {
 		if f.Resolve(a.Get("Subtype")).IsName("FileAttachment") {
 			if len(out.attachments) < maxAttachments {
 				out.attachments = append(out.attachments, attachment{spec: a.Get("FS")})
+			} else {
+				cutWarn(f, msgAttachmentsCut)
 			}
 			continue
 		}
@@ -686,6 +720,8 @@ func scanAction(f *file.File, act syntax.Value, out *pageOut, depth int) {
 		out.active = true
 		if len(out.scripts) < maxScripts {
 			out.scripts = append(out.scripts, script{js: act.Get("JS")})
+		} else {
+			cutWarn(f, msgScriptsCut)
 		}
 	case "Launch":
 		out.active = true
@@ -733,5 +769,8 @@ func scanFields(f *file.File, fields syntax.Value, out *pageOut) {
 		}
 		scanActions(f, field.Get("AA"), out)
 		stack = append(stack, f.Resolve(field.Get("Kids")).Elems()...)
+	}
+	if len(stack) > 0 {
+		cutWarn(f, msgFieldsCut)
 	}
 }

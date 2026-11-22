@@ -55,7 +55,10 @@ type Font struct {
 	// SpaceWidth is the advance of the space, as a fraction of the font
 	// size. It is 0.25 when the font does not say.
 	SpaceWidth float64
-	// Truncated is set when a table of the font was larger than is kept.
+	// Truncated is set when a table of the font was larger than is kept:
+	// its ToUnicode or encoding CMap, its widths, or its program. Cut
+	// says so too of a program read later, when text is first asked of
+	// it.
 	Truncated bool
 	// LongestText is the length in bytes of the longest text that one
 	// character code of the font stands for.
@@ -280,6 +283,13 @@ var Default = func() *Font {
 }()
 
 type cacheKey struct{ obj int64 }
+
+// Cut reports whether a table of the font was larger than is kept, and
+// the text or the advance of some of its codes may be missing or wrong:
+// Truncated, or a program read for the font's text that was cut.
+func (f *Font) Cut() bool {
+	return f.Truncated || f.tt != nil && f.tt.cut.Load()
+}
 
 // Load returns the font that ref refers to, or nil if it is not a font
 // dictionary. Fonts that are indirect objects are parsed once per file.
@@ -620,7 +630,9 @@ func (font *Font) parseSimple(f *file.File, dict syntax.Value, toUni *cmap) {
 		// A font with a ToUnicode CMap has its text from it.
 		if !programRead && embedded && !font.Type3 && toUni == nil {
 			programRead = true
-			program = readSimpleProgram(f, descriptor)
+			var cut bool
+			program, cut = readSimpleProgram(f, descriptor)
+			font.Truncated = font.Truncated || cut
 		}
 		return program
 	}

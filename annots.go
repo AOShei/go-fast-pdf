@@ -131,7 +131,7 @@ func note(f *file.File, a syntax.Value, text func(syntax.Value) (string, bool)) 
 	b := gofastcore.Block{Kind: gofastcore.KindNote, Text: contents}
 	b.Attrs = map[string]string{gofastcore.AttrNoteType: gofastcore.NoteComment}
 	if author, _ := text(a.Get("T")); author != "" {
-		b.Attrs[gofastcore.AttrAuthor] = clipName(author)
+		b.Attrs[gofastcore.AttrAuthor] = clipName(f, author)
 	}
 	if when := parseDate(f.Resolve(a.Get("M"))); !when.IsZero() {
 		b.Attrs[gofastcore.AttrDate] = when.Format(time.RFC3339)
@@ -164,9 +164,10 @@ func fieldOf(f *file.File, widget syntax.Value) formField {
 	haveFlags := false
 	node := widget
 	seen := map[int64]bool{}
-	for depth := 0; depth < maxFieldDepth && node.IsDict(); depth++ {
+	depth := 0
+	for ; depth < maxFieldDepth && node.IsDict(); depth++ {
 		if t := f.Resolve(node.Get("T")); t.Kind == syntax.String {
-			names = append(names, clipName(strings.TrimSpace(cleanString(charset.TextString(t.Data)))))
+			names = append(names, clipName(f, strings.TrimSpace(cleanString(charset.TextString(t.Data)))))
 		}
 		if ff.kind.IsNull() {
 			ff.kind = f.Resolve(node.Get("FT"))
@@ -192,8 +193,11 @@ func fieldOf(f *file.File, widget syntax.Value) formField {
 		}
 		node = f.Resolve(parent)
 	}
+	if depth == maxFieldDepth && node.IsDict() {
+		cutWarn(f, fmt.Sprintf("a form field has more than %d fields above it; the names and values of those further up are not read", maxFieldDepth))
+	}
 	slices.Reverse(names)
-	ff.name = clipName(strings.Trim(strings.Join(names, "."), "."))
+	ff.name = clipName(f, strings.Trim(strings.Join(names, "."), "."))
 	return ff
 }
 
@@ -212,6 +216,7 @@ func fieldChoices(f *file.File, widget syntax.Value, text func(syntax.Value) (st
 	var lines []string
 	for i, o := range ff.options.Elems() {
 		if i >= maxChoices {
+			cutWarn(f, fmt.Sprintf("a choice field has more than %d options; the rest are not read", maxChoices))
 			break
 		}
 		// An option is its text, or a pair of the value that is stored
@@ -286,7 +291,7 @@ func fieldValue(f *file.File, widget syntax.Value, text func(syntax.Value) (stri
 			return extra{}, true
 		}
 		out = strings.TrimSpace(cleanString(strings.ToValidUTF8(value.NameString(), "\uFFFD")))
-		out = clipName(charset.Letters(out))
+		out = clipName(f, charset.Letters(out))
 	}
 	if !ok || out == "" {
 		return extra{}, ok

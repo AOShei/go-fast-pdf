@@ -15,7 +15,7 @@ func FuzzPacket(f *testing.F) {
 	f.Add(`<rdf:Description p:a='1' p:b="2"/><rdf:Description><p:c>&#1114112;&#xD800;&bogus;&</p:c>`)
 	f.Add(`<rdf:RDF xmlns:d="http://purl.org/dc/elements/1.1/"><rdf:Description xmlns:x="http://ns.adobe.com/xap/1.0/"><d:creator><rdf:Seq><rdf:li>a &amp; <![CDATA[b]]></rdf:li></rdf:Seq></d:creator><x:CreateDate>2025-10-21T15:09:24+02:00</x:CreateDate></rdf:Description></rdf:RDF>`)
 	f.Fuzz(func(t *testing.T, src string) {
-		props := packetProperties(src)
+		props := packetProperties(src, func(string) {})
 		// What the document information takes of it keeps to the rules
 		// of the shared model.
 		var md gofastcore.Metadata
@@ -32,7 +32,7 @@ func FuzzPacket(f *testing.F) {
 			t.Fatalf("%d properties", len(props))
 		}
 		for _, p := range props {
-			if len(p.values) > 256 {
+			if len(p.values) > maxXMPValues {
 				t.Fatalf("%d values", len(p.values))
 			}
 			for _, v := range p.values {
@@ -83,7 +83,7 @@ func FuzzXFAData(f *testing.F) {
 	f.Add(`<xdp:xdp><template/><xfa:datasets><xfa:data><f><r><body xmlns="http://www.w3.org/1999/xhtml"><p>rich <b>text</b></p></body></r></f></xfa:data><dd:dataDescription/></xfa:datasets></xdp:xdp>`)
 	f.Add(`<xfa:datasets><xfa:data><f><a/><b></b><c>`)
 	f.Fuzz(func(t *testing.T, src string) {
-		blocks, _ := xfaValues(src, map[string]bool{})
+		blocks, _ := xfaValues(src, map[string]bool{}, func(string) {})
 		if len(blocks) > maxFields {
 			t.Fatalf("%d values", len(blocks))
 		}
@@ -99,11 +99,11 @@ func FuzzXFAData(f *testing.F) {
 // cleaned as text is: found by fuzzing, a property named by a control
 // character.
 func TestNamesAreCleaned(t *testing.T) {
-	props := packetProperties("<rdf:RDF><rdf:Description><\x1c>value</\x1c></rdf:Description></rdf:RDF>")
+	props := packetProperties("<rdf:RDF><rdf:Description><\x1c>value</\x1c></rdf:Description></rdf:RDF>", func(string) {})
 	if len(props) != 1 || props[0].name != "\x1c" {
 		t.Fatalf("%+v", props)
 	}
-	blocks, _ := xfaValues("<xfa:datasets><xfa:data><f\x1c><a\x01>v</a\x01></f\x1c></xfa:data></xfa:datasets>", map[string]bool{})
+	blocks, _ := xfaValues("<xfa:datasets><xfa:data><f\x1c><a\x01>v</a\x01></f\x1c></xfa:data></xfa:datasets>", map[string]bool{}, func(string) {})
 	for _, b := range blocks {
 		for _, r := range b.Attrs["field"] + b.Text {
 			if r < 0x20 && r != '\n' && r != '\t' {

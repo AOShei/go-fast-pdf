@@ -2,7 +2,7 @@ package gofastpdf
 
 import (
 	"bytes"
-	"slices"
+	"fmt"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -140,7 +140,7 @@ func scriptBlocks(r *reader, scripts []script, seen map[string]bool) (blocks []g
 		b := gofastcore.Block{Kind: gofastcore.KindCode, Text: src, Origin: gofastcore.OriginNative}
 		b.Attrs = map[string]string{gofastcore.AttrStored: gofastcore.StoredMacro, gofastcore.AttrLanguage: "javascript"}
 		if s.name != "" {
-			b.Attrs[gofastcore.AttrName] = clipName(s.name)
+			b.Attrs[gofastcore.AttrName] = clipName(r.f, s.name)
 		}
 		blocks = append(blocks, b)
 	}
@@ -168,7 +168,7 @@ func stored(f *file.File, catalog syntax.Value, md *gofastcore.Metadata, scripts
 	variable := func(kind, name, value string) {
 		// The name is the file's too: a property of the packet can be
 		// called anything, a control character included.
-		name = clipName(strings.TrimSpace(cleanString(name)))
+		name = clipName(f, strings.TrimSpace(cleanString(name)))
 		text := charset.Letters(strings.TrimSpace(name + ": " + value))
 		blocks = append(blocks, gofastcore.Block{Kind: gofastcore.KindParagraph, Text: text, Origin: gofastcore.OriginNative,
 			Attrs: map[string]string{gofastcore.AttrStored: kind}})
@@ -178,10 +178,14 @@ func stored(f *file.File, catalog syntax.Value, md *gofastcore.Metadata, scripts
 	// --- scripts: those the document names, then those of its actions ---
 	var named []script
 	walkTree(f, f.Resolve(catalog.Get("Names")).Get("JavaScript"), "Names", func(key, val syntax.Value) bool {
+		if len(named) >= maxScripts {
+			cutWarn(f, msgScriptsCut)
+			return false
+		}
 		if act := f.Resolve(val); act.IsDict() {
 			named = append(named, script{name: text(f, key), js: act.Get("JS")})
 		}
-		return len(named) < maxScripts
+		return true
 	})
 	code, cut := scriptBlocks(r, append(named, scripts...), map[string]bool{})
 	blocks = append(blocks, code...)
@@ -191,6 +195,9 @@ func stored(f *file.File, catalog syntax.Value, md *gofastcore.Metadata, scripts
 
 	// --- entries of the document information that are the file's own ---
 	if info := f.Info(); info.IsDict() {
+		if info.Entries() > maxVariables {
+			cutWarn(f, fmt.Sprintf("the document information has more than %d entries; the rest are not read", maxVariables))
+		}
 		for i := 0; i < info.Entries() && i < maxVariables; i++ {
 			key, val := info.Entry(i)
 			if standardInfo[string(key)] {
@@ -200,7 +207,7 @@ func stored(f *file.File, catalog syntax.Value, md *gofastcore.Metadata, scripts
 			if !ok {
 				return blocks, true
 			}
-			if name := clipName(strings.TrimSpace(cleanString(strings.ToValidUTF8(string(key), "\uFFFD")))); value != "" && name != "" && !mechanical(value) && !within(value, said) {
+			if name := clipName(f, strings.TrimSpace(cleanString(strings.ToValidUTF8(string(key), "\uFFFD")))); value != "" && name != "" && !mechanical(value) && !within(value, said) {
 				variable(gofastcore.StoredDocumentVariable, name, value)
 			}
 		}
@@ -217,9 +224,11 @@ func stored(f *file.File, catalog syntax.Value, md *gofastcore.Metadata, scripts
 		r.room -= pk.size
 		for _, p := range pk.props {
 			var values []string
+			has := map[string]bool{}
 			for _, v := range p.values {
-				if v = strings.TrimSpace(cleanString(v)); v != "" && !mechanical(v) && !within(v, said) && !slices.Contains(values, v) {
+				if v = strings.TrimSpace(cleanString(v)); v != "" && !has[v] && !mechanical(v) && !within(v, said) {
 					values = append(values, v)
+					has[v] = true
 				}
 			}
 			if len(values) > 0 {
@@ -289,10 +298,13 @@ func stored(f *file.File, catalog syntax.Value, md *gofastcore.Metadata, scripts
 			b.Origin = gofastcore.OriginNative
 			b.Attrs[gofastcore.AttrStored] = gofastcore.StoredFormField
 			if !field.Has("Parent") {
-				b.Attrs[gofastcore.AttrField] = clipName(name)
+				b.Attrs[gofastcore.AttrField] = clipName(f, name)
 			}
 			blocks = append(blocks, b)
 		}
+	}
+	if len(stack) > 0 {
+		cutWarn(f, msgFieldsCut)
 	}
 
 	// --- the data of an XFA form ---
@@ -407,13 +419,16 @@ func xfaData(r *reader, v syntax.Value, named map[string]bool) (blocks []gofastc
 	if !ok {
 		return nil, true
 	}
-	return xfaValues(src, named)
+	return xfaValues(src, named, func(m string) { cutWarn(r.f, m) })
 }
 
 // xfaValues reads the values of the data packet of an XFA form, which is
 // in src, alone or in a whole XDP document.
-func xfaValues(src string, named map[string]bool) (blocks []gofastcore.Block, cut bool) {
-	x := &xmlScan{s: src}
+//
+// warn is given what a bound of the reading leaves out, once for each
+// time it does.
+func xfaValues(src string, named map[string]bool, warn func(string)) (blocks []gofastcore.Block, cut bool) {
+	x := &xmlScan{s: src, warn: warn}
 	// Find xfa:data inside xfa:datasets.
 	for inDatasets := false; ; {
 		t := x.next()
@@ -455,8 +470,12 @@ func xfaValues(src string, named map[string]bool) (blocks []gofastcore.Block, cu
 			return blocks, false
 		case tokText:
 			if len(stack) > 0 {
-				if s := strings.TrimSpace(cleanString(t.text)); s != "" && len(stack[len(stack)-1].text) < 4096 {
-					stack[len(stack)-1].text = append(stack[len(stack)-1].text, s)
+				if s := strings.TrimSpace(cleanString(t.text)); s != "" {
+					if len(stack[len(stack)-1].text) < maxXFAPieces {
+						stack[len(stack)-1].text = append(stack[len(stack)-1].text, s)
+					} else {
+						warn(fmt.Sprintf("a field of the XFA form's data has more than %d pieces of text; the rest are not read", maxXFAPieces))
+					}
 				}
 			}
 		case tokOpen:
@@ -482,8 +501,10 @@ func xfaValues(src string, named map[string]bool) (blocks []gofastcore.Block, cu
 						stack[len(stack)-1].group = true
 					}
 				}
-				if len(stack) >= 64 {
-					return blocks, false // nested beyond what a form has
+				if len(stack) >= maxXFADepth {
+					// Nested beyond what a form has.
+					warn(fmt.Sprintf("the XFA form's data is nested more than %d deep; the rest of it is not read", maxXFADepth))
+					return blocks, false
 				}
 				stack = append(stack, frame{name: name})
 			}
@@ -518,7 +539,7 @@ func xfaValues(src string, named map[string]bool) (blocks []gofastcore.Block, cu
 			}
 			blocks = append(blocks, gofastcore.Block{Kind: gofastcore.KindParagraph, Text: text, Origin: gofastcore.OriginNative,
 				Attrs: map[string]string{
-					gofastcore.AttrStored: gofastcore.StoredFormField, gofastcore.AttrField: clipName(cleanString(field))}})
+					gofastcore.AttrStored: gofastcore.StoredFormField, gofastcore.AttrField: x.name(cleanString(field))}})
 		}
 	}
 	return blocks, true
@@ -636,8 +657,11 @@ var packetSkipped = map[string]bool{
 //
 // encoding/xml reads it too, at about twenty times the cost: on a page
 // of text a packet would take as long as the page.
-func packetProperties(src string) (out []property) {
-	x := &xmlScan{s: src}
+//
+// warn is given what a bound of the reading leaves out.
+func packetProperties(src string, warn func(string)) (out []property) {
+	x := &xmlScan{s: src, warn: warn}
+	total := 0 // values of all the properties
 	inDescription := false
 	// The namespaces of the prefixes, as the elements declare them. A
 	// packet declares each prefix once, or the same way each time: one
@@ -659,7 +683,7 @@ func packetProperties(src string) (out []property) {
 		}
 		return ""
 	}
-	for len(out) < maxVariables {
+	for {
 		t := x.next()
 		switch t.kind {
 		case tokEnd:
@@ -696,8 +720,16 @@ func packetProperties(src string) (out []property) {
 					value = more.String()
 					more.Reset()
 				}
-				if v := strings.TrimSpace(value); v != "" && !skip && len(p.values) < 256 {
-					p.values = append(p.values, v)
+				if v := strings.TrimSpace(value); v != "" && !skip {
+					switch {
+					case total >= maxXMPTotal:
+						warn(fmt.Sprintf("the metadata packet has more than %d values; the rest are not read", maxXMPTotal))
+					case len(p.values) >= maxXMPValues:
+						warn(fmt.Sprintf("a property of the metadata packet has more than %d values; the rest are not read", maxXMPValues))
+					default:
+						p.values = append(p.values, v)
+						total++
+					}
 				}
 				value, pieces = "", 0
 			}
@@ -730,6 +762,10 @@ func packetProperties(src string) (out []property) {
 				}
 			}
 			if len(p.values) > 0 {
+				if len(out) >= maxVariables {
+					warn(fmt.Sprintf("the metadata packet has more than %d properties; the rest are not read", maxVariables))
+					return out
+				}
 				out = append(out, p)
 			}
 		case tokClose:
@@ -744,7 +780,6 @@ func packetProperties(src string) (out []property) {
 			}
 		}
 	}
-	return out
 }
 
 func local(name string) string {
@@ -783,6 +818,16 @@ type xmlToken struct {
 type xmlScan struct {
 	s   string
 	pos int
+	// warn is given what a bound of the reading leaves out.
+	warn func(string)
+}
+
+// name holds a name to maxNameBytes, and reports a cut to warn.
+func (x *xmlScan) name(s string) string {
+	if len(s) > maxNameBytes {
+		x.warn(msgNameCut)
+	}
+	return clipName(nil, s)
 }
 
 func (x *xmlScan) next() xmlToken {
@@ -881,8 +926,10 @@ func (x *xmlScan) startTag() xmlToken {
 		if end < 0 {
 			return xmlToken{kind: tokEnd}
 		}
-		if len(t.attrs) < 256 {
+		if len(t.attrs) < maxXMLAttrs {
 			t.attrs = append(t.attrs, xmlAttr{name: an, value: unescapeXML(s[i+1 : i+1+end])})
+		} else {
+			x.warn(fmt.Sprintf("an element of XML in the file has more than %d attributes; the rest are not read", maxXMLAttrs))
 		}
 		i += end + 2
 	}

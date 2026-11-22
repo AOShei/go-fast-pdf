@@ -90,9 +90,10 @@ that is newly reported.
 
 On the tree that is tagged: the 3,186 files of the corpora read in processes of their own, three
 times, with no crash, hang or memory failure, at most 2.4 s and 675 MiB for a file; the documents
-the same as those of v0.2.0 except for the nine that gain what a bound cut; fuzzing of every target
-for an hour on machines of four processors, 3.8 billion inputs, with nothing left that it found (the
-five defects it found on the way are fixed above); the public corpus read in 1.3 s on one thread.
+the same as those of v0.2.0 except for the nine that gain what a bound cut; fuzzing of its 25 targets
+for an hour each on machines of four processors, 100 processor hours and 3.4 billion inputs, with
+nothing found (on the way to it, fuzzing found the five defects fixed above); the public corpus read
+in 1.3 s on one thread.
 
 ## v0.2.0 (2026-11-21)
 

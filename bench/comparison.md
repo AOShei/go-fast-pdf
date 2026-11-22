@@ -4,17 +4,17 @@ Written by `go run ./bench/compare`. Do not edit: run it again.
 
 | | Pages per second | Time against go-fast-pdf | Most memory | Words as pdftotext's (F1) |
 |---|---:|---:|---:|---:|
-| go-fast-pdf | 10,036 | 1 | 31 MB | 0.984 |
-| go-fast-pdf, all processors | 20,352 | 0.49 times | 56 MB | 0.984 |
-| gofastpdf (the command) | 8,308 | 1.21 times | 25 MB | 0.984 |
-| pdftotext (poppler) | 1,979 | 5.07 times | 20 MB | the reference |
-| PyMuPDF | 2,220 | 4.52 times | 62 MB | 0.986 |
-| pypdfium2 (PDFium) | 2,202 | 4.56 times | 31 MB | 0.974 |
-| pypdf | 346 | 29.0 times | 72 MB | 0.970 |
-| pdfplumber | 54 | 186 times | 53 MB | 0.964 |
-| pdf_oxide (Rust) | 293 | 34.3 times | 31 MB | 0.974 |
-| pdf-extract (Rust) | 1,989 | 5.04 times | 26 MB | 0.970 |
-| lopdf (Rust) | 6,492 | 1.55 times | 28 MB | 0.900 |
+| go-fast-pdf | 10,073 | 1 | 32 MB | 0.984 |
+| go-fast-pdf, all processors | 20,392 | 0.49 times | 63 MB | 0.984 |
+| gofastpdf (the command) | 8,134 | 1.24 times | 25 MB | 0.984 |
+| pdftotext (poppler) | 1,957 | 5.15 times | 20 MB | the reference |
+| PyMuPDF | 2,099 | 4.80 times | 62 MB | 0.986 |
+| pypdfium2 (PDFium) | 2,116 | 4.76 times | 30 MB | 0.974 |
+| pypdf | 348 | 29.0 times | 72 MB | 0.970 |
+| pdfplumber | 56 | 179 times | 53 MB | 0.964 |
+| pdf_oxide (Rust) | 319 | 31.6 times | 30 MB | 0.974 |
+| pdf-extract (Rust) | 2,047 | 4.92 times | 25 MB | 0.970 |
+| lopdf (Rust) | 6,770 | 1.49 times | 25 MB | 0.900 |
 
 8 documents, 530 pages, 9.7 MB: the long documents of the public corpus's tuning set and one small one.
 Each program reads each document 5 times and its best time counts; the table is the sum over the documents, as a batch of them would take, and on one document the order can differ. Measured on AMD Ryzen 9 9900X 12-Core Processor (24 threads, linux/amd64) with go1.27.3-X:nodwarf5, 2026-11-22.
@@ -27,9 +27,9 @@ Each program reads a file from the disk and gives the text of all its pages.
 
 | Program | Version | What is timed |
 |---|---|---|
-| go-fast-pdf | commit 99cf6f1, modified | library, one worker |
-| go-fast-pdf, all processors | commit 99cf6f1, modified | library, 24 workers |
-| gofastpdf (the command) | commit 99cf6f1, modified | command, text output, one worker; the time of the process |
+| go-fast-pdf | commit e4d60f6 | library, one worker |
+| go-fast-pdf, all processors | commit e4d60f6 | library, 24 workers |
+| gofastpdf (the command) | commit e4d60f6 | command, text output, one worker; the time of the process |
 | pdftotext (poppler) | 26.10.0 | command; the time of the process |
 | PyMuPDF | 2.1 | Python library; the time of its calls, without starting Python |
 | pypdfium2 (PDFium) | 5.15.2 | Python library; the time of its calls, without starting Python |
@@ -68,14 +68,14 @@ Milliseconds, best run.
 
 | Document | Pages | go-fast-pdf | go-fast-pdf, all processors | gofastpdf (the command) | pdftotext (poppler) | PyMuPDF | pypdfium2 (PDFium) | pypdf | pdfplumber | pdf_oxide (Rust) | pdf-extract (Rust) | lopdf (Rust) |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| english.pdf (in the repository) | 3 | 0.091 | 0.123 | 1.56 | 5.45 | 1.03 | 1.24 | 4.10 | 36.2 | 0.957 | 0.452 | 0.191 |
-| govdocs1-000/000762.pdf | 112 | 12.7 | 3.79 | 14.7 | 56.7 | 53.1 | 56.3 | 419 | 2,116 | 129 | 51.8 | 20.3 |
-| govdocs1-000/000153.pdf | 108 | 9.14 | 5.37 | 10.8 | 40.3 | 35.3 | 40.3 | 271 | 1,351 | 259 | 41.0 | 11.5 |
-| govdocs1-000/000359.pdf | 77 | 14.3 | 5.11 | 15.7 | 43.6 | 37.4 | 36.9 | 350 | 1,693 | 1,162 | 67.0 | 20.9 |
-| govdocs1-000/000578.pdf | 75 | 3.01 | 2.72 | 4.10 | 31.0 | 33.3 | 27.7 | 112 | 1,276 | 70.0 | 17.8 | 6.59 |
-| govdocs1-000/000807.pdf | 58 | 5.16 | 2.57 | 6.84 | 35.8 | 29.3 | 24.9 | 163 | 833 | 68.2 | 48.6 | 7.12 |
-| govdocs1-000/000358.pdf | 52 | 3.22 | 3.19 | 4.31 | 20.0 | 19.6 | 23.0 | 82.8 | 1,052 | 40.5 | 12.8 | 3.46 |
-| govdocs1-000/000325.pdf | 45 | 5.22 | 3.18 | 5.78 | 35.0 | 29.8 | 30.4 | 129 | 1,449 | 79.6 | 26.9 | 11.5 |
+| english.pdf (in the repository) | 3 | 0.088 | 0.142 | 1.70 | 5.06 | 1.02 | 1.26 | 4.15 | 35.2 | 0.924 | 0.441 | 0.279 |
+| govdocs1-000/000762.pdf | 112 | 12.5 | 3.19 | 15.0 | 55.1 | 55.8 | 57.7 | 415 | 2,099 | 121 | 50.4 | 18.7 |
+| govdocs1-000/000153.pdf | 108 | 9.55 | 6.49 | 11.4 | 40.6 | 37.5 | 42.1 | 272 | 1,280 | 244 | 37.9 | 9.06 |
+| govdocs1-000/000359.pdf | 77 | 14.2 | 5.02 | 15.8 | 43.9 | 39.3 | 38.9 | 349 | 1,599 | 1,045 | 65.7 | 21.9 |
+| govdocs1-000/000578.pdf | 75 | 3.02 | 2.03 | 4.16 | 31.5 | 36.5 | 28.9 | 111 | 1,230 | 68.1 | 17.6 | 6.30 |
+| govdocs1-000/000807.pdf | 58 | 5.23 | 2.63 | 6.81 | 35.3 | 30.3 | 26.1 | 163 | 796 | 66.5 | 47.4 | 7.16 |
+| govdocs1-000/000358.pdf | 52 | 3.19 | 2.23 | 4.34 | 22.3 | 20.2 | 23.9 | 81.7 | 1,002 | 39.5 | 13.0 | 3.83 |
+| govdocs1-000/000325.pdf | 45 | 4.86 | 4.25 | 5.96 | 37.3 | 31.9 | 31.3 | 130 | 1,358 | 78.4 | 26.3 | 11.0 |
 
 Characters of text, as each program counts its own output:
 

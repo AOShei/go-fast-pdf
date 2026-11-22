@@ -28,8 +28,13 @@ type cmap struct {
 	vertical bool
 	// parent is the name given to usecmap, if any.
 	parent string
-	// truncated is set when the CMap had more entries than are kept.
+	// truncated is set when the CMap had more entries, or more text,
+	// than are kept: the rest of it is not read.
 	truncated bool
+	// cutTexts counts the texts of codes cut at maxEntryText, and
+	// cutBytes the bytes left out of them.
+	cutTexts int
+	cutBytes int64
 	// parentMap is the predefined CMap that parent names, and
 	// collection the character collection whose CIDs a predefined CMap
 	// gives (cjk.go).
@@ -161,8 +166,9 @@ func (c *cmap) addText(lo, hi uint32, n int, text []byte, kind uint8) {
 		for cut > 0 && !utf8.RuneStart(text[cut]) {
 			cut--
 		}
+		c.cutTexts++
+		c.cutBytes += int64(len(text) - cut)
 		text = text[:cut]
-		c.truncated = true
 	}
 	if len(c.text)+len(text) > maxCMapText {
 		c.truncated = true

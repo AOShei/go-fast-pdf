@@ -1,7 +1,6 @@
 package extract
 
 import (
-	gofastcore "github.com/AOShei/go-fast-core"
 	"github.com/AOShei/go-fast-pdf/internal/content"
 	"github.com/AOShei/go-fast-pdf/internal/font"
 	"slices"
@@ -401,10 +400,7 @@ func (in *interp) showCodes(f *font.Font, raw []byte) {
 		in.unmapped += sh.Unmapped
 		in.assumed += sh.Assumed
 		in.byOutline += sh.ByOutline
-		if f.Cut() {
-			in.warn(gofastcore.SeverityError, gofastcore.WarnLimitExceeded,
-				"a font on the page has a ToUnicode map, an encoding, widths or a program larger than is kept; the text or the place of some of its characters may be missing or wrong")
-		}
+		in.fontCuts(f)
 		if in.opts.Words {
 			in.markSpaces(f, raw)
 		}
@@ -860,7 +856,7 @@ func (in *interp) checkTextLimit() {
 
 func (in *interp) tooMuchText() {
 	in.full = true
-	in.warn(gofastcore.SeverityError, gofastcore.WarnLimitExceeded, "the page has more text than the limit; the rest is not read")
+	in.cut(boundText, 1, 0)
 }
 
 func abs(v float64) float64 {

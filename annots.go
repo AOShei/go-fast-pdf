@@ -194,7 +194,7 @@ func fieldOf(f *file.File, widget syntax.Value) formField {
 		node = f.Resolve(parent)
 	}
 	if depth == maxFieldDepth && node.IsDict() {
-		cutWarn(f, fmt.Sprintf("a form field has more than %d fields above it; the names and values of those further up are not read", maxFieldDepth))
+		cutOnce(f, boundFieldDepth, nameID(ff.name, ff.name), 1, 0)
 	}
 	slices.Reverse(names)
 	ff.name = clipName(f, strings.Trim(strings.Join(names, "."), "."))
@@ -216,7 +216,7 @@ func fieldChoices(f *file.File, widget syntax.Value, text func(syntax.Value) (st
 	var lines []string
 	for i, o := range ff.options.Elems() {
 		if i >= maxChoices {
-			cutWarn(f, fmt.Sprintf("a choice field has more than %d options; the rest are not read", maxChoices))
+			cutOnce(f, boundChoices, nameID(ff.name, ff.name), int64(len(ff.options.Elems())-maxChoices), 0)
 			break
 		}
 		// An option is its text, or a pair of the value that is stored

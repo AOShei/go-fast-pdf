@@ -56,10 +56,10 @@ type Font struct {
 	// size. It is 0.25 when the font does not say.
 	SpaceWidth float64
 	// Truncated is set when a table of the font was larger than is kept:
-	// its ToUnicode or encoding CMap, its widths, or its program. Cut
-	// says so too of a program read later, when text is first asked of
-	// it.
+	// its ToUnicode or encoding CMap, its widths, or its program. Of
+	// these, what the text of the font is made from is in cuts (Cuts).
 	Truncated bool
+	cuts      Cuts
 	// LongestText is the length in bytes of the longest text that one
 	// character code of the font stands for.
 	LongestText int
@@ -286,9 +286,43 @@ type cacheKey struct{ obj int64 }
 
 // Cut reports whether a table of the font was larger than is kept, and
 // the text or the advance of some of its codes may be missing or wrong:
-// Truncated, or a program read for the font's text that was cut.
+// Cut reports whether a bound left out something that the text of the
+// font is made from (Cuts).
 func (f *Font) Cut() bool {
-	return f.Truncated || f.tt != nil && f.tt.cut.Load()
+	c := f.Cuts()
+	return c.Texts > 0 || c.Map || c.Program
+}
+
+// Cuts are what bounds left out of the tables that the text of a font is
+// made from. The widths are not among them: they place the text and are
+// not in it.
+type Cuts struct {
+	// Texts counts the texts of codes in its ToUnicode map cut at
+	// MaxCodeText bytes, and TextBytes the bytes left out of them.
+	Texts     int
+	TextBytes int64
+	// Map is set when its ToUnicode map, or the CMap of its codes, has
+	// more entries or text than are kept.
+	Map bool
+	// Program is set when its program is longer than MaxProgramBytes
+	// and its text is read from it.
+	Program bool
+}
+
+// MaxCodeText and MaxProgramBytes are bounds of Cuts.
+const (
+	MaxCodeText     = maxEntryText
+	MaxProgramBytes = maxProgramBytes
+	MaxCMapEntries  = maxEntries
+	MaxCMapBytes    = maxCMapText
+)
+
+// Cuts reports what bounds left out of the tables that the font's text
+// is made from, a program read when text is first asked of it included.
+func (f *Font) Cuts() Cuts {
+	c := f.cuts
+	c.Program = c.Program || f.tt != nil && f.tt.cut.Load()
+	return c
 }
 
 // Load returns the font that ref refers to, or nil if it is not a font
@@ -445,6 +479,7 @@ func parse(f *file.File, dict syntax.Value) *Font {
 			if c := parseCMap(data); len(c.entries) > 0 {
 				toUni = c
 				font.Truncated = c.truncated
+				font.cuts.Texts, font.cuts.TextBytes, font.cuts.Map = c.cutTexts, c.cutBytes, c.truncated
 			}
 		}
 	}
@@ -633,6 +668,7 @@ func (font *Font) parseSimple(f *file.File, dict syntax.Value, toUni *cmap) {
 			var cut bool
 			program, cut = readSimpleProgram(f, descriptor)
 			font.Truncated = font.Truncated || cut
+			font.cuts.Program = font.cuts.Program || cut
 		}
 		return program
 	}
@@ -900,6 +936,7 @@ func (font *Font) parseComposite(f *file.File, dict syntax.Value, toUni *cmap) {
 		if data, err := f.Decode(enc, nil, 0); err == nil || len(data) > 0 {
 			c := parseCMap(data)
 			font.Truncated = font.Truncated || c.truncated
+			font.cuts.Map = font.cuts.Map || c.truncated
 			font.Vertical = c.vertical
 			if wmode, ok := f.Resolve(enc.Get("WMode")).Integer(); ok {
 				font.Vertical = wmode == 1

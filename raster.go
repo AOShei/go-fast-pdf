@@ -354,7 +354,7 @@ func readSamples(f *file.File, src imageSrc, n int, jpg bool, limit int64) (s sa
 		return s, 0, fmt.Errorf("an image of %d by %d", w, h)
 	}
 	if w > 1<<20 || h > 1<<20 || w*h > maxImagePixels {
-		return s, 0, boundError(fmt.Sprintf("an image of %d by %d pixels is larger than the images whose data is made (%d pixels, %d on a side)", w, h, maxImagePixels, 1<<20))
+		return s, 0, boundError{boundImagePixels, fmt.Sprintf("an image of %d by %d pixels is larger than the images whose data is made", w, h)}
 	}
 	s = samples{width: int(w), height: int(h), bpc: int(bpc), n: n}
 	raw, codec, err := src.decode(f, limit)
@@ -675,14 +675,17 @@ func deviceRows(img *image.NRGBA, s *samples, fam family, luts [][]uint8, alpha 
 	}
 }
 
-var errFunctionWork error = boundError("the colour space's function would take more work over an image than is done for one; the image's data is not made")
+var errFunctionWork error = boundError{boundImageWork, "the colour space's function would take more work over an image than is done for one"}
 
 // boundError is an image's data not made because of a fixed bound of
-// this library, reported as limit.exceeded rather than as an encoding
-// that is not delivered.
-type boundError string
+// this library: counted as limit.exceeded by its bound, rather than
+// reported as an encoding that is not delivered.
+type boundError struct {
+	bound *file.Bound
+	msg   string
+}
 
-func (e boundError) Error() string { return string(e) }
+func (e boundError) Error() string { return e.msg }
 
 // tints makes the colours of the samples of a colour space made by a
 // function. Of one ink, the colour of each sample is made once, when it

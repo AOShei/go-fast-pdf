@@ -296,9 +296,11 @@ type state struct {
 	// imagesCut and attachmentsCut are set when data was left out because
 	// the budget ran out.
 	imagesCut, attachmentsCut bool
-	// imagesLong and attachmentsLong are set when data was left out
-	// because one stream decodes to more than MaxStreamBytes.
-	imagesLong, attachmentsLong bool
+	// imagesLong and attachmentsLong count what was left out because
+	// one stream decodes to more than MaxStreamBytes.
+	imagesLong, attachmentsLong int
+	// partCuts counts what bounds left out of the images of a part.
+	partCuts file.Cuts
 
 	// decodeLimit is what budget started at: the limit of this file, or
 	// what the document it is embedded in had left, if that is less.
@@ -458,6 +460,7 @@ func (st *state) finish(out *pageOut) {
 	for _, ref := range out.images {
 		st.image(part, ref, &inline)
 	}
+	warnCuts(part, &st.partCuts)
 }
 
 // note keeps what a page that was read says about the file.
@@ -804,13 +807,13 @@ func (f *File) Document(ctx context.Context) (*gofastcore.Document, error) {
 		doc.Warn(gofastcore.SeverityError, gofastcore.WarnLimitExceeded,
 			fmt.Sprintf("the document decodes to more than the limit of %d bytes; the data of some images is not included", st.decodeLimit))
 	}
-	if st.attachmentsLong {
+	if st.attachmentsLong > 0 {
 		doc.Warn(gofastcore.SeverityError, gofastcore.WarnLimitExceeded,
-			fmt.Sprintf("an attached file decodes to more than the limit of %d bytes for one stream; it was not extracted", f.f.Limits().MaxStreamBytes))
+			fmt.Sprintf("attached files that decode to more than the limit of %d bytes for one stream were not extracted (%d files)", f.f.Limits().MaxStreamBytes, st.attachmentsLong))
 	}
-	if st.imagesLong {
+	if st.imagesLong > 0 {
 		doc.Warn(gofastcore.SeverityError, gofastcore.WarnLimitExceeded,
-			fmt.Sprintf("an image decodes to more than the limit of %d bytes for one stream; its data is not included", f.f.Limits().MaxStreamBytes))
+			fmt.Sprintf("images that decode to more than the limit of %d bytes for one stream were not given their data (%d images)", f.f.Limits().MaxStreamBytes, st.imagesLong))
 	}
 	if st.outlineCut {
 		doc.Warn(gofastcore.SeverityError, gofastcore.WarnLimitExceeded,

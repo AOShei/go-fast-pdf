@@ -3,7 +3,6 @@ package gofastpdf
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -137,8 +136,8 @@ func (f *File) describe() *described {
 		// --- attached files ---
 		walkTree(in, names.Get("EmbeddedFiles"), "Names", func(key, val syntax.Value) bool {
 			if len(d.attachments) >= maxAttachments {
-				cutWarn(in, msgAttachmentsCut)
-				return false
+				cutDoc(in, boundAttachments, 1, 0) // and on, to count them
+				return true
 			}
 			d.attachments = append(d.attachments, attachment{name: clipName(in, text(in, key)), spec: val})
 			return true
@@ -161,7 +160,7 @@ func (st *state) attach(ctx context.Context, doc *gofastcore.Document, list []at
 			break
 		}
 		if len(doc.Children) >= maxAttachments {
-			cutWarn(st.f.f, msgAttachmentsCut)
+			cutDoc(st.f.f, boundAttachments, int64(len(list)-i), 0)
 			break
 		}
 		a := &list[i]
@@ -178,18 +177,30 @@ func (st *state) attach(ctx context.Context, doc *gofastcore.Document, list []at
 }
 
 // clipName holds a name to maxNameBytes, cutting between characters,
-// and reports the cut to f (none when f is nil).
+// and counts the cut for f (none when f is nil).
 func clipName(f *file.File, s string) string {
-	if len(s) <= maxNameBytes {
-		return s
+	c, cutBytes := clipped(s)
+	if cutBytes > 0 {
+		cutOnce(f, boundName, nameID(c, s), 1, cutBytes)
 	}
-	cutWarn(f, msgNameCut)
+	return c
+}
+
+// clipped is s held to maxNameBytes, and the bytes cut from it.
+func clipped(s string) (string, int64) {
+	if len(s) <= maxNameBytes {
+		return s, 0
+	}
 	n := maxNameBytes
 	for n > 0 && !utf8.RuneStart(s[n]) {
 		n--
 	}
-	return strings.TrimSpace(s[:n])
+	return strings.TrimSpace(s[:n]), int64(len(s) - n)
 }
+
+// nameID tells a cut name apart from others, to count it once however
+// often it is read: what is kept of it and the length it had.
+func nameID(kept, whole string) string { return kept + "\x00" + strconv.Itoa(len(whole)) }
 
 // text returns a text string of the file, cleaned for the shared model.
 func text(f *file.File, v syntax.Value) string {
@@ -328,6 +339,13 @@ func parseDate(v syntax.Value) time.Time {
 func walkTree(f *file.File, root syntax.Value, leaf string, fn func(key, val syntax.Value) bool) {
 	seen := map[int64]bool{}
 	nodes, entries := 0, 0
+	cutOff := false
+	cutTree := func() {
+		if !cutOff {
+			cutDoc(f, boundTree, 1, 0)
+			cutOff = true
+		}
+	}
 	var walk func(v syntax.Value, depth int) bool
 	walk = func(v syntax.Value, depth int) bool {
 		if n := file.RefNumber(v); n != 0 {
@@ -341,13 +359,13 @@ func walkTree(f *file.File, root syntax.Value, leaf string, fn func(key, val syn
 			return true
 		}
 		if nodes > maxTreeNodes || depth > maxTreeDepth {
-			cutWarn(f, msgTreeCut)
+			cutTree()
 			return true
 		}
 		list := f.Resolve(node.Get(leaf)).Elems()
 		for i := 0; i+1 < len(list); i += 2 {
 			if entries++; entries > maxTreeEntries {
-				cutWarn(f, msgTreeCut)
+				cutTree()
 				return false
 			}
 			if !fn(f.Resolve(list[i]), list[i+1]) {
@@ -530,7 +548,7 @@ func outline(f *file.File, dests *destinations, outlines syntax.Value, most int6
 	stack := []entry{{outlines.Get("First"), 1}}
 	for len(stack) > 0 {
 		if len(out) >= maxOutlineItems {
-			cutWarn(f, fmt.Sprintf("the outline has more than %d entries; the rest are not read", maxOutlineItems))
+			cutDoc(f, boundOutline, 1, 0)
 			break
 		}
 		e := stack[len(stack)-1]
@@ -559,7 +577,7 @@ func outline(f *file.File, dests *destinations, outlines syntax.Value, most int6
 			if e.level < maxOutlineDepth {
 				stack = append(stack, entry{first, e.level + 1})
 			} else {
-				cutWarn(f, fmt.Sprintf("the outline is nested more than %d levels deep; the entries below that are not read", maxOutlineDepth))
+				cutDoc(f, boundOutlineDepth, 1, 0)
 			}
 		}
 	}
@@ -645,7 +663,7 @@ func (st *state) child(ctx context.Context, a *attachment) (doc *gofastcore.Docu
 	if err != nil {
 		switch {
 		case err == file.ErrTruncated && perStream:
-			st.attachmentsLong = true
+			st.attachmentsLong++
 		case err == file.ErrTruncated:
 			st.attachmentsCut = true
 		}
@@ -679,7 +697,7 @@ func (e *Extractor) annotations(f *file.File, p *file.Page, out *pageOut) {
 			if len(out.attachments) < maxAttachments {
 				out.attachments = append(out.attachments, attachment{spec: a.Get("FS")})
 			} else {
-				cutWarn(f, msgAttachmentsCut)
+				cutDoc(f, boundAttachments, 1, 0)
 			}
 			continue
 		}
@@ -721,7 +739,7 @@ func scanAction(f *file.File, act syntax.Value, out *pageOut, depth int) {
 		if len(out.scripts) < maxScripts {
 			out.scripts = append(out.scripts, script{js: act.Get("JS")})
 		} else {
-			cutWarn(f, msgScriptsCut)
+			cutDoc(f, boundScripts, 1, 0)
 		}
 	case "Launch":
 		out.active = true
@@ -771,6 +789,6 @@ func scanFields(f *file.File, fields syntax.Value, out *pageOut) {
 		stack = append(stack, f.Resolve(field.Get("Kids")).Elems()...)
 	}
 	if len(stack) > 0 {
-		cutWarn(f, msgFieldsCut)
+		cutOnce(f, boundFields, "the form", 1, 0) // read twice: here and for the stored part
 	}
 }

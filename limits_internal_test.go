@@ -11,6 +11,7 @@ import (
 	gofastcore "github.com/AOShei/go-fast-core"
 	"github.com/AOShei/go-fast-pdf/internal/content"
 	"github.com/AOShei/go-fast-pdf/internal/extract"
+	"github.com/AOShei/go-fast-pdf/internal/file"
 	"github.com/AOShei/go-fast-pdf/internal/pdftest"
 )
 
@@ -57,6 +58,9 @@ func noLimits(t *testing.T, doc *gofastcore.Document) {
 	}
 }
 
+// noCut counts nothing.
+var noCut cutFunc = func(*file.Bound, string, int64, int64) {}
+
 // catalog rewrites the catalog of a document that pdftest.Doc made, with
 // more entries.
 func catalog(b *pdftest.Builder, entries string) {
@@ -69,7 +73,7 @@ func TestLimitArrayElements(t *testing.T) {
 		return pdftest.OnePage("BT /F1 12 Tf 72 700 Td [" + strings.Repeat("(a)", n) + "] TJ ET")
 	}
 	doc := limitsDoc(t, &Extractor{}, text(content.MaxElems+1000), nil)
-	if !limitIn(doc.Parts[0].Warnings, "array has more than") {
+	if !limitIn(doc.Parts[0].Warnings, fmt.Sprintf("elements of an operator's arrays past %d were not read (1000 elements)", content.MaxElems)) {
 		t.Errorf("past the bound: %v", doc.Parts[0].Warnings)
 	}
 	noLimits(t, limitsDoc(t, &Extractor{}, text(1000), nil))
@@ -90,7 +94,7 @@ func TestLimitToUnicodeEntry(t *testing.T) {
 	if got := strings.Count(doc.Text(), "B"); got != 4096 || strings.Contains(doc.Text(), "A") {
 		t.Errorf("%d Bs, the A there: %v", got, strings.Contains(doc.Text(), "A"))
 	}
-	if !limitIn(doc.Parts[0].Warnings, "ToUnicode map") {
+	if !limitIn(doc.Parts[0].Warnings, "texts of character codes in ToUnicode maps longer than 4096 bytes were cut there (1 texts, 104 bytes left out)") {
 		t.Errorf("no warning: %v", doc.Parts[0].Warnings)
 	}
 	doc = limitsDoc(t, &Extractor{}, build(4000), nil)
@@ -123,7 +127,7 @@ func TestLimitOutline(t *testing.T) {
 		return b.Bytes()
 	}
 	doc := limitsDoc(t, &Extractor{}, deep(70), nil)
-	if len(doc.Outline) != maxOutlineDepth || !limitIn(doc.Warnings, "outline is nested more than") {
+	if len(doc.Outline) != maxOutlineDepth || !limitIn(doc.Warnings, "the outline has more than 64 levels; the rest were not read") {
 		t.Errorf("%d entries; %v", len(doc.Outline), doc.Warnings)
 	}
 	noLimits(t, limitsDoc(t, &Extractor{}, deep(20), nil))
@@ -145,7 +149,7 @@ func TestLimitOutline(t *testing.T) {
 	b.Set(outlines, fmt.Sprintf("<< /Type /Outlines /First %d 0 R >>", nums[0]))
 	catalog(b, fmt.Sprintf("/Outlines %d 0 R", outlines))
 	doc = limitsDoc(t, &Extractor{}, b.Bytes(), nil)
-	if len(doc.Outline) != maxOutlineItems || !limitIn(doc.Warnings, "outline has more than") {
+	if len(doc.Outline) != maxOutlineItems || !limitIn(doc.Warnings, "the outline has more than 131072 entries; the rest were not read") {
 		t.Errorf("%d entries; %v", len(doc.Outline), doc.Warnings)
 	}
 }
@@ -165,7 +169,7 @@ func TestLimitChoices(t *testing.T) {
 		return b.Bytes()
 	}
 	doc := limitsDoc(t, &Extractor{}, build(maxChoices+100), nil)
-	if !limitIn(doc.Warnings, "choice field has more than") || !strings.Contains(doc.Text(), fmt.Sprintf("opt%d", maxChoices-1)) ||
+	if !limitIn(doc.Warnings, "options of choice fields past 4096 were not read (100 options)") || !strings.Contains(doc.Text(), fmt.Sprintf("opt%d", maxChoices-1)) ||
 		strings.Contains(doc.Text(), fmt.Sprintf("opt%d", maxChoices)) {
 		t.Errorf("past the bound: %v", doc.Warnings)
 	}
@@ -183,7 +187,7 @@ func TestLimitName(t *testing.T) {
 	}
 	opts := &gofastcore.Options{}
 	doc := limitsDoc(t, &Extractor{}, build(1500), opts)
-	if !limitIn(doc.Warnings, "a name is longer than") {
+	if !limitIn(doc.Warnings, "names longer than 1024 bytes were cut there (1 names, 476 bytes left out)") {
 		t.Errorf("past the bound: %v", doc.Warnings)
 	}
 	noLimits(t, limitsDoc(t, &Extractor{}, build(100), opts))
@@ -200,7 +204,7 @@ func TestLimitAnnotations(t *testing.T) {
 		return pdftest.Doc(pdftest.DocOptions{Base: b}, pdftest.PageSpec{Content: "BT /F1 12 Tf 72 700 Td (x) Tj ET", Extra: "/Annots [" + annots + "]"}).Bytes()
 	}
 	doc := limitsDoc(t, &Extractor{}, build(extract.MaxAnnotations), nil)
-	want := fmt.Sprintf("the page has %d annotations; the 1 past the first %d are not read", extract.MaxAnnotations+1, extract.MaxAnnotations)
+	want := fmt.Sprintf("annotations of a page past %d were not read (1 annotations)", extract.MaxAnnotations)
 	if !limitIn(doc.Parts[0].Warnings, want) || strings.Contains(doc.Text(), "the note") {
 		t.Errorf("past the bound: %v", doc.Parts[0].Warnings)
 	}
@@ -217,9 +221,8 @@ func TestLimitPageContent(t *testing.T) {
 	for _, c := range []struct {
 		content, want string
 	}{
-		{strings.Repeat("q ", 4100) + "BT /F1 12 Tf 72 700 Td (x) Tj ET", "graphics states are saved more than"},
-		{strings.Repeat("/P BMC ", 4100) + "BT /F1 12 Tf 72 700 Td (x) Tj ET", "marked content is nested more than"},
-		{"BT /F1 12 Tf 72 700 Td (x) Tj ET BI /W 1 /H 1 /CS /G /BPC 8 /X (" + strings.Repeat("x", 70000) + ") ID \x80 EI", "an inline image's dictionary is longer than"},
+		{strings.Repeat("/P BMC ", 4100) + "BT /F1 12 Tf 72 700 Td (x) Tj ET", "marked-content sequences nested past 4096 were not read (4 sequences)"},
+		{"BT /F1 12 Tf 72 700 Td (x) Tj ET BI /W 1 /H 1 /CS /G /BPC 8 /X (" + strings.Repeat("x", 70000) + ") ID \x80 EI", "dictionaries of inline images longer than 65536 bytes were not read"},
 	} {
 		doc := limitsDoc(t, &Extractor{}, pdftest.OnePage(c.content), nil)
 		if !limitIn(doc.Parts[0].Warnings, c.want) {
@@ -227,12 +230,15 @@ func TestLimitPageContent(t *testing.T) {
 		}
 	}
 	noLimits(t, limitsDoc(t, &Extractor{}, pdftest.OnePage(strings.Repeat("q ", 100)+strings.Repeat("/P BMC ", 100)+"BT /F1 12 Tf 72 700 Td (x) Tj ET"), nil))
+	// Graphics states past the bound place text and are not in it: no
+	// warning.
+	noLimits(t, limitsDoc(t, &Extractor{}, pdftest.OnePage(strings.Repeat("q ", 4100)+"BT /F1 12 Tf 72 700 Td (x) Tj ET"), nil))
 }
 
 // Two bounds on one page give two warnings: limit.exceeded is kept once
 // for each bound, not once for the page.
 func TestLimitTwoBoundsOnAPage(t *testing.T) {
-	doc := limitsDoc(t, &Extractor{}, pdftest.OnePage(strings.Repeat("q ", 4100)+strings.Repeat("/P BMC ", 4100)+"BT /F1 12 Tf 72 700 Td (x) Tj ET"), nil)
+	doc := limitsDoc(t, &Extractor{}, pdftest.OnePage(strings.Repeat("/P BMC ", 4100)+"BT /F1 12 Tf 72 700 Td (x) Tj ET BI /W 1 /H 1 /CS /G /BPC 8 /X ("+strings.Repeat("x", 70000)+") ID \x80 EI"), nil)
 	n := 0
 	for _, w := range doc.Parts[0].Warnings {
 		if w.Code == gofastcore.WarnLimitExceeded {
@@ -253,7 +259,7 @@ func TestLimitHref(t *testing.T) {
 	}
 	opts := &gofastcore.Options{Spans: true}
 	doc := limitsDoc(t, &Extractor{}, build(5000), opts)
-	if !limitIn(doc.Parts[0].Warnings, "a link's address is longer than") {
+	if !limitIn(doc.Parts[0].Warnings, "links whose address is longer than 4096 bytes were not kept (1 links)") {
 		t.Errorf("past the bound: %v", doc.Parts[0].Warnings)
 	}
 	noLimits(t, limitsDoc(t, &Extractor{}, build(50), opts))
@@ -274,11 +280,11 @@ func TestLimitStructure(t *testing.T) {
 		return d.Bytes()
 	}
 	doc := limitsDoc(t, &Extractor{}, build(70000, 1), nil)
-	if !limitIn(doc.Parts[0].Warnings, "alternate description is longer than") {
+	if !limitIn(doc.Parts[0].Warnings, "descriptions of figures longer than 65536 bytes were cut there (1 descriptions, 4464 bytes left out)") {
 		t.Errorf("Alt: %v", doc.Parts[0].Warnings)
 	}
 	doc = limitsDoc(t, &Extractor{}, build(10, maxPageMCIDs+1), nil)
-	if !limitIn(doc.Parts[0].Warnings, "marked-content identifiers") {
+	if !limitIn(doc.Parts[0].Warnings, "marked-content identifiers of a page past 65536 were not looked up") || !limitIn(doc.Parts[0].Warnings, "(1 identifiers)") {
 		t.Errorf("identifiers: %v", doc.Parts[0].Warnings)
 	}
 	noLimits(t, limitsDoc(t, &Extractor{}, build(10, 1), nil))
@@ -294,7 +300,7 @@ func TestLimitImagePixels(t *testing.T) {
 		Resources: fmt.Sprintf("/XObject << /Im %d 0 R >>", img),
 	}).Bytes()
 	doc := limitsDoc(t, &Extractor{}, data, &gofastcore.Options{Images: gofastcore.ImagesData})
-	if !limitIn(doc.Parts[0].Warnings, "pixels is larger than the images whose data is made") || doc.Parts[0].Has(gofastcore.WarnImageUnsupportedEncoding) {
+	if !limitIn(doc.Parts[0].Warnings, "images of more than 268435456 pixels, or 1048576 on a side, were not given their data (1 images)") || doc.Parts[0].Has(gofastcore.WarnImageUnsupportedEncoding) {
 		t.Errorf("%v", doc.Parts[0].Warnings)
 	}
 }
@@ -314,7 +320,7 @@ func TestLimitDocument(t *testing.T) {
 		node = b.Add(fmt.Sprintf("<< /Kids [%d 0 R] >>", node))
 	}
 	catalog(b, fmt.Sprintf("/Names << /EmbeddedFiles %d 0 R >>", node))
-	if doc := limitsDoc(t, &Extractor{}, b.Bytes(), nil); !limitIn(doc.Warnings, "name tree or number tree") {
+	if doc := limitsDoc(t, &Extractor{}, b.Bytes(), nil); !limitIn(doc.Warnings, "name trees and number trees past") || !limitIn(doc.Warnings, "(1 trees)") {
 		t.Errorf("tree: %v", doc.Warnings)
 	}
 
@@ -328,7 +334,7 @@ func TestLimitDocument(t *testing.T) {
 	}
 	b.Set(widget, fmt.Sprintf("<< /Type /Annot /Subtype /Widget /FT /Tx /T (leaf) /V (the value) /Rect [72 600 200 620] /Parent %d 0 R >>", parent))
 	catalog(b, fmt.Sprintf("/AcroForm << /Fields [%d 0 R] >>", widget))
-	if doc := limitsDoc(t, &Extractor{}, b.Bytes(), nil); !limitIn(doc.Warnings, "fields above it") {
+	if doc := limitsDoc(t, &Extractor{}, b.Bytes(), nil); !limitIn(doc.Warnings, "the names of form fields past 32 levels of fields above them were not read (1 fields)") {
 		t.Errorf("field depth: %v", doc.Warnings)
 	}
 
@@ -339,7 +345,7 @@ func TestLimitDocument(t *testing.T) {
 		fmt.Fprintf(&info, "/Key%d (value %d) ", i, i)
 	}
 	b.Trailer = fmt.Sprintf("/Info %d 0 R", b.Add("<< "+info.String()+">>"))
-	if doc := limitsDoc(t, &Extractor{}, b.Bytes(), stored); !limitIn(doc.Warnings, "document information has more than") {
+	if doc := limitsDoc(t, &Extractor{}, b.Bytes(), stored); !limitIn(doc.Warnings, "entries of the document information past 1024 were not read (10 entries)") {
 		t.Errorf("information: %v", doc.Warnings)
 	}
 
@@ -357,7 +363,7 @@ func TestLimitDocument(t *testing.T) {
 	catalog(b, fmt.Sprintf("/Names << /JavaScript << /Names [%s] >> /EmbeddedFiles << /Names [%s] >> >> /AcroForm << /Fields [%s] >>",
 		scripts.String(), files.String(), fields))
 	doc := limitsDoc(t, &Extractor{}, b.Bytes(), stored)
-	for _, want := range []string{"more than 4096 scripts", "more than 4096 attached files", "form has more than"} {
+	for _, want := range []string{"scripts past 4096 were not read (1 scripts)", "attached files past 4096 were not read (1 files)", "the form has more than 65536 fields; the rest were not read"} {
 		if !limitIn(doc.Warnings, want) {
 			t.Errorf("%s: %v", want, doc.Warnings)
 		}
@@ -379,7 +385,7 @@ func TestLimitAttachmentStream(t *testing.T) {
 		return d, nil
 	}
 	doc := limitsDoc(t, &Extractor{MaxStreamBytes: 100}, b.Bytes(), &gofastcore.Options{Child: child})
-	if !limitIn(doc.Warnings, "an attached file decodes to more than the limit of 100 bytes for one stream") || limitIn(doc.Warnings, "the document decodes to more") {
+	if !limitIn(doc.Warnings, "attached files that decode to more than the limit of 100 bytes for one stream were not extracted (1 files)") || limitIn(doc.Warnings, "the document decodes to more") {
 		t.Errorf("%v", doc.Warnings)
 	}
 }
@@ -389,7 +395,7 @@ func TestLimitAttachmentStream(t *testing.T) {
 // an XFA field and its nesting.
 func TestLimitXML(t *testing.T) {
 	var got []string
-	warn := func(m string) { got = append(got, m) }
+	warn := cutFunc(func(b *file.Bound, _ string, n, bytes int64) { got = append(got, b.Message(n, bytes)) })
 	has := func(sub string) bool {
 		for _, m := range got {
 			if strings.Contains(m, sub) {
@@ -428,7 +434,7 @@ func TestLimitXML(t *testing.T) {
 	}
 	got = nil
 	packetProperties("<rdf:RDF><rdf:Description>"+many.String()+"</rdf:Description></rdf:RDF>", warn)
-	if !has("the metadata packet has more than") || has("a property of") {
+	if !has("values of the metadata packet past 65536") || has("values of one property") {
 		t.Errorf("all the values: %v", got)
 	}
 	got = nil
@@ -444,7 +450,7 @@ func TestLimitXML(t *testing.T) {
 	}
 	got = nil
 	xfaValues("<xfa:datasets><xfa:data>"+strings.Repeat("<n>", maxXFADepth+5)+"v"+strings.Repeat("</n>", maxXFADepth+5)+"</xfa:data></xfa:datasets>", map[string]bool{}, warn)
-	if !has("nested more than") {
+	if !has("data has more than 64 levels") {
 		t.Errorf("nesting: %v", got)
 	}
 }
@@ -461,8 +467,31 @@ func TestLimitFontProgram(t *testing.T) {
 		return pdftest.Doc(pdftest.DocOptions{Base: b, Font: font}, pdftest.PageSpec{Content: "BT /F1 12 Tf 72 700 Td (AB) Tj ET"}).Bytes()
 	}
 	doc := limitsDoc(t, &Extractor{}, build(33<<20), nil)
-	if !limitIn(doc.Parts[0].Warnings, "larger than is kept") {
+	if !limitIn(doc.Parts[0].Warnings, "font programs longer than 33554432 bytes were cut there") {
 		t.Errorf("past the bound: %v", doc.Parts[0].Warnings)
 	}
 	noLimits(t, limitsDoc(t, &Extractor{}, build(1<<10), nil))
+}
+
+// The counting of the readers of XML goes to the document: by id once,
+// without one each time.
+func TestCutter(t *testing.T) {
+	f, err := file.Open(pdftest.OnePage("BT ET"), file.Limits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := cutter(f)
+	c(boundXMLAttrs, "", 2, 0)
+	c(boundXMLAttrs, "", 1, 0)
+	c(boundName, "a", 1, 10)
+	c(boundName, "a", 1, 10)
+	var got []string
+	for _, w := range f.Warnings() {
+		got = append(got, w.Message)
+	}
+	want := []string{"names longer than 1024 bytes were cut there (1 names, 10 bytes left out)", "attributes of one XML element past 256 were not read (3 attributes)"}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("%q\nwant %q", got, want)
+	}
+	cutDoc(nil, boundName, 1, 1) // no file: nothing, and no panic
 }

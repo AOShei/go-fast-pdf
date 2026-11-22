@@ -135,6 +135,8 @@ type File struct {
 	// warnings are the problems of the file, by their code (Warn).
 	warnings map[string]*codeWarnings
 	counted  int
+	// cuts counts what fixed bounds left out of the document (Cut).
+	cuts Cuts
 
 	// Cache holds values derived from the file by other packages, such as
 	// parsed fonts, keyed by them.
@@ -316,6 +318,9 @@ func (f *File) Warnings() []gofastcore.Warning {
 			out = append(out, gofastcore.Warning{Code: code, Severity: cw.severity, Message: msg})
 		}
 	}
+	// What the bounds cut, among the warnings of its code.
+	out = append(out, f.cuts.Warnings()...)
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Code < out[j].Code })
 	return out
 }
 

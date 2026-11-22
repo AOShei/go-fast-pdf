@@ -66,7 +66,7 @@ func readPacket(f *file.File, catalog syntax.Value) (pk packet) {
 	src, ok := r.packet(v)
 	pk = packet{read: true, whole: ok, size: len(src)}
 	if ok {
-		pk.props = packetProperties(src, func(m string) { cutWarn(f, m) })
+		pk.props = packetProperties(src, cutter(f))
 	}
 	return pk
 }

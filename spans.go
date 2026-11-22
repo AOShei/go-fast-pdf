@@ -1,7 +1,6 @@
 package gofastpdf
 
 import (
-	"fmt"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -28,7 +27,7 @@ import (
 const maxHrefBytes = 4096
 
 // pageLinks returns the links of a page.
-func pageLinks(f *file.File, p *file.Page, m [6]float64, width, height float64, dests *destinations, limits *pageLimits) []layout.Link {
+func pageLinks(f *file.File, p *file.Page, m [6]float64, width, height float64, dests *destinations, limits *file.Cuts) []layout.Link {
 	annots := f.Resolve(p.Dict().Get("Annots")).Elems()
 	if len(annots) > maxAnnotations {
 		annots = annots[:maxAnnotations]
@@ -61,7 +60,7 @@ func pageLinks(f *file.File, p *file.Page, m [6]float64, width, height float64, 
 			continue
 		}
 		if len(href) > maxHrefBytes {
-			limits.add(fmt.Sprintf("a link's address is longer than %d bytes; the link is not kept", maxHrefBytes))
+			limits.Add(boundHref, 1, 0)
 			continue
 		}
 		l := layout.Link{Href: href}

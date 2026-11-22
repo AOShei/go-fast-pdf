@@ -90,9 +90,9 @@ type Scanner struct {
 
 	// Skipped counts the bytes skipped as unreadable.
 	Skipped int
-	// ElemsCut is set when an operator's arrays had more than MaxElems
-	// elements, and the rest were left out.
-	ElemsCut bool
+	// ElemsCut counts the elements of operators' arrays left out past
+	// MaxElems.
+	ElemsCut int
 	// InlineData is the data of the inline image whose BI operator was
 	// returned last, and InlineDict the bytes of its dictionary's
 	// entries, from after BI to before ID.
@@ -103,7 +103,7 @@ type Scanner struct {
 func (s *Scanner) Reset(data []byte) {
 	s.data, s.pos = data, 0
 	s.args, s.elems = s.args[:0], s.elems[:0]
-	s.done, s.Skipped, s.ElemsCut, s.InlineData, s.InlineDict = false, 0, false, nil, nil
+	s.done, s.Skipped, s.ElemsCut, s.InlineData, s.InlineDict = false, 0, 0, nil, nil
 }
 
 // Feed continues the same page with its next content stream.
@@ -245,7 +245,7 @@ func (s *Scanner) operand(top bool) (Operand, bool) {
 				if len(s.elems) < MaxElems {
 					s.elems = append(s.elems, Operand{Kind: Other, Raw: data[tokStart:s.pos]})
 				} else {
-					s.ElemsCut = true
+					s.ElemsCut++
 				}
 				continue
 			}
@@ -253,7 +253,7 @@ func (s *Scanner) operand(top bool) (Operand, bool) {
 				if len(s.elems) < MaxElems {
 					s.elems = append(s.elems, el)
 				} else {
-					s.ElemsCut = true
+					s.ElemsCut++
 				}
 			}
 		}

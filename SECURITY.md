@@ -85,7 +85,7 @@ Bounds that are fixed:
 | Pages | 1,048,576 |
 | Nesting of arrays and dictionaries | 100 |
 | Nesting of forms drawn inside forms | 16, and 10,000 forms on one page |
-| Saved graphics states, open marked-content sequences | 4,096 each |
+| Saved graphics states, open marked-content sequences | 4,096 each; of the states, nothing is reported (they place text and are not in it) |
 | Text of one page | 16 MiB, in 524,288 pieces |
 | Images listed on one page | 100,000 |
 | Rules of tables recorded on one page | 65,536; 16,384 for one path. Past 131,072 path operators, or 32,768 segments along an axis, a page's paths are not followed further |
@@ -103,15 +103,17 @@ Bounds that are fixed:
 | Text of what the file stores and shows on no page (the stored part) | 16 MiB; 4,096 scripts, 1,024 entries of the document information and properties of the metadata packet; 16,384 values of one property and 65,536 of the packet; of XFA form data, 64 levels and 4,096 pieces of text of one field; 256 attributes of an XML element |
 | Name trees and number trees | 65,536 nodes, 1,048,576 entries, 32 levels |
 | Names (attached files, form fields, authors, keys of the document information) | 1,024 bytes |
-| Of the structure tree, on one page | 65,536 marked-content identifiers; 64 KiB of a figure's description |
-| Elements of the arrays of one operator, text of one code in a ToUnicode map, an inline image's dictionary, a link's address | 1,048,576; 4 KiB (the text is cut there, not dropped); 64 KiB; 4 KiB |
+| Of the structure tree, on one page | 65,536 marked-content identifiers; 65,536 bytes of a figure's description |
+| Elements of the arrays of one operator, text of one code in a ToUnicode map, an inline image's dictionary, a link's address | 1,048,576; 4,096 bytes (the text is cut there, not dropped); 65,536 bytes; 4,096 bytes |
 | Warnings of one file | 8 of each code, in the order of their messages, and one more that counts the others |
 
-A limit that cuts something is reported: as an error where there is no document, and where there is one
-as `limit.exceeded`, an error, once for each limit on the part or the document it cut. That includes
-every fixed bound above that leaves something out; a bound that only bounds work (the grids of rules,
-the fonts kept) changes how a page is laid out, not what it holds. A document that was cut is never
-returned as if it were whole.
+A limit that cuts something of the output is reported: as an error where there is no document, and where
+there is one as `limit.exceeded`, an error, once for each limit on the part or the document it cut, with
+a count of what was cut or not read. That includes every fixed bound above that leaves out text, a name,
+a value or an address. A bound on what is used only inside the library (the saved graphics states, the
+widths of a font, the grids of rules, the fonts kept) changes at most how a page is laid out, and is not
+reported. No other code is used for a cut, so a document without `limit.exceeded` lost nothing to a
+limit; one that was cut is never returned as if it were whole.
 
 **Counted together with attached files.** Decoded bytes and text are counted for a document and the
 files attached to it together, through the budgets of go-fast-core that the context carries. An attached

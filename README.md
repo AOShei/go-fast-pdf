@@ -23,17 +23,20 @@ share.
 <!-- comparison:begin (written by go run ./bench/compare -readme README.md) -->
 | | Pages per second | Time against go-fast-pdf | Most memory |
 |---|---:|---:|---:|
-| go-fast-pdf | 10,011 | 1 | 30 MB |
-| go-fast-pdf, all processors | 19,773 | 0.51 times | 59 MB |
-| gofastpdf (the command) | 7,907 | 1.27 times | 24 MB |
-| pdftotext (poppler) | 1,989 | 5.03 times | 20 MB |
-| PyMuPDF | 2,234 | 4.48 times | 62 MB |
-| pypdfium2 (PDFium) | 2,202 | 4.55 times | 30 MB |
-| pypdf | 345 | 29.1 times | 72 MB |
-| pdfplumber | 56 | 178 times | 53 MB |
+| go-fast-pdf | 10,186 | 1 | 32 MB |
+| go-fast-pdf, all processors | 18,991 | 0.54 times | 49 MB |
+| gofastpdf (the command) | 8,144 | 1.25 times | 25 MB |
+| pdftotext (poppler) | 1,999 | 5.10 times | 20 MB |
+| PyMuPDF | 2,231 | 4.56 times | 61 MB |
+| pypdfium2 (PDFium) | 2,219 | 4.59 times | 30 MB |
+| pypdf | 348 | 29.3 times | 72 MB |
+| pdfplumber | 56 | 181 times | 52 MB |
+| pdf_oxide (Rust) | 318 | 32.0 times | 30 MB |
+| pdf-extract (Rust) | 2,033 | 5.01 times | 23 MB |
+| lopdf (Rust) | 6,433 | 1.58 times | 23 MB |
 
 8 documents, 530 pages, 9.7 MB: the long documents of the public corpus's tuning set and one small one.
-Each program reads each document 5 times and its best time counts. Measured on AMD Ryzen 9 9900X 12-Core Processor (24 threads, linux/amd64) with go1.27.3-X:nodwarf5, 2026-11-22.
+Each program reads each document 5 times and its best time counts; the table is the sum over the documents, as a batch of them would take, and on one document the order can differ. Measured on AMD Ryzen 9 9900X 12-Core Processor (24 threads, linux/amd64) with go1.27.3-X:nodwarf5, 2026-11-22.
 The method, the versions and the time for each document are in [bench/comparison.md](bench/comparison.md).
 <!-- comparison:end -->
 

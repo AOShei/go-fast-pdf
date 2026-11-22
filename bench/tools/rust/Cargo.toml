@@ -1,0 +1,15 @@
+[package]
+name = "pdfbench-rust"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Times Rust PDF text libraries on one file, for bench/compare"
+
+[dependencies]
+pdf_oxide = "=0.3.78"
+pdf-extract = "=0.12.1"
+lopdf = "=0.47.0"
+
+[profile.release]
+opt-level = 3
+codegen-units = 1

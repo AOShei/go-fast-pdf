@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Faster
+
+- **The content tokeniser reads numbers where it stacks them** (#71). Reading the 1,089 files of the
+  public corpus's tuning set on one worker takes 4.5 percent fewer instructions, and the tokeniser's
+  share of the time falls from 16 to 10 percent. The output is unchanged: the same JSON for all 3,253
+  files of the corpora and fixtures, and a fuzz target that compares it with the reader as it was.
+
 ## v0.2.1 (2026-11-22)
 
 What a fixed bound of the library leaves out of the output is reported, never left out silently:

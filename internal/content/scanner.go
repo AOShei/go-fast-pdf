@@ -140,19 +140,33 @@ func (s *Scanner) Next() (op []byte, args []Operand, ok bool) {
 	if s.done {
 		s.args, s.elems, s.done = s.args[:0], s.elems[:0], false
 	}
-	data := s.data
+	data, pos := s.data, s.pos
 	for {
-		s.pos = syntax.SkipSpace(data, s.pos)
-		if s.pos >= len(data) {
+		for pos < len(data) && byteKind[data[pos]] == kindSpace {
+			pos++
+		}
+		if pos >= len(data) {
+			s.pos = pos
 			return nil, nil, false
 		}
-		c := data[s.pos]
-		if syntax.IsRegular(c) && !isNumberStart(c) {
-			start := s.pos
-			for s.pos < len(data) && syntax.IsRegular(data[s.pos]) {
-				s.pos++
+		switch byteKind[data[pos]] {
+		case kindNumber:
+			// Most operands are numbers: they are read here, and put on
+			// the stack where they are made.
+			end := numberEnd(data, pos)
+			if len(s.args) >= maxOperands {
+				s.args = s.args[:0]
+				s.Skipped++
 			}
-			tok := data[start:s.pos]
+			s.args = append(s.args, Operand{Kind: Number, Raw: data[pos:end]})
+			pos = end
+		case kindRegular:
+			start := pos
+			for pos < len(data) && byteKind[data[pos]] >= kindRegular {
+				pos++
+			}
+			s.pos = pos
+			tok := data[start:pos]
 			switch string(tok) {
 			case "true", "false", "null":
 				s.push(Operand{Kind: Other, Raw: tok})
@@ -162,9 +176,47 @@ func (s *Scanner) Next() (op []byte, args []Operand, ok bool) {
 			}
 			s.done = true
 			return tok, s.args, true
+		case kindComment:
+			pos = syntax.SkipSpace(data, pos)
+		default:
+			s.pos = pos
+			if o, ok := s.operand(true); ok {
+				s.push(o)
+			}
+			pos = s.pos
 		}
-		if o, ok := s.operand(true); ok {
-			s.push(o)
+	}
+}
+
+// The kinds of byte that Next tells apart: the classes of package
+// syntax, with the comment sign apart from the other delimiters, and the
+// bytes that start a number apart from the other regular bytes.
+// kindRegular and kindNumber are the regular bytes, the bytes of a
+// keyword or a number.
+const (
+	kindSpace = iota + 1
+	kindDelim
+	kindComment
+	kindRegular
+	kindNumber
+)
+
+var byteKind [256]uint8
+
+func init() {
+	for c := range 256 {
+		b := byte(c)
+		switch {
+		case syntax.IsSpace(b):
+			byteKind[c] = kindSpace
+		case b == '%':
+			byteKind[c] = kindComment
+		case syntax.IsDelim(b):
+			byteKind[c] = kindDelim
+		case isNumberStart(b):
+			byteKind[c] = kindNumber
+		default:
+			byteKind[c] = kindRegular
 		}
 	}
 }
@@ -237,7 +289,9 @@ func (s *Scanner) operand(top bool) (Operand, bool) {
 		s.pos++
 		lo := len(s.elems)
 		for {
-			s.pos = syntax.SkipSpace(data, s.pos)
+			for s.pos < len(data) && byteKind[data[s.pos]] == kindSpace {
+				s.pos++
+			}
 			if s.pos >= len(data) {
 				break // unterminated: keep what was read
 			}
@@ -246,7 +300,23 @@ func (s *Scanner) operand(top bool) (Operand, bool) {
 				s.pos++
 				break
 			}
-			if syntax.IsRegular(e) && !isNumberStart(e) {
+			switch byteKind[e] {
+			case kindComment:
+				s.pos = syntax.SkipSpace(data, s.pos)
+				continue
+			case kindNumber:
+				// The numbers between the strings of a TJ: read here, as
+				// Next reads them.
+				end := numberEnd(data, s.pos)
+				if len(s.elems) < MaxElems {
+					s.elems = append(s.elems, Operand{Kind: Number, Raw: data[s.pos:end]})
+				} else {
+					s.ElemsCut++
+				}
+				s.pos = end
+				continue
+			}
+			if byteKind[e] == kindRegular {
 				// A keyword inside an array: true, false, null, or an
 				// operator where the closing bracket is missing. Either
 				// way it is not an element this reader uses.

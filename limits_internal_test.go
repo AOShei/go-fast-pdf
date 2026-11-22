@@ -495,3 +495,41 @@ func TestCutter(t *testing.T) {
 	}
 	cutDoc(nil, boundName, 1, 1) // no file: nothing, and no panic
 }
+
+// Past their bounds, q and marked content are not kept, and the Q or EMC
+// that closes one of them closes nothing that is kept: what is around the
+// flood is as it would be without it. Before, the extra closers closed
+// the levels around it: the replacement text of a sequence, and the
+// matrix of a q, ended early.
+func TestNestingPastBound(t *testing.T) {
+	page := func(content string) *gofastcore.Document {
+		return limitsDoc(t, &Extractor{}, pdftest.OnePage(content), nil)
+	}
+	flood := func(open, close string) string {
+		return strings.Repeat(open+" ", 4100) + strings.Repeat(close+" ", 4100)
+	}
+	// Marked content: the outer sequence's replacement text stands for
+	// the text after the flood.
+	marked := func(inner string) string {
+		return "/Span <</ActualText (REPLACED)>> BDC " + inner + "BT /F1 12 Tf 72 700 Td (abc) Tj ET EMC"
+	}
+	if got, want := page(marked(flood("/P BMC", "EMC"))).Text(), page(marked("")).Text(); got != want || !strings.Contains(got, "REPLACED") {
+		t.Errorf("marked content: %q, want %q", got, want)
+	}
+	// q: the outer matrix places the text after the flood.
+	moved := func(inner string) string {
+		return "q 1 0 0 1 0 -400 cm " + inner + "BT /F1 12 Tf 72 700 Td (low) Tj ET Q"
+	}
+	box := func(doc *gofastcore.Document) gofastcore.Rect {
+		for _, b := range doc.Parts[0].Blocks {
+			if strings.Contains(b.Text, "low") {
+				return b.Loc.BBox
+			}
+		}
+		t.Fatal("no text")
+		return gofastcore.Rect{}
+	}
+	if got, want := box(page(moved(flood("q", "Q")))), box(page(moved(""))); got != want {
+		t.Errorf("q: %+v, want %+v", got, want)
+	}
+}

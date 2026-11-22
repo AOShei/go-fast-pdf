@@ -217,6 +217,11 @@ type interp struct {
 	f    *file.File
 	opts Options
 	res  *Result
+	// qOver and mcOver count the q and the marked-content sequences
+	// opened past their bounds and not kept: the Q or EMC that closes
+	// one of them closes nothing that is kept. A form has counts of its
+	// own.
+	qOver, mcOver int
 	// cuts counts what the bounds of the page left out (cuts.go), and
 	// cutFonts the fonts whose cuts are counted.
 	cuts     file.Cuts
@@ -449,15 +454,37 @@ func (in *interp) trim() {
 	if cap(in.stack) > 256 {
 		in.stack = nil
 	}
-	// Fonts are kept alive by the file's cache, not by this one.
+	// Nothing of the document is kept by an interpreter that waits in
+	// the pool: a font, a dictionary or a slice of the file's data would
+	// keep all of the document until the pool lets the interpreter go,
+	// which can be two collections later. The runs and the images only
+	// grow during a page, and each page clears what it used; the saved
+	// states also shrink, and are cleared to their capacity, which is
+	// small.
 	for i := range in.rs {
-		clear(in.rs[i].fontCache)
-		in.rs[i].dict = syntax.Value{}
+		fc, idx := in.rs[i].fontCache, in.rs[i].index
+		clear(fc)
+		for k := range idx {
+			clear(idx[k])
+		}
+		in.rs[i] = resources{fontCache: fc, index: idx}
 	}
+	for _, s := range in.scans {
+		s.Release()
+	}
+	in.gs = gstate{}
+	clear(in.stack[:cap(in.stack)])
+	in.stack = in.stack[:0]
+	clear(in.runs)
+	in.runs = in.runs[:0]
+	clear(in.images)
+	in.images = in.images[:0]
+	clear(in.cutFonts)
 }
 
 func (in *interp) reset(f *file.File, p *file.Page, opts Options, res *Result) {
 	in.f, in.opts, in.res = f, opts, res
+	in.qOver, in.mcOver = 0, 0
 	in.cuts.Reset()
 	clear(in.cutFonts)
 	in.level = 0
@@ -637,8 +664,14 @@ func (in *interp) operator(scan *content.Scanner, op []byte, args []content.Oper
 		// it: no warning.
 		if len(in.stack) < maxStateDepth {
 			in.stack = append(in.stack, in.gs)
+		} else {
+			in.qOver++
 		}
 	case "Q":
+		if in.qOver > 0 {
+			in.qOver-- // it closes a q that was not kept
+			break
+		}
 		if n := len(in.stack); n > in.stackFloor[in.level] {
 			in.gs = in.stack[n-1]
 			in.stack = in.stack[:n-1]
@@ -925,6 +958,7 @@ func (in *interp) beginMarked(tag []byte, props content.Operand) {
 		// What the sequence declares is not read: actual text, a layer
 		// that is off, an identifier in the structure tree.
 		in.cut(boundMarked, 1, 0)
+		in.mcOver++
 		return
 	}
 	m := marked{mcid: -1}
@@ -996,6 +1030,10 @@ func mcidIn(raw []byte) int32 {
 }
 
 func (in *interp) endMarked() {
+	if in.mcOver > 0 {
+		in.mcOver-- // it closes a sequence that was not kept
+		return
+	}
 	// A form cannot close what its caller opened.
 	if n := len(in.mc); n > in.mcFloor[in.level] {
 		in.popMarked()
@@ -1184,6 +1222,8 @@ func (in *interp) drawForm(xobj syntax.Value) {
 		in.mcFloor = append(in.mcFloor, 0)
 	}
 	in.stackFloor[level], in.mcFloor[level] = stackDepth, mcDepth
+	qOver, mcOver := in.qOver, in.mcOver
+	in.qOver, in.mcOver = 0, 0
 
 	if data := in.decodeContent(&in.formBufs, level, xobj); data != nil {
 		scan := in.scannerAt(level)
@@ -1201,6 +1241,7 @@ func (in *interp) drawForm(xobj syntax.Value) {
 		in.offDepth--
 	}
 	in.stack = in.stack[:min(len(in.stack), stackDepth)]
+	in.qOver, in.mcOver = qOver, mcOver
 	in.gs, in.tm, in.tlm = saved, savedTm, savedTlm
 	in.geomValid = false
 	in.formActive = in.formActive[:len(in.formActive)-1]

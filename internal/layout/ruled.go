@@ -656,6 +656,11 @@ func (b *builder) ruledTable(first int, g grid) (blk, []int32, bool) {
 			continue // all of it left out
 		}
 		if x.text != "" {
+			if t.Rows[sp.r0][sp.c0] != "" {
+				// Two cells in one place: their texts cannot both be the
+				// table's. The lines stay paragraphs, and nothing is lost.
+				return blk{}, nil, false
+			}
 			t.Rows[sp.r0][sp.c0] = x.text
 		}
 		if sp.r1 > sp.r0 || sp.c1 > sp.c0 {
@@ -711,6 +716,22 @@ func (b *builder) ruledTable(first int, g grid) (blk, []int32, bool) {
 	return bl, mine, true
 }
 
+// band is rows of a grid that no cell reaches out of (splitRows).
+type band struct {
+	r0, r1 int
+	bl     []float64 // the baselines it is split at; nil if it is not
+}
+
+// part is the row of a split band that a line whose middle is at y goes
+// to, of a size: the last baseline it is not much above.
+func (bd *band) part(y, size float64) int {
+	i := 0
+	for i+1 < len(bd.bl) && y-bd.bl[i+1] >= -0.25*size {
+		i++
+	}
+	return i
+}
+
 // splitRows splits the rows of a grid that hold rows of text. A band is
 // rows that no cell reaches out of, one row or several that cells over
 // several rows tie together. Where the cells with text in a band mostly
@@ -728,10 +749,6 @@ func (b *builder) splitRows(cells []ruledCell, rows int, xs []float64) ([]ruledC
 	for k := range cells {
 		x := &cells[k]
 		reach[x.r0] = max(reach[x.r0], x.r1)
-	}
-	type band struct {
-		r0, r1 int
-		bl     []float64 // the baselines it is split at; nil if it is not
 	}
 	var bands []band
 	for r := 0; r < rows; {
@@ -799,6 +816,38 @@ func (b *builder) splitRows(cells []ruledCell, rows int, xs []float64) ([]ruledC
 			bd.bl, split = keys, true
 		}
 	}
+	// A band is split only where no two of its cells would put text in
+	// the same row and column: cells over one another in a column each
+	// have their text on baselines of their own, unless a line crosses
+	// the rule between them. Such a band keeps its rows.
+	for n := range bands {
+		bd := &bands[n]
+		if bd.bl == nil {
+			continue
+		}
+		taken := map[[2]int]bool{}
+	cells:
+		for k := range cells {
+			x := &cells[k]
+			if x.r0 < bd.r0 || x.r0 > bd.r1 {
+				continue
+			}
+			used := map[int]bool{}
+			for _, s := range x.segs {
+				used[bd.part(mid(s), b.lines[s.line].size)] = true
+			}
+			for i := range used {
+				for c := x.c0; c <= x.c1; c++ {
+					if taken[[2]int{i, c}] {
+						bd.bl = nil
+						break cells
+					}
+					taken[[2]int{i, c}] = true
+				}
+			}
+		}
+	}
+	split = slices.ContainsFunc(bands, func(bd band) bool { return bd.bl != nil })
 	if !split {
 		return cells, rows
 	}
@@ -833,10 +882,7 @@ func (b *builder) splitRows(cells []ruledCell, rows int, xs []float64) ([]ruledC
 			parts[i] = ruledCell{r0: start[bd.r0] + i, r1: start[bd.r0] + i, c0: x.c0, c1: x.c1, bold: true}
 		}
 		for _, s := range x.segs {
-			y, i := mid(s), 0
-			for i+1 < len(bd.bl) && y-bd.bl[i+1] >= -0.25*b.lines[s.line].size {
-				i++
-			}
+			i := bd.part(mid(s), b.lines[s.line].size)
 			parts[i].segs = append(parts[i].segs, s)
 			parts[i].bold = parts[i].bold && s.bold
 		}

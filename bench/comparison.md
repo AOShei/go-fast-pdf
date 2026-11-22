@@ -4,17 +4,17 @@ Written by `go run ./bench/compare`. Do not edit: run it again.
 
 | | Pages per second | Time against go-fast-pdf | Most memory |
 |---|---:|---:|---:|
-| go-fast-pdf | 10,427 | 1 | 34 MB |
-| go-fast-pdf, all processors | 19,000 | 0.55 times | 77 MB |
-| gofastpdf (the command) | 7,837 | 1.33 times | 25 MB |
-| pdftotext (poppler) | 1,990 | 5.24 times | 20 MB |
-| PyMuPDF | 2,238 | 4.66 times | 62 MB |
-| pypdfium2 (PDFium) | 2,221 | 4.69 times | 30 MB |
-| pypdf | 349 | 29.8 times | 72 MB |
-| pdfplumber | 57 | 184 times | 52 MB |
+| go-fast-pdf | 10,111 | 1 | 32 MB |
+| go-fast-pdf, all processors | 19,975 | 0.51 times | 63 MB |
+| gofastpdf (the command) | 8,014 | 1.26 times | 22 MB |
+| pdftotext (poppler) | 1,983 | 5.10 times | 20 MB |
+| PyMuPDF | 2,236 | 4.52 times | 62 MB |
+| pypdfium2 (PDFium) | 2,197 | 4.60 times | 30 MB |
+| pypdf | 350 | 28.9 times | 72 MB |
+| pdfplumber | 57 | 178 times | 52 MB |
 
 8 documents, 530 pages, 9.7 MB: the long documents of the public corpus's tuning set and one small one.
-Each program reads each document 5 times and its best time counts. Measured on AMD Ryzen 9 9900X 12-Core Processor (24 threads, linux/amd64) with go1.27.3-X:nodwarf5, 2026-11-21.
+Each program reads each document 5 times and its best time counts. Measured on AMD Ryzen 9 9900X 12-Core Processor (24 threads, linux/amd64) with go1.27.3-X:nodwarf5, 2026-11-22.
 The method, the versions and the time for each document are in [bench/comparison.md](bench/comparison.md).
 
 ## What is measured
@@ -23,9 +23,9 @@ Each program reads a file from the disk and gives the text of all its pages.
 
 | Program | Version | What is timed |
 |---|---|---|
-| go-fast-pdf | commit e733ea4 | library, one worker |
-| go-fast-pdf, all processors | commit e733ea4 | library, 24 workers |
-| gofastpdf (the command) | commit e733ea4 | command, text output, one worker; the time of the process |
+| go-fast-pdf | commit 3c5a9c5 | library, one worker |
+| go-fast-pdf, all processors | commit 3c5a9c5 | library, 24 workers |
+| gofastpdf (the command) | commit 3c5a9c5 | command, text output, one worker; the time of the process |
 | pdftotext (poppler) | 26.10.0 | command; the time of the process |
 | PyMuPDF | 2.1 | Python library; the time of its calls, without starting Python |
 | pypdfium2 (PDFium) | 5.15.2 | Python library; the time of its calls, without starting Python |
@@ -52,14 +52,14 @@ Milliseconds, best run.
 
 | Document | Pages | go-fast-pdf | go-fast-pdf, all processors | gofastpdf (the command) | pdftotext (poppler) | PyMuPDF | pypdfium2 (PDFium) | pypdf | pdfplumber |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| english.pdf (in the repository) | 3 | 0.086 | 0.138 | 1.59 | 5.01 | 1.01 | 1.23 | 3.91 | 34.6 |
-| govdocs1-000/000762.pdf | 112 | 12.8 | 3.86 | 15.1 | 54.5 | 52.6 | 55.9 | 411 | 2,119 |
-| govdocs1-000/000153.pdf | 108 | 8.68 | 5.84 | 11.8 | 39.5 | 34.9 | 39.9 | 270 | 1,271 |
-| govdocs1-000/000359.pdf | 77 | 13.4 | 4.48 | 16.9 | 44.3 | 36.7 | 36.4 | 344 | 1,578 |
-| govdocs1-000/000578.pdf | 75 | 3.01 | 2.80 | 4.34 | 32.4 | 33.3 | 27.6 | 112 | 1,221 |
-| govdocs1-000/000807.pdf | 58 | 4.96 | 3.31 | 6.90 | 37.2 | 28.9 | 24.6 | 164 | 789 |
-| govdocs1-000/000358.pdf | 52 | 3.01 | 3.60 | 4.35 | 20.0 | 19.4 | 23.2 | 81.4 | 987 |
-| govdocs1-000/000325.pdf | 45 | 4.90 | 3.86 | 6.60 | 33.4 | 30.0 | 29.7 | 130 | 1,342 |
+| english.pdf (in the repository) | 3 | 0.086 | 0.137 | 1.51 | 5.12 | 1.01 | 1.22 | 3.90 | 34.7 |
+| govdocs1-000/000762.pdf | 112 | 12.8 | 3.62 | 15.3 | 54.3 | 52.7 | 55.5 | 410 | 2,095 |
+| govdocs1-000/000153.pdf | 108 | 9.13 | 6.09 | 11.4 | 40.3 | 34.9 | 41.0 | 269 | 1,272 |
+| govdocs1-000/000359.pdf | 77 | 14.2 | 5.09 | 16.4 | 44.9 | 37.0 | 37.3 | 345 | 1,568 |
+| govdocs1-000/000578.pdf | 75 | 2.71 | 2.58 | 4.29 | 32.0 | 33.2 | 27.4 | 112 | 1,214 |
+| govdocs1-000/000807.pdf | 58 | 5.45 | 3.05 | 6.80 | 36.6 | 29.0 | 25.0 | 161 | 792 |
+| govdocs1-000/000358.pdf | 52 | 2.94 | 2.58 | 4.33 | 20.4 | 19.8 | 23.7 | 82.0 | 988 |
+| govdocs1-000/000325.pdf | 45 | 5.11 | 3.38 | 6.06 | 33.6 | 29.5 | 30.1 | 130 | 1,352 |
 
 Characters of text, as each program counts its own output:
 

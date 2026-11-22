@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.2.1 (not yet tagged)
+## v0.2.1 (2026-11-22)
 
 What a fixed bound of the library leaves out of the output is reported, never left out silently:
 `limit.exceeded`, an error, once for each bound on the part or the document it cut, with a count, in
@@ -44,6 +44,15 @@ that is newly reported.
 - **The warnings of the document as a whole** were kept up to 100, and the rest dropped without a
   count. Eight of each code are kept, in the order of their messages, and one more warning counts the
   others.
+- **A ruled table could lose the text of a cell** when a line of text crossed one of its rules, as on
+  a page whose rules are broken or turned: two cells had their text in one place, and the table kept
+  one. Such a band of rows is not cut along its lines, and two cells never share a place; where they
+  would, the text stays paragraphs.
+- **The box of a note or of a form field's value** could fall past the range of coordinates when the
+  page's matrix moved it there (a page turned, or its box moved). Such a box is none.
+- **q and marked content opened past their bound (4,096)** were not kept, but the Q or EMC that closed
+  each closed a level that was: the matrix of a q around them, or a sequence with its replacement text,
+  ended early. Their closers close nothing kept now.
 - Found by fuzzing while this was checked: a warning that quotes a name of the file (the colour
   space of an inline image) could hold a C1 control character, and an author, title or subject taken
   from the metadata packet could hold a ligature (U+FB00 to U+FB06), against the rules of the shared
@@ -61,13 +70,27 @@ that is newly reported.
 - **Nothing of a document is kept after it is read.** The pooled state of the reading and of the
   layout kept the options of its last page, whose functions hold the document's structure tree and so
   all of the document, and the interpreter references into the document's data; they let go of all of
-  it now. The soak's largest resident memory went from 660 to 775 MiB to 516 to 606 MiB.
+  it now. The soak's largest resident memory, which moves from run to run with the collections, was
+  516 to 674 MiB over six runs, against 659 to 775 MiB before.
 - **The annotations of a page are read once.** The reading of their appearances hands each one to what
   else is taken from it (notes, form values, links, attached files, actions), which read the page's list
   again each before. A page of 32,768 links (a file of the corpus) is read in half the instructions,
   and the tuning set of the public corpus in 6 percent fewer than with v0.2.1's higher bound on
   annotations alone. The objects a file holds in its cache are cleared by their numbers when the cache
   is emptied, rather than every slot of the file.
+
+### Changed
+
+- go-fast-core v0.1.1: `Part.Warn` and `Document.Warn` keep at most 1,000 warnings, then count the rest
+  in one `warnings.omitted`; `limit.exceeded` covers a library's fixed bounds.
+
+### Checked before the release
+
+On the tree that is tagged: the 3,186 files of the corpora read in processes of their own, three
+times, with no crash, hang or memory failure, at most 2.3 s and 674 MiB for a file; the documents
+the same as those of v0.2.0 except for the nine that gain what a bound cut; fuzzing of every target
+for an hour on machines of four processors, 3.8 billion inputs, with nothing left that it found (the
+four defects it found on the way are fixed above); the public corpus read in 1.3 s on one thread.
 
 ## v0.2.0 (2026-11-21)
 

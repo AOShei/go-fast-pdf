@@ -15,7 +15,7 @@ share.
   exhaust them.
 - It starts no program, fetches nothing, runs nothing that a file contains, and does no OCR.
 
-> **Status.** v0.2.0 (2026-11-21), on go-fast-core v0.1.0. The API is not that of v0.1:
+> **Status.** v0.2.1 (2026-11-22), on go-fast-core v0.1.1. The API is not that of v0.1:
 > [MIGRATION.md](MIGRATION.md) says what became what; [CHANGELOG.md](CHANGELOG.md) says what changed.
 
 ## Speed
@@ -23,17 +23,17 @@ share.
 <!-- comparison:begin (written by go run ./bench/compare -readme README.md) -->
 | | Pages per second | Time against go-fast-pdf | Most memory |
 |---|---:|---:|---:|
-| go-fast-pdf | 10,427 | 1 | 34 MB |
-| go-fast-pdf, all processors | 19,000 | 0.55 times | 77 MB |
-| gofastpdf (the command) | 7,837 | 1.33 times | 25 MB |
-| pdftotext (poppler) | 1,990 | 5.24 times | 20 MB |
-| PyMuPDF | 2,238 | 4.66 times | 62 MB |
-| pypdfium2 (PDFium) | 2,221 | 4.69 times | 30 MB |
-| pypdf | 349 | 29.8 times | 72 MB |
-| pdfplumber | 57 | 184 times | 52 MB |
+| go-fast-pdf | 10,111 | 1 | 32 MB |
+| go-fast-pdf, all processors | 19,975 | 0.51 times | 63 MB |
+| gofastpdf (the command) | 8,014 | 1.26 times | 22 MB |
+| pdftotext (poppler) | 1,983 | 5.10 times | 20 MB |
+| PyMuPDF | 2,236 | 4.52 times | 62 MB |
+| pypdfium2 (PDFium) | 2,197 | 4.60 times | 30 MB |
+| pypdf | 350 | 28.9 times | 72 MB |
+| pdfplumber | 57 | 178 times | 52 MB |
 
 8 documents, 530 pages, 9.7 MB: the long documents of the public corpus's tuning set and one small one.
-Each program reads each document 5 times and its best time counts. Measured on AMD Ryzen 9 9900X 12-Core Processor (24 threads, linux/amd64) with go1.27.3-X:nodwarf5, 2026-11-21.
+Each program reads each document 5 times and its best time counts. Measured on AMD Ryzen 9 9900X 12-Core Processor (24 threads, linux/amd64) with go1.27.3-X:nodwarf5, 2026-11-22.
 The method, the versions and the time for each document are in [bench/comparison.md](bench/comparison.md).
 <!-- comparison:end -->
 

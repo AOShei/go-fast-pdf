@@ -269,12 +269,18 @@ func (st *state) image(part *gofastcore.Part, ref imageRef, inline *int) {
 	}
 	work := min(maxFunctionWork, st.funcWork)
 	left := work
+	perStream := f.Limits().MaxStreamBytes < st.budget
 	data, decoded, err := imageData(f, st.funcs, src, kind, min(st.budget, f.Limits().MaxStreamBytes), &left)
 	st.budget -= decoded
 	st.funcWork -= work - left
+	var bound boundError
 	switch {
+	case err == file.ErrTruncated && perStream:
+		st.imagesLong = true
 	case err == file.ErrTruncated:
 		st.imagesCut = true
+	case errors.As(err, &bound):
+		partLimit(part, string(bound))
 	case err != nil:
 		undelivered(err.Error())
 	default:
@@ -283,11 +289,11 @@ func (st *state) image(part *gofastcore.Part, ref imageRef, inline *int) {
 }
 
 // printable returns s for a message: a reason can quote a name of the
-// file, which can hold any byte. Control characters are '?', and bytes
-// that are no UTF-8 are U+FFFD.
+// file, which can hold any byte. Control characters, C0 and C1, are '?',
+// and bytes that are no UTF-8 are U+FFFD.
 func printable(s string) string {
 	return strings.Map(func(r rune) rune {
-		if r < 0x20 || r == 0x7F {
+		if r < 0x20 || r >= 0x7F && r <= 0x9F {
 			return '?'
 		}
 		return r

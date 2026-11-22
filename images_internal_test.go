@@ -201,7 +201,7 @@ func TestFunctionWork(t *testing.T) {
 		}
 		src := imageSrc{v: fl.Object(1)}
 		_, _, err = testData(fl, src, testKind(fl, src), 1<<24)
-		if (err == nil) != c.ok || err != nil && !strings.Contains(err.Error(), "too long") {
+		if (err == nil) != c.ok || err != nil && err != errFunctionWork {
 			t.Errorf("work %d: %v", c.work, err)
 		}
 	}
@@ -262,7 +262,7 @@ func TestFunctionWorkOneInk(t *testing.T) {
 		}
 		src := imageSrc{v: fl.Object(1)}
 		out, _, err := testData(fl, src, testKind(fl, src), 1<<20)
-		if (err == nil) != c.ok || err != nil && !strings.Contains(err.Error(), "too long") {
+		if (err == nil) != c.ok || err != nil && err != errFunctionWork {
 			t.Errorf("%s, work %d: %v", c.dict, c.work, err)
 			continue
 		}
@@ -311,7 +311,8 @@ func TestFunctionWorkAll(t *testing.T) {
 				delivered++
 			}
 		}
-		warned := doc.Parts[0].Has(gofastcore.WarnImageUnsupportedEncoding)
+		// The bound of this library on that work: limit.exceeded.
+		warned := doc.Parts[0].Has(gofastcore.WarnLimitExceeded) && !doc.Parts[0].Has(gofastcore.WarnImageUnsupportedEncoding)
 		if delivered != c.delivered || warned != (c.delivered < 2) {
 			t.Errorf("work %d: %d delivered, warned %v; %v", c.work, delivered, warned, doc.Parts[0].Warnings)
 		}

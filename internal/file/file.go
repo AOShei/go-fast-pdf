@@ -10,8 +10,11 @@ import (
 	"crypto"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"io"
+	"slices"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"unsafe"
@@ -128,8 +131,10 @@ type File struct {
 	rebuilt   bool
 	redefined int
 
-	mu       sync.Mutex
-	warnings []gofastcore.Warning
+	mu sync.Mutex
+	// warnings are the problems of the file, by their code (Warn).
+	warnings map[string]*codeWarnings
+	counted  int
 
 	// Cache holds values derived from the file by other packages, such as
 	// parsed fonts, keyed by them.
@@ -229,52 +234,88 @@ func (f *File) finish() *File {
 	return f
 }
 
-// maxWarnings bounds the problems kept for one file. A damaged file can
-// have a problem in every object.
-const maxWarnings = 100
+// A damaged file can have a problem in every object, so the problems of
+// a file are kept by their code: the first maxPerCode of a code in the
+// order of their messages, and a count of the others, which Warnings
+// gives as one more warning of that code. Messages are counted once
+// each, up to maxCounted messages over all codes.
+const (
+	maxPerCode = 8
+	maxCounted = 1 << 20
+)
 
-// Warn records a problem that concerns the file as a whole.
+// codeWarnings are the problems of one code.
+type codeWarnings struct {
+	kept     []gofastcore.Warning // in the order of their messages
+	seen     map[uint64]bool      // the messages, by a hash of them
+	severity gofastcore.Severity  // the highest of them
+	uncount  bool                 // seen past maxCounted
+}
+
+// Warn records a problem that concerns the file as a whole. A message
+// recorded already is not recorded again.
 //
 // Problems are found as objects are read, and several goroutines read
 // objects in no fixed order. So that the result does not depend on that
-// order, the problems kept are not the first ones found but the first
-// ones in the order of their code and message.
+// order, the problems kept of a code are not the first ones found but
+// the first ones in the order of their messages.
 func (f *File) Warn(severity gofastcore.Severity, code, message string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.warnings == nil {
+		f.warnings = map[string]*codeWarnings{}
+	}
+	cw := f.warnings[code]
+	if cw == nil {
+		cw = &codeWarnings{seen: map[uint64]bool{}}
+		f.warnings[code] = cw
+	}
+	h := fnv.New64a()
+	h.Write([]byte(message))
+	sum := h.Sum64()
+	if cw.seen[sum] {
+		return
+	}
+	if f.counted < maxCounted {
+		cw.seen[sum] = true
+		f.counted++
+	} else {
+		cw.uncount = true
+	}
+	cw.severity = max(cw.severity, severity)
 	w := gofastcore.Warning{Code: code, Severity: severity, Message: message}
-	last := -1
-	for i := range f.warnings {
-		// A damaged file can repeat one problem thousands of times.
-		if f.warnings[i].Code == code && f.warnings[i].Message == message {
-			return
-		}
-		if last < 0 || warningLess(f.warnings[last], f.warnings[i]) {
-			last = i
-		}
-	}
+	i, _ := slices.BinarySearchFunc(cw.kept, w, func(a, b gofastcore.Warning) int { return strings.Compare(a.Message, b.Message) })
 	switch {
-	case len(f.warnings) < maxWarnings:
-		f.warnings = append(f.warnings, w)
-	case warningLess(w, f.warnings[last]):
-		f.warnings[last] = w
+	case len(cw.kept) < maxPerCode:
+		cw.kept = slices.Insert(cw.kept, i, w)
+	case i < maxPerCode:
+		cw.kept = slices.Insert(cw.kept[:maxPerCode-1], i, w)
 	}
-}
-
-func warningLess(a, b gofastcore.Warning) bool {
-	if a.Code != b.Code {
-		return a.Code < b.Code
-	}
-	return a.Message < b.Message
 }
 
 // Warnings returns the problems recorded so far, in the order of their
-// code and message.
+// code and message: of each code, those kept and, when there were more,
+// a warning that counts the others.
 func (f *File) Warnings() []gofastcore.Warning {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	out := append([]gofastcore.Warning(nil), f.warnings...)
-	sort.Slice(out, func(i, j int) bool { return warningLess(out[i], out[j]) })
+	codes := make([]string, 0, len(f.warnings))
+	for code := range f.warnings {
+		codes = append(codes, code)
+	}
+	sort.Strings(codes)
+	var out []gofastcore.Warning
+	for _, code := range codes {
+		cw := f.warnings[code]
+		out = append(out, cw.kept...)
+		if n := len(cw.seen) - len(cw.kept); n > 0 || cw.uncount {
+			msg := fmt.Sprintf("%d more warnings with this code are not listed", n)
+			if cw.uncount {
+				msg = fmt.Sprintf("more than %d more warnings with this code are not listed", n)
+			}
+			out = append(out, gofastcore.Warning{Code: code, Severity: cw.severity, Message: msg})
+		}
+	}
 	return out
 }
 

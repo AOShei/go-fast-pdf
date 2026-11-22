@@ -401,6 +401,10 @@ func (in *interp) showCodes(f *font.Font, raw []byte) {
 		in.unmapped += sh.Unmapped
 		in.assumed += sh.Assumed
 		in.byOutline += sh.ByOutline
+		if f.Cut() {
+			in.warn(gofastcore.SeverityError, gofastcore.WarnLimitExceeded,
+				"a font on the page has a ToUnicode map, an encoding, widths or a program larger than is kept; the text or the place of some of its characters may be missing or wrong")
+		}
 		if in.opts.Words {
 			in.markSpaces(f, raw)
 		}

@@ -64,12 +64,14 @@ func (o Operand) AppendString(dst []byte) []byte {
 	return dst
 }
 
-// maxOperands bounds the operands kept for one operator, and maxElems the
+// maxOperands bounds the operands kept for one operator, and MaxElems the
 // elements of its arrays. A stream of numbers with no operator would
 // otherwise grow the stack without limit.
 const (
 	maxOperands = 1024
-	maxElems    = 1 << 20
+	// MaxElems is the most elements of arrays kept for one operator;
+	// ElemsCut says that there were more.
+	MaxElems = 1 << 20
 )
 
 // Scanner splits a content stream into operators with their operands.
@@ -88,6 +90,9 @@ type Scanner struct {
 
 	// Skipped counts the bytes skipped as unreadable.
 	Skipped int
+	// ElemsCut is set when an operator's arrays had more than MaxElems
+	// elements, and the rest were left out.
+	ElemsCut bool
 	// InlineData is the data of the inline image whose BI operator was
 	// returned last, and InlineDict the bytes of its dictionary's
 	// entries, from after BI to before ID.
@@ -98,7 +103,7 @@ type Scanner struct {
 func (s *Scanner) Reset(data []byte) {
 	s.data, s.pos = data, 0
 	s.args, s.elems = s.args[:0], s.elems[:0]
-	s.done, s.Skipped, s.InlineData, s.InlineDict = false, 0, nil, nil
+	s.done, s.Skipped, s.ElemsCut, s.InlineData, s.InlineDict = false, 0, false, nil, nil
 }
 
 // Feed continues the same page with its next content stream.
@@ -237,13 +242,19 @@ func (s *Scanner) operand(top bool) (Operand, bool) {
 				for s.pos < len(data) && syntax.IsRegular(data[s.pos]) {
 					s.pos++
 				}
-				if len(s.elems) < maxElems {
+				if len(s.elems) < MaxElems {
 					s.elems = append(s.elems, Operand{Kind: Other, Raw: data[tokStart:s.pos]})
+				} else {
+					s.ElemsCut = true
 				}
 				continue
 			}
-			if el, ok := s.operand(false); ok && len(s.elems) < maxElems {
-				s.elems = append(s.elems, el)
+			if el, ok := s.operand(false); ok {
+				if len(s.elems) < MaxElems {
+					s.elems = append(s.elems, el)
+				} else {
+					s.ElemsCut = true
+				}
 			}
 		}
 		return Operand{Kind: Array, lo: int32(lo), hi: int32(len(s.elems))}, true

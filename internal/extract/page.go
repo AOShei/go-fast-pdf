@@ -489,9 +489,10 @@ func (in *interp) scannerAt(level int) *content.Scanner {
 }
 
 func (in *interp) warn(severity gofastcore.Severity, code, message string) {
-	// One warning per code is enough for a page.
+	// One warning per code is enough for a page; of limit.exceeded, one
+	// per bound, which its message names.
 	for _, w := range in.res.Warnings {
-		if w.Code == code {
+		if w.Code == code && (code != gofastcore.WarnLimitExceeded || w.Message == message) {
 			return
 		}
 	}
@@ -570,6 +571,16 @@ func (in *interp) run(p *file.Page) {
 		in.warn(gofastcore.SeverityInfo, "pdf.content_bytes_skipped",
 			fmt.Sprintf("%d bytes of the content stream are not valid syntax and were skipped", scan.Skipped))
 	}
+	in.elemsCut(scan)
+}
+
+// elemsCut reports the elements of arrays that a scanner left out, past
+// the most it keeps for one operator.
+func (in *interp) elemsCut(scan *content.Scanner) {
+	if scan.ElemsCut {
+		in.warn(gofastcore.SeverityError, gofastcore.WarnLimitExceeded,
+			fmt.Sprintf("an operator's array has more than %d elements; the rest, and their text, are not read", content.MaxElems))
+	}
 }
 
 // exec runs the operators of a scanner to its end.
@@ -618,6 +629,9 @@ func (in *interp) operator(scan *content.Scanner, op []byte, args []content.Oper
 	case "q":
 		if len(in.stack) < maxStateDepth {
 			in.stack = append(in.stack, in.gs)
+		} else {
+			in.warn(gofastcore.SeverityError, gofastcore.WarnLimitExceeded,
+				fmt.Sprintf("graphics states are saved more than %d deep; the deeper ones are not kept, and what follows may be placed wrongly", maxStateDepth))
 		}
 	case "Q":
 		if n := len(in.stack); n > in.stackFloor[in.level] {
@@ -903,6 +917,8 @@ func (in *interp) lookupFont(raw []byte) *font.Font {
 
 func (in *interp) beginMarked(tag []byte, props content.Operand) {
 	if len(in.mc) >= maxMarkedDepth {
+		in.warn(gofastcore.SeverityError, gofastcore.WarnLimitExceeded,
+			fmt.Sprintf("marked content is nested more than %d deep; what the deeper sequences declare (actual text, a layer that is off, an identifier in the structure) is not read", maxMarkedDepth))
 		return
 	}
 	m := marked{mcid: -1}
@@ -1169,6 +1185,7 @@ func (in *interp) drawForm(xobj syntax.Value) {
 		in.level = level
 		in.exec(scan)
 		in.level = level - 1
+		in.elemsCut(scan)
 	}
 
 	for len(in.mc) > mcDepth {

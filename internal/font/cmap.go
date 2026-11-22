@@ -153,7 +153,18 @@ func (c *cmap) add(e entry) {
 }
 
 func (c *cmap) addText(lo, hi uint32, n int, text []byte, kind uint8) {
-	if len(text) > maxEntryText || len(c.text)+len(text) > maxCMapText {
+	if len(text) > maxEntryText {
+		// The text of one code is kept up to the limit, at the end of a
+		// character: cut, it is still the beginning of the right text,
+		// where dropped the code would read by the font's encoding.
+		cut := maxEntryText
+		for cut > 0 && !utf8.RuneStart(text[cut]) {
+			cut--
+		}
+		text = text[:cut]
+		c.truncated = true
+	}
+	if len(c.text)+len(text) > maxCMapText {
 		c.truncated = true
 		return
 	}

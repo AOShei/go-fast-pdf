@@ -8,6 +8,7 @@ import (
 	"github.com/AOShei/go-fast-pdf/internal/syntax"
 
 	gofastcore "github.com/AOShei/go-fast-core"
+	"github.com/AOShei/go-fast-pdf/internal/charset"
 )
 
 // The metadata packet (XMP) in the document information.
@@ -65,7 +66,7 @@ func readPacket(f *file.File, catalog syntax.Value) (pk packet) {
 	src, ok := r.packet(v)
 	pk = packet{read: true, whole: ok, size: len(src)}
 	if ok {
-		pk.props = packetProperties(src)
+		pk.props = packetProperties(src, func(m string) { cutWarn(f, m) })
 	}
 	return pk
 }
@@ -81,7 +82,7 @@ func fromPacket(md *gofastcore.Metadata, pk packet) {
 	// The first value that is text, as a property of one value has it.
 	first := func(values []string) string {
 		for _, v := range values {
-			if v = strings.TrimSpace(cleanString(v)); v != "" {
+			if v = strings.TrimSpace(charset.Letters(cleanString(v))); v != "" {
 				return v
 			}
 		}
@@ -165,7 +166,7 @@ func cleanValues(values []string) []string {
 	}
 	out := make([]string, 0, len(values))
 	for _, v := range values {
-		if v = strings.TrimSpace(cleanString(v)); v != "" {
+		if v = strings.TrimSpace(charset.Letters(cleanString(v))); v != "" {
 			out = append(out, v)
 		}
 	}

@@ -296,6 +296,9 @@ type state struct {
 	// imagesCut and attachmentsCut are set when data was left out because
 	// the budget ran out.
 	imagesCut, attachmentsCut bool
+	// imagesLong and attachmentsLong are set when data was left out
+	// because one stream decodes to more than MaxStreamBytes.
+	imagesLong, attachmentsLong bool
 
 	// decodeLimit is what budget started at: the limit of this file, or
 	// what the document it is embedded in had left, if that is less.
@@ -800,6 +803,14 @@ func (f *File) Document(ctx context.Context) (*gofastcore.Document, error) {
 	if st.imagesCut {
 		doc.Warn(gofastcore.SeverityError, gofastcore.WarnLimitExceeded,
 			fmt.Sprintf("the document decodes to more than the limit of %d bytes; the data of some images is not included", st.decodeLimit))
+	}
+	if st.attachmentsLong {
+		doc.Warn(gofastcore.SeverityError, gofastcore.WarnLimitExceeded,
+			fmt.Sprintf("an attached file decodes to more than the limit of %d bytes for one stream; it was not extracted", f.f.Limits().MaxStreamBytes))
+	}
+	if st.imagesLong {
+		doc.Warn(gofastcore.SeverityError, gofastcore.WarnLimitExceeded,
+			fmt.Sprintf("an image decodes to more than the limit of %d bytes for one stream; its data is not included", f.f.Limits().MaxStreamBytes))
 	}
 	if st.outlineCut {
 		doc.Warn(gofastcore.SeverityError, gofastcore.WarnLimitExceeded,

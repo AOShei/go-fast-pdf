@@ -1,13 +1,18 @@
 package extract
 
 import (
+	"fmt"
+
+	gofastcore "github.com/AOShei/go-fast-core"
 	"github.com/AOShei/go-fast-pdf/internal/file"
 	"github.com/AOShei/go-fast-pdf/internal/syntax"
 )
 
 // MaxAnnotations is the number of annotations of a page that are looked
-// at. A page lists them in an array of any length.
-const MaxAnnotations = 1 << 14
+// at. A page lists them in an array of any length. A file of the corpus
+// has 32,768 links on one page; reading them takes about 7 microseconds
+// each.
+const MaxAnnotations = 1 << 16
 
 // Annotation flags (ISO 32000-1, table 165).
 const (
@@ -33,6 +38,11 @@ func (in *interp) appearances(p *file.Page) {
 		return
 	}
 	if len(annots) > MaxAnnotations {
+		// This also bounds what the root package reads of the page's
+		// annotations: their notes, form values, links and attached
+		// files. This warning stands for all of it.
+		in.warn(gofastcore.SeverityError, gofastcore.WarnLimitExceeded,
+			fmt.Sprintf("the page has %d annotations; the %d past the first %d are not read: their appearances, notes, form values, links and attached files", len(annots), len(annots)-MaxAnnotations, MaxAnnotations))
 		annots = annots[:MaxAnnotations]
 	}
 	in.res.Shown = make([]bool, len(annots))

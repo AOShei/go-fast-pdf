@@ -55,14 +55,17 @@ type simpleProgram struct {
 }
 
 // readSimpleProgram reads the program of a simple font, as its font
-// descriptor gives it; nil for none that says anything.
-func readSimpleProgram(f *file.File, descriptor syntax.Value) *simpleProgram {
+// descriptor gives it; nil for none that says anything. cut is set when
+// the program is longer than maxProgramBytes and only its beginning was
+// read.
+func readSimpleProgram(f *file.File, descriptor syntax.Value) (_ *simpleProgram, cut bool) {
 	p := &simpleProgram{}
 	var tables map[string][]byte
 	switch {
 	case !descriptor.Get("FontFile3").IsNull():
 		stm := f.Resolve(descriptor.Get("FontFile3"))
-		data, _ := f.Decode(stm, nil, maxProgramBytes)
+		data, err := f.Decode(stm, nil, maxProgramBytes)
+		cut = err == file.ErrTruncated
 		switch {
 		case f.Resolve(stm.Get("Subtype")).IsName("OpenType"):
 			tables = sfntTables(data)
@@ -73,7 +76,8 @@ func readSimpleProgram(f *file.File, descriptor syntax.Value) *simpleProgram {
 			p.names, p.standard, p.cff = cffEncoding(data)
 		}
 	case !descriptor.Get("FontFile2").IsNull():
-		data, _ := f.Decode(f.Resolve(descriptor.Get("FontFile2")), nil, maxProgramBytes)
+		data, err := f.Decode(f.Resolve(descriptor.Get("FontFile2")), nil, maxProgramBytes)
+		cut = err == file.ErrTruncated
 		tables = sfntTables(data)
 	}
 	if tables != nil {
@@ -83,9 +87,9 @@ func readSimpleProgram(f *file.File, descriptor syntax.Value) *simpleProgram {
 		p.cff = false
 	}
 	if !p.cff && !p.mapped && !p.windows && p.tables == nil {
-		return nil
+		return nil, cut
 	}
-	return p
+	return p, cut
 }
 
 // readTrueType reads the codes of a TrueType program's tables: the glyph

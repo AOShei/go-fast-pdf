@@ -1,6 +1,7 @@
 package gofastpdf
 
 import (
+	"fmt"
 	"strings"
 	"sync"
 
@@ -139,7 +140,7 @@ type tag struct {
 // pageTags returns, by MCID, what the structure tree says of the content
 // of a page, and the page as the tree orders it, whose ranks are found
 // when first asked for (treeorder.go); nil when the tree says nothing.
-func (s *structure) pageTags(p *file.Page) ([]tag, *treePage) {
+func (s *structure) pageTags(p *file.Page, limits *pageLimits) ([]tag, *treePage) {
 	if s == nil {
 		return nil, nil
 	}
@@ -152,8 +153,11 @@ func (s *structure) pageTags(p *file.Page) ([]tag, *treePage) {
 	if len(elems) == 0 {
 		return nil, nil
 	}
-	elems = elems[:min(len(elems), maxPageMCIDs)]
-	w := &walker{s: s, memo: map[int64]reach{}}
+	if len(elems) > maxPageMCIDs {
+		limits.add(fmt.Sprintf("the page has more than %d marked-content identifiers in the structure tree; the roles, headings, table cells and figure descriptions of the rest are not read (their text is)", maxPageMCIDs))
+		elems = elems[:maxPageMCIDs]
+	}
+	w := &walker{s: s, memo: map[int64]reach{}, limits: limits}
 	var out []tag
 	for mcid, ref := range elems {
 		r := w.reach(ref, 0)
@@ -219,9 +223,10 @@ type reach struct {
 
 // walker follows elements up to the root, each once on a page.
 type walker struct {
-	s     *structure
-	memo  map[int64]reach
-	paths []int32
+	s      *structure
+	limits *pageLimits
+	memo   map[int64]reach
+	paths  []int32
 }
 
 func (w *walker) reach(ref syntax.Value, depth int) reach {
@@ -262,6 +267,9 @@ func (w *walker) reach(ref syntax.Value, depth int) reach {
 		r.label = r.item != 0
 	case t == "Figure":
 		if alt := strings.TrimSpace(text(f, el.Get("Alt"))); alt != "" {
+			if len(alt) > maxAltBytes {
+				w.limits.add(fmt.Sprintf("a figure's alternate description is longer than %d bytes and is cut there", maxAltBytes))
+			}
 			r.alt = clipText(alt, maxAltBytes)
 		}
 	}

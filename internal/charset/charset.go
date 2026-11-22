@@ -374,6 +374,11 @@ func (c *CoreFont) Width(code byte, text string) (width float64, ok bool) {
 // subset tag is ignored, and so are the differences between the usual
 // spellings: "Arial,Bold", "Arial-BoldMT" and "Helvetica-Bold" have the
 // same metrics.
+// nameSeparators drops what separates the parts of a font's name. Made
+// once: a Replacer is built when it is first used, and building it was
+// a part of reading every font.
+var nameSeparators = strings.NewReplacer(" ", "", "-", "", ",", "", "_", "")
+
 func Core(baseFont string) *CoreFont {
 	name := baseFont
 	if len(name) > 7 && name[6] == '+' {
@@ -382,7 +387,7 @@ func Core(baseFont string) *CoreFont {
 	name = strings.ToLower(name)
 	bold := strings.Contains(name, "bold")
 	italic := strings.Contains(name, "italic") || strings.Contains(name, "oblique")
-	name = strings.NewReplacer(" ", "", "-", "", ",", "", "_", "").Replace(name)
+	name = nameSeparators.Replace(name)
 	switch {
 	case strings.HasPrefix(name, "helvetica"), strings.HasPrefix(name, "arial"):
 		if strings.Contains(name, "narrow") || strings.Contains(name, "condensed") || strings.Contains(name, "black") {

@@ -106,6 +106,10 @@ type Options struct {
 	// before the buffers that hold it are reused. Result.Text is then
 	// not made.
 	Use func(*Content)
+	// Worker, if set, keeps the state of the reading for the next page of
+	// the same goroutine (Worker).
+	Worker *Worker
+
 	// Annot, if set, is given each annotation of the page that is looked
 	// at (MaxAnnotations), in the order of the page's list, once its
 	// appearance is drawn: i its place, a the annotation as resolved, and
@@ -313,6 +317,25 @@ type interp struct {
 
 var interps = sync.Pool{New: func() any { return new(interp) }}
 
+// A Worker keeps, for one goroutine that reads the pages of a document,
+// the state that one page leaves for the next to reuse: its buffers and
+// lists, grown to the size of the pages. A sync.Pool lets go of all it
+// holds at each collection, and the lists then grow again, which brings
+// the next collection sooner; a Worker keeps them for as long as the
+// document is read. Nothing of the document is kept from one page to the
+// next (interp.trim). The zero Worker is ready; Release gives the state
+// to the pool when the document is read. A Worker is not for two
+// goroutines at once.
+type Worker struct{ in *interp }
+
+// Release gives the state the Worker holds to the pool.
+func (w *Worker) Release() {
+	if w.in != nil {
+		interps.Put(w.in)
+		w.in = nil
+	}
+}
+
 // Page extracts one page. It never panics: a failure inside the
 // interpreter is returned in Result.Err, with whatever text was produced
 // before it.
@@ -326,19 +349,30 @@ func Page(f *file.File, p *file.Page, opts Options) (res Result) {
 	if opts.MaxDecodedBytes <= 0 {
 		opts.MaxDecodedBytes = 512 << 20
 	}
-	in := interps.Get().(*interp)
+	worker := opts.Worker
+	var in *interp
+	if worker != nil && worker.in != nil {
+		in, worker.in = worker.in, nil
+	} else {
+		in = interps.Get().(*interp)
+	}
 	defer func() {
 		if r := recover(); r != nil {
 			// A last line of defence. Fuzzing treats reaching it as a
 			// failure, so it does not hide defects.
 			res.Err = fmt.Errorf("%w: internal error on page %d: %v", gofastcore.ErrMalformed, p.Number, r)
 			res.Text = string(bytes.ToValidUTF8(assemble(nil, in.runs, in.text), []byte("�")))
-			interps.Put(new(interp)) // do not reuse a state that failed
-			return
+			return // a state that failed is not reused
 		}
-		in.f, in.res = nil, nil
+		// The options hold the caller's functions (Use, Annot, Stop),
+		// which can hold all of the document.
+		in.f, in.res, in.opts = nil, nil, Options{}
 		in.trim()
-		interps.Put(in)
+		if worker != nil {
+			worker.in = in
+		} else {
+			interps.Put(in)
+		}
 	}()
 	in.reset(f, p, opts, &res)
 	in.run(p)

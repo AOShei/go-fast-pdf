@@ -44,6 +44,9 @@ type Page struct {
 
 // Options says what to produce besides text blocks.
 type Options struct {
+	// Worker, if set, keeps the builder for the next page of the same
+	// goroutine (Worker).
+	Worker *Worker
 	// Images puts an image block where each image is.
 	Images bool
 	// Lines returns the lines of the text blocks with their words, in
@@ -231,13 +234,41 @@ type builder struct {
 
 var builders = sync.Pool{New: func() any { return new(builder) }}
 
+// A Worker keeps, for one goroutine that lays out the pages of a
+// document, the builder that one page leaves for the next to reuse, as
+// extract.Worker keeps the state of the reading. The zero Worker is
+// ready; Release gives the builder to the pool when the document is laid
+// out. A Worker is not for two goroutines at once.
+type Worker struct{ b *builder }
+
+// Release gives the builder the Worker holds to the pool.
+func (w *Worker) Release() {
+	if w.b != nil {
+		builders.Put(w.b)
+		w.b = nil
+	}
+}
+
 // Build lays out one page.
 func Build(page Page, c *extract.Content, opts Options) Result {
-	b := builders.Get().(*builder)
+	worker := opts.Worker
+	var b *builder
+	if worker != nil && worker.b != nil {
+		b, worker.b = worker.b, nil
+	} else {
+		b = builders.Get().(*builder)
+	}
 	defer func() {
-		b.c = nil
+		// Nothing of the document is kept by a builder that waits: the
+		// options hold functions over the document's structure tree, and
+		// through it all of the document.
+		b.c, b.opts, b.page = nil, Options{}, Page{}
 		b.trim()
-		builders.Put(b)
+		if worker != nil {
+			worker.b = b
+		} else {
+			builders.Put(b)
+		}
 	}()
 	b.reset(page, c, opts)
 	b.cutRuns()

@@ -509,11 +509,13 @@ func (f *File) each(ctx context.Context, w want, fn func(out *pageOut) bool) err
 	defer context.AfterFunc(ctx, func() { stop.Store(true) })()
 
 	if workers <= 1 {
+		var ws workState
+		defer ws.release()
 		for i := range pages {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			out := f.e.page(f.f, &pages[i], &f.opts, w)
+			out := f.e.page(f.f, &pages[i], &f.opts, w, &ws)
 			if err := ctx.Err(); err != nil {
 				return err
 			}
@@ -538,8 +540,10 @@ func (f *File) each(ctx context.Context, w want, fn func(out *pageOut) bool) err
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			var ws workState
+			defer ws.release()
 			for j := range jobs {
-				j.out <- f.e.page(f.f, j.page, &f.opts, w)
+				j.out <- f.e.page(f.f, j.page, &f.opts, w, &ws)
 			}
 		}()
 	}
@@ -710,7 +714,7 @@ func (p *Page) read(w want) (pageOut, error) {
 		w.dests = f.describe().dests
 	}
 	w.structure = f.describe().structure
-	out := f.e.page(f.f, p.p, &f.opts, w)
+	out := f.e.page(f.f, p.p, &f.opts, w, nil)
 	st := f.newState()
 	st.finish(&out)
 	// Its headings, by the type of this page alone.

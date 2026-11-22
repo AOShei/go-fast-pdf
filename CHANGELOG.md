@@ -51,6 +51,17 @@ that is newly reported.
 
 ### Faster
 
+- **Fewer collections with many workers.** Each goroutine that reads the pages of a document keeps
+  its working state (the interpreter of the content and the builder of the layout, with their lists)
+  from page to page for as long as the document is read, rather than in a `sync.Pool` that loses it
+  at every collection; when the document is read it goes to the pool. On the documents of the
+  comparison, with 24 workers, collections went from about 450 to about 110, and the time from 28 ms
+  to 16 to 19 ms (v0.2.0: 19 to 21 ms). A font's name is no longer given to a new `strings.Replacer`
+  for every font.
+- **Nothing of a document is kept after it is read.** The pooled state of the reading and of the
+  layout kept the options of its last page, whose functions hold the document's structure tree and so
+  all of the document, and the interpreter references into the document's data; they let go of all of
+  it now. The soak's largest resident memory went from 660 to 775 MiB to 516 to 606 MiB.
 - **The annotations of a page are read once.** The reading of their appearances hands each one to what
   else is taken from it (notes, form values, links, attached files, actions), which read the page's list
   again each before. A page of 32,768 links (a file of the corpus) is read in half the instructions,

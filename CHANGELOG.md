@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## v0.2.2 (2026-11-22)
+
+Faster, with the same output: for each of the 3,253 PDF files of the corpora and fixtures, the
+document is the same JSON as with v0.2.1. The public corpus is read in 1.22 s on one thread, against
+1.31 s.
 
 ### Faster
 
@@ -13,6 +17,20 @@
   `hash/adler32`, and the first level of the decoding tables is of 10 bits for literals and 7 for
   distances, where 9 and 6 took more second looks. Reading the tuning set takes 1.3 percent fewer
   instructions; the output is unchanged.
+
+### The comparison with other libraries
+
+`go run ./bench/compare` also measures three Rust libraries (pdf_oxide, pdf-extract and lopdf), each
+on one thread (#70); scores each program's words against pdftotext's, as a word F1 (#72); and writes
+into `bench/comparison.md` how far each pair of programs agree, each as the reference in turn (#73).
+The F1 measures agreement with pdftotext, not correctness. The time of go-fast-pdf in the table now
+includes making the text of the document, as the other programs' times do.
+
+### Checked before the release
+
+On the tree that is tagged: the 3,186 files of the corpora read in processes of their own, three
+times, with no crash, hang or memory failure, at most 2.3 s and 656 MiB for a file; the documents the
+same as those of v0.2.1.
 
 ## v0.2.1 (2026-11-22)
 

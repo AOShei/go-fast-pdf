@@ -213,7 +213,23 @@ type want struct {
 
 // page extracts one page into a part. It never fails: a page that
 // cannot be read is a part with a part.failed warning.
-func (e *Extractor) page(f *file.File, p *file.Page, opts *gofastcore.Options, w want) (out pageOut) {
+// workState is what one goroutine that reads the pages of a document
+// keeps from one page for the next: the state of the reading and the
+// builder of the layout, with their buffers (extract.Worker,
+// layout.Worker).
+type workState struct {
+	ex  extract.Worker
+	lay layout.Worker
+}
+
+func (ws *workState) release() {
+	ws.ex.Release()
+	ws.lay.Release()
+}
+
+// page reads page p. ws, if not nil, keeps what the next page of the same
+// goroutine can reuse.
+func (e *Extractor) page(f *file.File, p *file.Page, opts *gofastcore.Options, w want, ws *workState) (out pageOut) {
 	out.done = true
 	part := &out.part
 	part.Kind, part.Number = gofastcore.PartPage, p.Number
@@ -279,12 +295,17 @@ func (e *Extractor) page(f *file.File, p *file.Page, opts *gofastcore.Options, w
 	}
 	// The tables of a tagged PDF that the page's content is in.
 	tables := w.structure.pageTables(tags)
-	res := extract.Page(f, p, extract.Options{Words: w.lines, Rules: !e.NoRuledTables, Stop: w.stop, Annot: annot,
+	var exWorker *extract.Worker
+	var layWorker *layout.Worker
+	if ws != nil {
+		exWorker, layWorker = &ws.ex, &ws.lay
+	}
+	res := extract.Page(f, p, extract.Options{Words: w.lines, Rules: !e.NoRuledTables, Stop: w.stop, Annot: annot, Worker: exWorker,
 		InlineDicts: opts.Images != gofastcore.ImagesNone, InlineData: opts.Images == gofastcore.ImagesData,
 		Use: func(c *extract.Content) {
 			// Made here, where nothing outside holds it: it stays off the heap.
 			lopts := layout.Options{
-				Images: opts.Images != gofastcore.ImagesNone, Lines: w.lines,
+				Worker: layWorker, Images: opts.Images != gofastcore.ImagesNone, Lines: w.lines,
 				Spans: opts.Spans, Links: pa.linksOf(), Heading: headingOf, Item: itemOf, Rank: rankOf,
 			}
 			tables.options(tags, &lopts)

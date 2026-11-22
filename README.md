@@ -40,6 +40,10 @@ The method, the versions and the time for each document are in [bench/comparison
 Reading the 1,650 files of the public test corpus, damaged ones included, takes 1.3 seconds on one
 thread. `go run ./bench/compare` makes the table again on your machine.
 
+With many workers, a good part of the time is Go's garbage collector, which a program can tune; the
+library leaves its settings alone. On the documents of the table, with 24 workers, the default takes
+16 to 17 ms, `GOGC=200` 13 ms, and `GOMEMLIMIT=1GiB GOGC=off` 12.6 ms: more memory for less time.
+
 ## Installation
 
 ```bash

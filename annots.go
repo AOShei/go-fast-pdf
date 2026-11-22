@@ -54,72 +54,142 @@ type extra struct {
 	field bool
 }
 
-// pageNotes reads the text of the annotations of a page and the values
-// of the form fields that have a widget on it. cut reports that there
-// was more of it than is kept.
-//
-// shown says of each annotation whether its appearance, which is read
-// with the content of the page, showed text. What is shown is there
-// already and is not said twice: the value of a field becomes a block
-// only when the field's appearance shows nothing, and so does what is
-// written in a note that is itself written on the page.
-func pageNotes(r *reader, p *file.Page, shown []bool, m [6]float64, width, height float64) (extras []extra, cut bool) {
-	f := r.f
-	annots := f.Resolve(p.Dict().Get("Annots")).Elems()
-	if len(annots) > maxAnnotations {
-		annots = annots[:maxAnnotations]
+// pageAnnots takes from the annotations of a page what the page has of
+// them besides their appearances: the text of notes and the values of
+// form fields, the links (for spans), the files attached and the
+// actions. The reading of the page's appearances hands each annotation
+// over once it is drawn (extract.Options.Annot), and each is read once:
+// a page can have tens of thousands of annotations, each parsed to
+// kilobytes, too many to keep, and too many to read again for each of
+// these.
+type pageAnnots struct {
+	f *file.File
+	m [6]float64
+	// The notes: they take text from notes, until it has no room left;
+	// what is left of its room goes back to the page (merge).
+	notes     reader
+	choicesOf map[string]bool
+	extras    []extra
+	notesCut  bool
+	// The links, when spans are asked for, and what bounds cut of them.
+	spans bool
+	dests *destinations
+	cuts  file.Cuts
+	links []layout.Link
+	// The files attached to the page and the actions of its annotations,
+	// which the page takes after its own (merge).
+	acts pageOut
+}
+
+// newPageAnnots is the pageAnnots of page p, or nil when p has no
+// annotations: a page without them pays nothing for them.
+func newPageAnnots(f *file.File, p *file.Page, m [6]float64, notes reader, spans bool, dests *destinations) *pageAnnots {
+	if len(f.Resolve(p.Dict().Get("Annots")).Elems()) == 0 {
+		return nil
 	}
-	text := r.text
-	choicesOf := map[string]bool{}
-	for i, ref := range annots {
-		a := f.Resolve(ref)
-		if !a.IsDict() {
-			continue
+	return &pageAnnots{f: f, m: m, notes: notes, spans: spans, dests: dests}
+}
+
+// merge gives the page what was taken from its annotations: their
+// files, their actions, what bounds cut of their links, and the room for
+// text that their notes left.
+func (pa *pageAnnots) merge(out *pageOut, limits *file.Cuts, notes *reader) {
+	if pa == nil {
+		return
+	}
+	notes.room = pa.notes.room
+	out.attachments = append(out.attachments, pa.acts.attachments...)
+	out.scripts = append(out.scripts, pa.acts.scripts...)
+	out.active = out.active || pa.acts.active
+	out.external = out.external || pa.acts.external
+	limits.AddAll(&pa.cuts)
+}
+
+// linksOf, extrasOf: what pa took, none when there is no pa.
+func (pa *pageAnnots) linksOf() []layout.Link {
+	if pa == nil {
+		return nil
+	}
+	return pa.links
+}
+
+func (pa *pageAnnots) extrasOf() ([]extra, bool) {
+	if pa == nil {
+		return nil, false
+	}
+	return pa.extras, pa.notesCut
+}
+
+// annot takes what the page has of annotation i, a, whose appearance
+// showed text when shown is set.
+func (pa *pageAnnots) annot(i int, a syntax.Value, shown bool) {
+	if pa.spans {
+		if l, ok := pageLink(pa.f, a, pa.m, pa.dests, &pa.cuts); ok {
+			pa.links = append(pa.links, l)
 		}
-		visible := i < len(shown) && shown[i]
-		var found [2]extra
-		ok := true
-		switch sub := f.Resolve(a.Get("Subtype")); {
-		case sub.IsName("Popup"):
-			continue // the window of another annotation, whose text is that one's
-		case sub.IsName("Widget"):
-			if !visible {
-				found[0], ok = fieldValue(f, a, text)
-			}
-			// The options of a choice field, once for the field,
-			// however many widgets show it.
-			if ok {
-				if name := fieldOf(f, a).name; !choicesOf[name] {
-					found[1], ok = fieldChoices(f, a, text)
-					if found[1].block.Text != "" && name != "" {
-						choicesOf[name] = true
+	}
+	if !pa.notesCut {
+		pa.note(a, shown)
+	}
+	annotActions(pa.f, a, &pa.acts)
+}
+
+// note takes the text of a note, or the value and the options of a form
+// field, from annotation a. What its appearance shows is there already
+// and is not said twice: the value of a field becomes a block only when
+// the field's appearance shows nothing, and so does what is written in a
+// note that is itself written on the page.
+func (pa *pageAnnots) note(a syntax.Value, shown bool) {
+	f := pa.f
+	if !a.IsDict() {
+		return
+	}
+	visible := shown
+	var found [2]extra
+	ok := true
+	switch sub := f.Resolve(a.Get("Subtype")); {
+	case sub.IsName("Popup"):
+		return // the window of another annotation, whose text is that one's
+	case sub.IsName("Widget"):
+		if !visible {
+			found[0], ok = fieldValue(f, a, pa.notes.text)
+		}
+		// The options of a choice field, once for the field,
+		// however many widgets show it.
+		if ok {
+			if name := fieldOf(f, a).name; !pa.choicesOf[name] {
+				found[1], ok = fieldChoices(f, a, pa.notes.text)
+				if found[1].block.Text != "" && name != "" {
+					if pa.choicesOf == nil {
+						pa.choicesOf = map[string]bool{}
 					}
+					pa.choicesOf[name] = true
 				}
 			}
-		case sub.IsName("FreeText") && visible:
-			continue // its text is what it shows
-		default:
-			found[0], ok = note(f, a, text)
 		}
-		if !ok {
-			return extras, true
-		}
-		for _, x := range found {
-			if x.block.Text == "" {
-				continue
-			}
-			b := &x.block
-			b.Origin = gofastcore.OriginNative
-			b.Loc.BBox = rectOnPage(f, a.Get("Rect"), m)
-			// The annotation's flags say it is not shown (Hidden,
-			// NoView), or it is in optional content that is off.
-			if flags, _ := f.Resolve(a.Get("F")).Integer(); flags&(annotHidden|annotNoView) != 0 || extract.ContentOff(f, a.Get("OC")) {
-				b.Display |= gofastcore.DisplayHidden
-			}
-			extras = append(extras, x)
-		}
+	case sub.IsName("FreeText") && visible:
+		return // its text is what it shows
+	default:
+		found[0], ok = note(f, a, pa.notes.text)
 	}
-	return extras, false
+	if !ok {
+		pa.notesCut = true
+		return
+	}
+	for _, x := range found {
+		if x.block.Text == "" {
+			continue
+		}
+		b := &x.block
+		b.Origin = gofastcore.OriginNative
+		b.Loc.BBox = rectOnPage(f, a.Get("Rect"), pa.m)
+		// The annotation's flags say it is not shown (Hidden,
+		// NoView), or it is in optional content that is off.
+		if flags, _ := f.Resolve(a.Get("F")).Integer(); flags&(annotHidden|annotNoView) != 0 || extract.ContentOff(f, a.Get("OC")) {
+			b.Display |= gofastcore.DisplayHidden
+		}
+		pa.extras = append(pa.extras, x)
+	}
 }
 
 // note is the text of an annotation: what its author wrote in it.

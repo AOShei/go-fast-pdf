@@ -106,6 +106,15 @@ type Options struct {
 	// before the buffers that hold it are reused. Result.Text is then
 	// not made.
 	Use func(*Content)
+	// Annot, if set, is given each annotation of the page that is looked
+	// at (MaxAnnotations), in the order of the page's list, once its
+	// appearance is drawn: i its place, a the annotation as resolved, and
+	// shown whether its appearance showed text (Result.Shown). A page can
+	// have tens of thousands of annotations, each parsed to kilobytes:
+	// what else is taken from one is taken here rather than by reading
+	// them all again.
+	Annot func(i int, a syntax.Value, shown bool)
+
 	// MaxFormDepth bounds the nesting of Form XObjects; 0 means 16.
 	MaxFormDepth int
 	// MaxDecodedBytes bounds the content decoded for one page; 0 means

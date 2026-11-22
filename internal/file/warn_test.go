@@ -86,3 +86,23 @@ func TestCuts(t *testing.T) {
 		t.Errorf("%q\nwant %q", got, want)
 	}
 }
+
+// AddAll counts what another Cuts counted, ids once over both.
+func TestCutsAddAll(t *testing.T) {
+	names := &Bound{Key: "names", Message: CutMessage("names", "names", 1024)}
+	links := &Bound{Key: "links", Message: PastMessage("links", "links", 10)}
+	var a, b Cuts
+	a.AddOnce(names, "x", 1, 10)
+	b.AddOnce(names, "y", 1, 20)
+	b.Add(links, 3, 0)
+	a.AddAll(&b)
+	a.AddOnce(names, "y", 1, 20) // counted already, through b
+	var got []string
+	for _, w := range a.Warnings() {
+		got = append(got, w.Message)
+	}
+	want := []string{"links past 10 were not read (3 links)", "names longer than 1024 bytes were cut there (2 names, 30 bytes left out)"}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("%q\nwant %q", got, want)
+	}
+}

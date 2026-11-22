@@ -49,6 +49,15 @@ that is newly reported.
   from the metadata packet could hold a ligature (U+FB00 to U+FB06), against the rules of the shared
   model. Both are cleaned now, as the document information is.
 
+### Faster
+
+- **The annotations of a page are read once.** The reading of their appearances hands each one to what
+  else is taken from it (notes, form values, links, attached files, actions), which read the page's list
+  again each before. A page of 32,768 links (a file of the corpus) is read in half the instructions,
+  and the tuning set of the public corpus in 6 percent fewer than with v0.2.1's higher bound on
+  annotations alone. The objects a file holds in its cache are cleared by their numbers when the cache
+  is emptied, rather than every slot of the file.
+
 ## v0.2.0 (2026-11-21)
 
 The library was rebuilt. It returns the document model shared by the go-fast libraries

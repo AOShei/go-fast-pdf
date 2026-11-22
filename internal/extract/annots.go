@@ -43,70 +43,81 @@ func (in *interp) appearances(p *file.Page) {
 	}
 	in.res.Shown = make([]bool, len(annots))
 	for i, ref := range annots {
-		if in.stopped {
+		a := in.f.Resolve(ref)
+		if !in.stopped {
+			in.appearance(i, a)
+		}
+		// Each annotation is read once: what else is taken from it is
+		// taken now, also when the page is stopped, as before it was read
+		// again for that.
+		if in.opts.Annot != nil {
+			in.opts.Annot(i, a, in.res.Shown[i])
+		}
+	}
+}
+
+// appearance draws the normal appearance of annotation i, a, and records
+// in Result.Shown whether it showed text.
+func (in *interp) appearance(i int, a syntax.Value) {
+	if !a.IsDict() || in.f.Resolve(a.Get("Subtype")).IsName("Popup") {
+		return
+	}
+	// The normal appearance: a form, or one form for each state, of
+	// which the annotation names the one it is in.
+	form := in.f.Resolve(in.f.Resolve(a.Get("AP")).Get("N"))
+	if form.Kind == syntax.Dict {
+		state := in.f.Resolve(a.Get("AS"))
+		if state.Kind != syntax.Name {
 			return
 		}
-		a := in.f.Resolve(ref)
-		if !a.IsDict() || in.f.Resolve(a.Get("Subtype")).IsName("Popup") {
-			continue
-		}
-		// The normal appearance: a form, or one form for each state, of
-		// which the annotation names the one it is in.
-		form := in.f.Resolve(in.f.Resolve(a.Get("AP")).Get("N"))
-		if form.Kind == syntax.Dict {
-			state := in.f.Resolve(a.Get("AS"))
-			if state.Kind != syntax.Name {
-				continue
-			}
-			form = in.f.Resolve(form.Get(state.NameString()))
-		}
-		if form.Kind != syntax.Stream {
-			continue
-		}
-		rect, ok := in.f.Rect(a.Get("Rect"))
-		if !ok {
-			continue
-		}
-		box, ok := in.f.Rect(form.Get("BBox"))
-		if !ok {
-			continue
-		}
-		// The form's box, as its matrix places it, is made to fill the
-		// rectangle of the annotation (ISO 32000-1, 12.5.5).
-		fm := identity
-		if m := in.f.Resolve(form.Get("Matrix")).Elems(); len(m) == 6 {
-			for k := range fm {
-				fm[k] = finite(in.f.Resolve(m[k]).Number())
-			}
-		}
-		q := fm.quad(box)
-		x0, y0 := min(q[0], q[2], q[4], q[6]), min(q[1], q[3], q[5], q[7])
-		x1, y1 := max(q[0], q[2], q[4], q[6]), max(q[1], q[3], q[5], q[7])
-		if !(x1 > x0 && y1 > y0) || !(rect[2] > rect[0] && rect[3] > rect[1]) {
-			continue // nothing of it is shown
-		}
-		sx, sy := (rect[2]-rect[0])/(x1-x0), (rect[3]-rect[1])/(y1-y0)
-		fit := matrix{finite(sx), 0, 0, finite(sy), finite(rect[0] - x0*sx), finite(rect[1] - y0*sy)}
-
-		flags, _ := in.f.Resolve(a.Get("F")).Integer()
-		off := flags&(annotHidden|annotNoView) != 0 || in.contentOff(a.Get("OC"))
-
-		// An appearance is drawn in a graphics state of its own.
-		saved, savedTm, savedTlm := in.gs, in.tm, in.tlm
-		in.gs = initialState()
-		in.gs.ctm = fit
-		in.tm, in.tlm = identity, identity
-		in.geomValid = false
-		if off {
-			in.offDepth++
-		}
-		before := len(in.text)
-		in.drawForm(form)
-		in.res.Shown[i] = len(in.text) > before
-		if off {
-			in.offDepth--
-		}
-		in.gs, in.tm, in.tlm = saved, savedTm, savedTlm
-		in.geomValid = false
+		form = in.f.Resolve(form.Get(state.NameString()))
 	}
+	if form.Kind != syntax.Stream {
+		return
+	}
+	rect, ok := in.f.Rect(a.Get("Rect"))
+	if !ok {
+		return
+	}
+	box, ok := in.f.Rect(form.Get("BBox"))
+	if !ok {
+		return
+	}
+	// The form's box, as its matrix places it, is made to fill the
+	// rectangle of the annotation (ISO 32000-1, 12.5.5).
+	fm := identity
+	if m := in.f.Resolve(form.Get("Matrix")).Elems(); len(m) == 6 {
+		for k := range fm {
+			fm[k] = finite(in.f.Resolve(m[k]).Number())
+		}
+	}
+	q := fm.quad(box)
+	x0, y0 := min(q[0], q[2], q[4], q[6]), min(q[1], q[3], q[5], q[7])
+	x1, y1 := max(q[0], q[2], q[4], q[6]), max(q[1], q[3], q[5], q[7])
+	if !(x1 > x0 && y1 > y0) || !(rect[2] > rect[0] && rect[3] > rect[1]) {
+		return // nothing of it is shown
+	}
+	sx, sy := (rect[2]-rect[0])/(x1-x0), (rect[3]-rect[1])/(y1-y0)
+	fit := matrix{finite(sx), 0, 0, finite(sy), finite(rect[0] - x0*sx), finite(rect[1] - y0*sy)}
+
+	flags, _ := in.f.Resolve(a.Get("F")).Integer()
+	off := flags&(annotHidden|annotNoView) != 0 || in.contentOff(a.Get("OC"))
+
+	// An appearance is drawn in a graphics state of its own.
+	saved, savedTm, savedTlm := in.gs, in.tm, in.tlm
+	in.gs = initialState()
+	in.gs.ctm = fit
+	in.tm, in.tlm = identity, identity
+	in.geomValid = false
+	if off {
+		in.offDepth++
+	}
+	before := len(in.text)
+	in.drawForm(form)
+	in.res.Shown[i] = len(in.text) > before
+	if off {
+		in.offDepth--
+	}
+	in.gs, in.tm, in.tlm = saved, savedTm, savedTlm
+	in.geomValid = false
 }

@@ -84,6 +84,26 @@ func (c *Cuts) Warnings() []gofastcore.Warning {
 	return out
 }
 
+// AddAll counts what o counted, o's ids included.
+func (c *Cuts) AddAll(o *Cuts) {
+	for _, oc := range o.by {
+		if len(oc.seen) == 0 {
+			c.Add(oc.bound, oc.n, oc.bytes)
+			continue
+		}
+		c.Add(oc.bound, 0, 0)
+		cc := c.by[oc.bound.Key]
+		if cc.seen == nil {
+			cc.seen = map[string]bool{}
+		}
+		for id := range oc.seen {
+			cc.seen[id] = true
+		}
+		cc.n += oc.n
+		cc.bytes += oc.bytes
+	}
+}
+
 // Reset empties c, keeping its room.
 func (c *Cuts) Reset() { clear(c.by) }
 

@@ -678,35 +678,26 @@ func (st *state) child(ctx context.Context, a *attachment) (doc *gofastcore.Docu
 	return child
 }
 
-// annotations looks at the annotations of a page for two things: files
+// annotActions looks at annotation a of a page for two things: a file
 // attached to the page, and actions. What the annotations say is read
-// by pageNotes.
-func (e *Extractor) annotations(f *file.File, p *file.Page, out *pageOut) {
-	dict := p.Dict()
-	scanActions(f, dict.Get("AA"), out)
-	annots := f.Resolve(dict.Get("Annots")).Elems()
-	if len(annots) > maxAnnotations {
-		annots = annots[:maxAnnotations]
+// by pageAnnots.note.
+func annotActions(f *file.File, a syntax.Value, out *pageOut) {
+	if !a.IsDict() {
+		return
 	}
-	for _, ref := range annots {
-		a := f.Resolve(ref)
-		if !a.IsDict() {
-			continue
+	if f.Resolve(a.Get("Subtype")).IsName("FileAttachment") {
+		if len(out.attachments) < maxAttachments {
+			out.attachments = append(out.attachments, attachment{spec: a.Get("FS")})
+		} else {
+			cutDoc(f, boundAttachments, 1, 0)
 		}
-		if f.Resolve(a.Get("Subtype")).IsName("FileAttachment") {
-			if len(out.attachments) < maxAttachments {
-				out.attachments = append(out.attachments, attachment{spec: a.Get("FS")})
-			} else {
-				cutDoc(f, boundAttachments, 1, 0)
-			}
-			continue
-		}
-		if act := a.Get("A"); !act.IsNull() {
-			scanAction(f, f.Resolve(act), out, 0)
-		}
-		if aa := a.Get("AA"); !aa.IsNull() {
-			scanActions(f, aa, out)
-		}
+		return
+	}
+	if act := a.Get("A"); !act.IsNull() {
+		scanAction(f, f.Resolve(act), out, 0)
+	}
+	if aa := a.Get("AA"); !aa.IsNull() {
+		scanActions(f, aa, out)
 	}
 }
 

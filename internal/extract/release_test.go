@@ -1,12 +1,14 @@
 package extract
 
 import (
+	"fmt"
 	"runtime"
 	"testing"
 	"time"
 
 	"github.com/AOShei/go-fast-pdf/internal/file"
 	"github.com/AOShei/go-fast-pdf/internal/pdftest"
+	"github.com/AOShei/go-fast-pdf/internal/syntax"
 )
 
 // An interpreter that waits in the pool keeps nothing of the document it
@@ -42,5 +44,32 @@ func TestPoolKeepsNothingOfTheDocument(t *testing.T) {
 	case <-freed:
 	case <-time.After(2 * time.Second):
 		t.Fatal("the document's bytes are kept after one collection")
+	}
+}
+
+// Options.Annot is given each annotation of the page once, in the order
+// of its list, with what Result.Shown says of it: those that draw
+// nothing, are not dictionaries or are popups included.
+func TestAnnotGivenEachOnce(t *testing.T) {
+	b := pdftest.New()
+	form := b.Add(pdftest.Stream("/Type /XObject /Subtype /Form /BBox [0 0 100 20] /Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> >>", "BT /F1 10 Tf 2 5 Td (shown) Tj ET"))
+	shown := b.Add(fmt.Sprintf("<< /Type /Annot /Subtype /Widget /Rect [10 10 110 30] /AP << /N %d 0 R >> >>", form))
+	plain := b.Add("<< /Type /Annot /Subtype /Text /Rect [0 0 10 10] /Contents (a note) >>")
+	popup := b.Add("<< /Type /Annot /Subtype /Popup /Rect [0 0 10 10] >>")
+	data := pdftest.Doc(pdftest.DocOptions{Base: b}, pdftest.PageSpec{
+		Content: "BT /F1 12 Tf 72 700 Td (page) Tj ET",
+		Extra:   fmt.Sprintf("/Annots [%d 0 R 7 %d 0 R %d 0 R]", shown, plain, popup),
+	}).Bytes()
+	f, err := file.Open(data, file.Limits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	res := Page(f, &f.Pages()[0], Options{Annot: func(i int, a syntax.Value, s bool) {
+		got = append(got, fmt.Sprintf("%d %v %s %v", i, a.IsDict(), f.Resolve(a.Get("Subtype")).NameString(), s))
+	}})
+	want := []string{"0 true Widget true", "1 false  false", "2 true Text false", "3 true Popup false"}
+	if fmt.Sprint(got) != fmt.Sprint(want) || len(res.Shown) != 4 || !res.Shown[0] {
+		t.Errorf("%q, shown %v\nwant %q", got, res.Shown, want)
 	}
 }

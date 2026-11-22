@@ -26,70 +26,60 @@ import (
 // maxHrefBytes is the longest address of a link that is kept.
 const maxHrefBytes = 4096
 
-// pageLinks returns the links of a page.
-func pageLinks(f *file.File, p *file.Page, m [6]float64, width, height float64, dests *destinations, limits *file.Cuts) []layout.Link {
-	annots := f.Resolve(p.Dict().Get("Annots")).Elems()
-	if len(annots) > maxAnnotations {
-		annots = annots[:maxAnnotations]
+// pageLink is the link that annotation a of a page makes, if it makes
+// one: an address, or a page of the document, and where it is.
+func pageLink(f *file.File, a syntax.Value, m [6]float64, dests *destinations, limits *file.Cuts) (layout.Link, bool) {
+	if !a.IsDict() || !f.Resolve(a.Get("Subtype")).IsName("Link") {
+		return layout.Link{}, false
 	}
-	var out []layout.Link
-	for _, ref := range annots {
-		a := f.Resolve(ref)
-		if !a.IsDict() || !f.Resolve(a.Get("Subtype")).IsName("Link") {
-			continue
+	const hidden, noView = 1 << 1, 1 << 5
+	if flags, _ := f.Resolve(a.Get("F")).Integer(); flags&(hidden|noView) != 0 {
+		return layout.Link{}, false
+	}
+	href := ""
+	act := f.Resolve(a.Get("A"))
+	switch {
+	case act.IsDict() && f.Resolve(act.Get("S")).IsName("URI"):
+		if uri := f.Resolve(act.Get("URI")); uri.Kind == syntax.String {
+			href = strings.TrimSpace(cleanString(strings.ToValidUTF8(string(uri.Data), "")))
 		}
-		const hidden, noView = 1 << 1, 1 << 5
-		if flags, _ := f.Resolve(a.Get("F")).Integer(); flags&(hidden|noView) != 0 {
-			continue
-		}
-		href := ""
-		act := f.Resolve(a.Get("A"))
-		switch {
-		case act.IsDict() && f.Resolve(act.Get("S")).IsName("URI"):
-			if uri := f.Resolve(act.Get("URI")); uri.Kind == syntax.String {
-				href = strings.TrimSpace(cleanString(strings.ToValidUTF8(string(uri.Data), "")))
-			}
-		case a.Has("Dest") || act.IsDict() && f.Resolve(act.Get("S")).IsName("GoTo"):
-			if dests != nil {
-				if part, _ := dests.target(a); part > 0 {
-					href = "#page=" + strconv.Itoa(part)
-				}
+	case a.Has("Dest") || act.IsDict() && f.Resolve(act.Get("S")).IsName("GoTo"):
+		if dests != nil {
+			if part, _ := dests.target(a); part > 0 {
+				href = "#page=" + strconv.Itoa(part)
 			}
 		}
-		if href == "" {
-			continue
-		}
-		if len(href) > maxHrefBytes {
-			limits.Add(boundHref, 1, 0)
-			continue
-		}
-		l := layout.Link{Href: href}
-		if q := f.Resolve(a.Get("QuadPoints")).Elems(); len(q) >= 8 && len(q)%8 == 0 {
-			for i := 0; i+8 <= len(q) && len(l.Boxes) < 64; i += 8 {
-				var r gofastcore.Rect
-				for k := 0; k < 4; k++ {
-					x, y := f.Resolve(q[i+2*k]).Number(), f.Resolve(q[i+2*k+1]).Number()
-					dx, dy := m[0]*x+m[2]*y+m[4], m[1]*x+m[3]*y+m[5]
-					if k == 0 {
-						r = gofastcore.Rect{X0: dx, Y0: dy, X1: dx, Y1: dy}
-					}
-					r = gofastcore.Rect{X0: min(r.X0, dx), Y0: min(r.Y0, dy), X1: max(r.X1, dx), Y1: max(r.Y1, dy)}
+	}
+	if href == "" {
+		return layout.Link{}, false
+	}
+	if len(href) > maxHrefBytes {
+		limits.Add(boundHref, 1, 0)
+		return layout.Link{}, false
+	}
+	l := layout.Link{Href: href}
+	if q := f.Resolve(a.Get("QuadPoints")).Elems(); len(q) >= 8 && len(q)%8 == 0 {
+		for i := 0; i+8 <= len(q) && len(l.Boxes) < 64; i += 8 {
+			var r gofastcore.Rect
+			for k := 0; k < 4; k++ {
+				x, y := f.Resolve(q[i+2*k]).Number(), f.Resolve(q[i+2*k+1]).Number()
+				dx, dy := m[0]*x+m[2]*y+m[4], m[1]*x+m[3]*y+m[5]
+				if k == 0 {
+					r = gofastcore.Rect{X0: dx, Y0: dy, X1: dx, Y1: dy}
 				}
-				if r.X0 == r.X0 && r.Y0 == r.Y0 && r.X1 == r.X1 && r.Y1 == r.Y1 { // not NaN
-					l.Boxes = append(l.Boxes, r)
-				}
+				r = gofastcore.Rect{X0: min(r.X0, dx), Y0: min(r.Y0, dy), X1: max(r.X1, dx), Y1: max(r.Y1, dy)}
 			}
-		}
-		if len(l.Boxes) == 0 {
-			if r := rectOnPage(f, a.Get("Rect"), m); r.X1 > r.X0 && r.Y1 > r.Y0 {
+			if r.X0 == r.X0 && r.Y0 == r.Y0 && r.X1 == r.X1 && r.Y1 == r.Y1 { // not NaN
 				l.Boxes = append(l.Boxes, r)
 			}
 		}
-		if len(l.Boxes) > 0 {
-			out = append(out, l)
+	}
+	if len(l.Boxes) == 0 {
+		if r := rectOnPage(f, a.Get("Rect"), m); r.X1 > r.X0 && r.Y1 > r.Y0 {
+			l.Boxes = append(l.Boxes, r)
 		}
 	}
-	return out
+	return l, len(l.Boxes) > 0
 }
 
 // cutSpans keeps the spans of a block whose first n bytes of text were

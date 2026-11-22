@@ -245,10 +245,18 @@ func (e *Extractor) page(f *file.File, p *file.Page, opts *gofastcore.Options, w
 	// of their run: near enough to tell which words a link covers.
 	// What fixed bounds leave out of the page, reported at its end.
 	var limits file.Cuts
-	var links []layout.Link
-	if opts.Spans {
-		links = pageLinks(f, p, m, width, height, w.dests, &limits)
+	// What the page has of its annotations besides their appearances is
+	// taken as the appearances are drawn, each annotation read once
+	// (pageAnnots): the links, for spans; the notes and the values of
+	// form fields, the text of which notes takes; the files attached and
+	// the actions, after those of the page itself.
+	notes := reader{f: f, room: maxPageNoteBytes}
+	pa := newPageAnnots(f, p, m, notes, opts.Spans, w.dests)
+	var annot func(int, syntax.Value, bool)
+	if pa != nil {
+		annot = pa.annot
 	}
+	scanActions(f, p.Dict().Get("AA"), &out)
 	// What the structure tree of a tagged PDF says of the page.
 	tags, ordered := w.structure.pageTags(p, &limits)
 	var headingOf func(int32) uint8
@@ -271,13 +279,13 @@ func (e *Extractor) page(f *file.File, p *file.Page, opts *gofastcore.Options, w
 	}
 	// The tables of a tagged PDF that the page's content is in.
 	tables := w.structure.pageTables(tags)
-	res := extract.Page(f, p, extract.Options{Words: w.lines, Rules: !e.NoRuledTables, Stop: w.stop,
+	res := extract.Page(f, p, extract.Options{Words: w.lines, Rules: !e.NoRuledTables, Stop: w.stop, Annot: annot,
 		InlineDicts: opts.Images != gofastcore.ImagesNone, InlineData: opts.Images == gofastcore.ImagesData,
 		Use: func(c *extract.Content) {
 			// Made here, where nothing outside holds it: it stays off the heap.
 			lopts := layout.Options{
 				Images: opts.Images != gofastcore.ImagesNone, Lines: w.lines,
-				Spans: opts.Spans, Links: links, Heading: headingOf, Item: itemOf, Rank: rankOf,
+				Spans: opts.Spans, Links: pa.linksOf(), Heading: headingOf, Item: itemOf, Rank: rankOf,
 			}
 			tables.options(tags, &lopts)
 			lay = layout.Build(layout.Page{M: m, Width: width, Height: height}, c, lopts)
@@ -335,8 +343,8 @@ func (e *Extractor) page(f *file.File, p *file.Page, opts *gofastcore.Options, w
 
 	// What the page says outside its content: the text of its
 	// annotations and the values of its form fields.
-	notes := &reader{f: f, room: maxPageNoteBytes}
-	extras, notesCut := pageNotes(notes, p, res.Shown, m, width, height)
+	extras, notesCut := pa.extrasOf()
+	pa.merge(&out, &limits, &notes)
 	out.addNotes(extras)
 	if notesCut {
 		noteWarning(part)
@@ -360,11 +368,10 @@ func (e *Extractor) page(f *file.File, p *file.Page, opts *gofastcore.Options, w
 	for i := range part.Warnings {
 		part.Warnings[i].Message = cleanString(part.Warnings[i].Message)
 	}
-	e.annotations(f, p, &out)
 	// The scripts of the page's actions and of its annotations: stored
 	// and never shown, so read as text, marked with what they are, after
 	// everything else of the page.
-	if code, cut := scriptBlocks(notes, out.scripts, map[string]bool{}); len(code) > 0 || cut {
+	if code, cut := scriptBlocks(&notes, out.scripts, map[string]bool{}); len(code) > 0 || cut {
 		part.Blocks = append(part.Blocks, code...)
 		if cut && !notesCut {
 			noteWarning(part)

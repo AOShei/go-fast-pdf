@@ -40,7 +40,7 @@ func TestRender(t *testing.T) {
 		{{Seconds: 0.004, Chars: 101, Version: "1.2"}, {Err: "failed: no result"}},
 		nil,
 	}
-	report, summary := render(tools, []int{0, 1}, docs, results)
+	report, summary := render(tools, []int{0, 1}, docs, results, -1)
 	for _, want := range []string{
 		"| ours | 10,000 | 1 | 30 MB |",                     // 10 pages in a millisecond: b.pdf does not count
 		"| theirs (failed on 1) | 2,500 | 4.00 times | - |", // and no memory was reported
@@ -57,5 +57,35 @@ func TestRender(t *testing.T) {
 	}
 	if strings.Contains(report, "left out") {
 		t.Error("a program that was not measured is in the report")
+	}
+}
+
+// With a reference, the summary gives the mean F1 over the documents every
+// program read, the reference says it is the reference, and the report
+// has the F1 of each document.
+func TestRenderWords(t *testing.T) {
+	tools := []tool{{name: "ours"}, {name: "reference"}, {name: "other"}}
+	docs := []document{{name: "a.pdf", pages: 10}, {name: "b.pdf", pages: 10}, {name: "c.pdf", pages: 10}}
+	results := [][]result{
+		{{Seconds: 0.001, F1: 0.9, Scored: true}, {Seconds: 0.001, F1: 0.8, Scored: true}, {Seconds: 0.001, F1: 0.1, Scored: true}},
+		{{Seconds: 0.002, F1: 1, Scored: true}, {Seconds: 0.002, F1: 1, Scored: true}, {Seconds: 0.002, F1: 1, Scored: true}},
+		{{Seconds: 0.003, F1: 0.5, Scored: true}, {Seconds: 0.003}, {Err: "failed: no result"}},
+	}
+	report, summary := render(tools, []int{0, 1, 2}, docs, results, 1)
+	for _, want := range []string{
+		"| Words as pdftotext's (F1) |",
+		"| ours | 10,000 | 1 | - | 0.850 |", // c.pdf, which other failed on, does not count
+		"| reference | 5,000 | 2.00 times | - | the reference |",
+		"| other (failed on 1) | 3,333 | 3.00 times | - | 0.500 |", // b.pdf was not scored
+		"not how correct they are",
+	} {
+		if !strings.Contains(summary, want) {
+			t.Errorf("the summary has no %q:\n%s", want, summary)
+		}
+	}
+	for _, want := range []string{"| Document | ours | other |", "| a.pdf | 0.900 | 0.500 |", "| b.pdf | 0.800 | - |", "| c.pdf | 0.100 | - |"} {
+		if !strings.Contains(report, want) {
+			t.Errorf("the report has no %q:\n%s", want, report)
+		}
 	}
 }

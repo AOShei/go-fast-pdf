@@ -43,6 +43,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	gofastcore "github.com/AOShei/go-fast-core"
 	gofastpdf "github.com/AOShei/go-fast-pdf"
@@ -60,14 +61,24 @@ type result struct {
 	// Peak is the most memory the process had resident, in bytes.
 	Peak int64  `json:"-"`
 	Err  string `json:"-"`
+	// Text is the text of the last run. F1 is how far its words agree
+	// with those of pdftotext, and Scored is set when it was compared.
+	Text   string  `json:"-"`
+	F1     float64 `json:"-"`
+	Scored bool    `json:"-"`
 }
+
+// reference is the program whose words the others' are compared with.
+const reference = "pdftotext (poppler)"
 
 // tool is one program in the comparison.
 type tool struct {
 	name string
 	// note says what is timed.
 	note string
-	run  func(path string) result
+	// run times the program on the file at path, and has it write the
+	// text of its last run to the file text, or return it.
+	run func(path, text string) result
 }
 
 type document struct {
@@ -89,6 +100,7 @@ var (
 	only       = flag.String("only", "", "measure only the programs whose name contains this")
 	self       = flag.String("self", "", "internal: time this library on a file and print the result")
 	workers    = flag.Int("workers", 1, "internal: with -self, the workers")
+	textOut    = flag.String("text", "", "internal: with -self, the file the text of the last run is written to")
 )
 
 func main() {
@@ -111,6 +123,7 @@ func main() {
 func timeSelf(path string, workers int) {
 	var r result
 	var spent time.Duration
+	var text string
 	for r.Runs < *repeats && (r.Runs == 0 || spent < *budget) {
 		start := time.Now()
 		data, err := os.ReadFile(path)
@@ -119,19 +132,27 @@ func timeSelf(path string, workers int) {
 			os.Exit(1)
 		}
 		doc, err := gofastpdf.Extract(context.Background(), bytes.NewReader(data), int64(len(data)), &gofastcore.Options{Workers: workers})
-		took := time.Since(start)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
-		// The text is made, as the other programs make it.
-		r.Chars = len([]rune(doc.Text()))
+		// The text is made, as the other programs make it, and timed.
+		got := doc.Text()
+		took := time.Since(start)
+		text = got
 		r.Pages = len(doc.Parts)
 		if s := took.Seconds(); r.Runs == 0 || s < r.Seconds {
 			r.Seconds = s
 		}
 		spent += took
 		r.Runs++
+	}
+	r.Chars = utf8.RuneCountInString(text)
+	if *textOut != "" {
+		if err := os.WriteFile(*textOut, []byte(text), 0o644); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
 	}
 	out, _ := json.Marshal(r)
 	fmt.Println(string(out))
@@ -157,28 +178,28 @@ func compare() error {
 	}
 
 	tools := []tool{
-		{name: "go-fast-pdf", note: "library, one worker", run: func(path string) result {
-			return child(me, "-self", path, "-workers", "1", "-repeats", strconv.Itoa(*repeats), "-budget", budget.String())
+		{name: "go-fast-pdf", note: "library, one worker", run: func(path, text string) result {
+			return child(me, "-self", path, "-text", text, "-workers", "1", "-repeats", strconv.Itoa(*repeats), "-budget", budget.String())
 		}},
-		{name: "go-fast-pdf, all processors", note: fmt.Sprintf("library, %d workers", runtime.NumCPU()), run: func(path string) result {
-			return child(me, "-self", path, "-workers", strconv.Itoa(runtime.NumCPU()), "-repeats", strconv.Itoa(*repeats), "-budget", budget.String())
+		{name: "go-fast-pdf, all processors", note: fmt.Sprintf("library, %d workers", runtime.NumCPU()), run: func(path, text string) result {
+			return child(me, "-self", path, "-text", text, "-workers", strconv.Itoa(runtime.NumCPU()), "-repeats", strconv.Itoa(*repeats), "-budget", budget.String())
 		}},
-		{name: "gofastpdf (the command)", note: "command, text output, one worker; the time of the process", run: func(path string) result {
+		{name: "gofastpdf (the command)", note: "command, text output, one worker; the time of the process", run: func(path, _ string) result {
 			return process(func() string { return "" }, command, "-format", "text", "-workers", "1", "-quiet", path)
 		}},
-		{name: "pdftotext (poppler)", note: "command; the time of the process", run: func(path string) result {
+		{name: reference, note: "command; the time of the process", run: func(path, _ string) result {
 			return process(func() string { return version("pdftotext", "-v") }, "pdftotext", "-enc", "UTF-8", path, "-")
 		}},
 	}
 	script := filepath.Join("bench", "tools", "extract.py")
 	for _, lib := range [][2]string{{"PyMuPDF", "pymupdf"}, {"pypdfium2 (PDFium)", "pypdfium2"}, {"pypdf", "pypdf"}, {"pdfplumber", "pdfplumber"}} {
-		tools = append(tools, tool{name: lib[0], note: "Python library; the time of its calls, without starting Python", run: func(path string) result {
-			return child(*pythonPath, "-I", script, lib[1], path, strconv.Itoa(*repeats), strconv.FormatFloat(budget.Seconds(), 'f', 1, 64))
+		tools = append(tools, tool{name: lib[0], note: "Python library; the time of its calls, without starting Python", run: func(path, text string) result {
+			return child(*pythonPath, "-I", script, lib[1], path, strconv.Itoa(*repeats), strconv.FormatFloat(budget.Seconds(), 'f', 1, 64), text)
 		}})
 	}
 	for _, lib := range []string{"pdf_oxide", "pdf-extract", "lopdf"} {
-		tools = append(tools, tool{name: lib + " (Rust)", note: "Rust library; the time of its calls, without starting the program", run: func(path string) result {
-			return child(*rustPath, lib, path, strconv.Itoa(*repeats), strconv.FormatFloat(budget.Seconds(), 'f', 1, 64))
+		tools = append(tools, tool{name: lib + " (Rust)", note: "Rust library; the time of its calls, without starting the program", run: func(path, text string) result {
+			return child(*rustPath, lib, path, strconv.Itoa(*repeats), strconv.FormatFloat(budget.Seconds(), 'f', 1, 64), text)
 		}})
 	}
 
@@ -192,7 +213,14 @@ func compare() error {
 		results[t] = make([]result, len(docs))
 		missing := ""
 		for d, doc := range docs {
-			r := tl.run(doc.path)
+			text := filepath.Join(work, fmt.Sprintf("text-%d-%d.txt", t, d))
+			r := tl.run(doc.path, text)
+			if r.Err == "" && r.Missing == "" && r.Text == "" {
+				if b, err := os.ReadFile(text); err == nil {
+					r.Text = string(b)
+				}
+				os.Remove(text)
+			}
 			results[t][d] = r
 			if r.Missing != "" {
 				missing = r.Missing
@@ -212,7 +240,28 @@ func compare() error {
 		kept = append(kept, t)
 	}
 
-	report, summary := render(tools, kept, docs, results)
+	// Each program's words are compared with pdftotext's, document by
+	// document; the texts are let go once they are.
+	ref := -1
+	for _, t := range kept {
+		if tools[t].name == reference {
+			ref = t
+		}
+	}
+	for _, t := range kept {
+		for d := range docs {
+			if r := &results[t][d]; ref >= 0 && r.Err == "" && results[ref][d].Err == "" {
+				r.F1, r.Scored = pdftest.Compare(r.Text, results[ref][d].Text).F1, true
+			}
+		}
+	}
+	for _, t := range kept {
+		for d := range docs {
+			results[t][d].Text = ""
+		}
+	}
+
+	report, summary := render(tools, kept, docs, results, ref)
 	if err := os.WriteFile(*outPath, []byte(report), 0o644); err != nil {
 		return err
 	}
@@ -270,7 +319,7 @@ func process(version func() string, name string, args ...string) result {
 		if s := took.Seconds(); r.Runs == 0 || s < r.Seconds {
 			r.Seconds = s
 		}
-		r.Chars, r.Peak = len([]rune(out)), max(r.Peak, peak)
+		r.Chars, r.Peak, r.Text = utf8.RuneCountInString(out), max(r.Peak, peak), out
 		spent += took
 		r.Runs++
 	}
@@ -388,7 +437,8 @@ func between(text, summary string) (string, error) {
 }
 
 // render writes the report and the summary for the README.
-func render(tools []tool, kept []int, docs []document, results [][]result) (report, summary string) {
+// ref is the program the others' words are compared with, or -1.
+func render(tools []tool, kept []int, docs []document, results [][]result, ref int) (report, summary string) {
 	// Totals over the documents that every program read.
 	readByAll := make([]bool, len(docs))
 	for d := range docs {
@@ -404,6 +454,8 @@ func render(tools []tool, kept []int, docs []document, results [][]result) (repo
 		pages   int
 		peak    int64
 		failed  int
+		f1      float64 // summed over the documents scored
+		scored  int
 	}
 	totals := make([]total, len(tools))
 	for _, t := range kept {
@@ -417,12 +469,20 @@ func render(tools []tool, kept []int, docs []document, results [][]result) (repo
 			if readByAll[d] {
 				totals[t].seconds += r.Seconds
 				totals[t].pages += docs[d].pages
+				if r.Scored {
+					totals[t].f1 += r.F1
+					totals[t].scored++
+				}
 			}
 		}
 	}
 
 	var sum strings.Builder
-	fmt.Fprintf(&sum, "| | Pages per second | Time against go-fast-pdf | Most memory |\n|---|---:|---:|---:|\n")
+	if ref >= 0 {
+		fmt.Fprintf(&sum, "| | Pages per second | Time against go-fast-pdf | Most memory | Words as pdftotext's (F1) |\n|---|---:|---:|---:|---:|\n")
+	} else {
+		fmt.Fprintf(&sum, "| | Pages per second | Time against go-fast-pdf | Most memory |\n|---|---:|---:|---:|\n")
+	}
 	base := totals[kept[0]].seconds
 	for _, t := range kept {
 		tt := totals[t]
@@ -441,7 +501,17 @@ func render(tools []tool, kept []int, docs []document, results [][]result) (repo
 		if tt.failed > 0 {
 			name += fmt.Sprintf(" (failed on %d)", tt.failed)
 		}
-		fmt.Fprintf(&sum, "| %s | %s | %s | %s |\n", name, thousands(float64(tt.pages)/tt.seconds), against, peak)
+		fmt.Fprintf(&sum, "| %s | %s | %s | %s |", name, thousands(float64(tt.pages)/tt.seconds), against, peak)
+		switch {
+		case ref < 0:
+		case t == ref:
+			sum.WriteString(" the reference |")
+		case tt.scored > 0:
+			fmt.Fprintf(&sum, " %.3f |", tt.f1/float64(tt.scored))
+		default:
+			sum.WriteString(" - |")
+		}
+		sum.WriteString("\n")
 	}
 	pages, size, counted := 0, int64(0), 0
 	for d, doc := range docs {
@@ -454,6 +524,9 @@ func render(tools []tool, kept []int, docs []document, results [][]result) (repo
 	fmt.Fprintf(&sum, "\n%d documents, %d pages, %.1f MB: the long documents of the public corpus's tuning set and one small one.\n", counted, pages, float64(size)/(1<<20))
 	fmt.Fprintf(&sum, "Each program reads each document %d times and its best time counts; the table is the sum over the documents, as a batch of them would take, and on one document the order can differ. Measured on %s with %s, %s.\n",
 		*repeats, machine(), runtime.Version(), time.Now().UTC().Format("2006-01-02"))
+	if ref >= 0 {
+		fmt.Fprintf(&sum, "The last column is how far each program's words agree with pdftotext's, not how correct they are: 1 is the same words.\n")
+	}
 	fmt.Fprintf(&sum, "The method, the versions and the time for each document are in [bench/comparison.md](bench/comparison.md).\n")
 
 	var sb strings.Builder
@@ -485,6 +558,11 @@ func render(tools []tool, kept []int, docs []document, results [][]result) (repo
   processors beside it; held to one processor (GOMAXPROCS=1), go-fast-pdf is not slower.
 - The first table is the sum over the documents: what a batch of them takes. On one document the order
   can differ, as the table of each document shows.
+- Words as pdftotext's (F1) compares the words of each program's text with those of pdftotext's text of
+  the same document, as the tests of the corpus do (internal/pdftest): the share of its words that
+  pdftotext's text has and the share of pdftotext's words that it has, each word counted as often as it
+  occurs, are combined, and the table gives the mean over the documents. It is agreement with poppler,
+  not correctness: pdftotext makes mistakes of its own, and the order of the words does not count.
 - Memory is the most that the process had resident, the interpreter included for the Python libraries.
 - The documents are chosen by a rule, from what the manifest of the corpus says of them and nothing else:
   the tuning set, 30 pages or more, not encrypted, not damaged, at most two from one family of producers,
@@ -537,6 +615,35 @@ Milliseconds, best run.
 			}
 		}
 		sb.WriteString("\n")
+	}
+	if ref >= 0 {
+		sb.WriteString("\nWords as pdftotext's (F1):\n\n| Document |")
+		for _, t := range kept {
+			if t != ref {
+				fmt.Fprintf(&sb, " %s |", tools[t].name)
+			}
+		}
+		sb.WriteString("\n|---|")
+		for _, t := range kept {
+			if t != ref {
+				sb.WriteString("---:|")
+			}
+		}
+		sb.WriteString("\n")
+		for d, doc := range docs {
+			fmt.Fprintf(&sb, "| %s |", doc.name)
+			for _, t := range kept {
+				if t == ref {
+					continue
+				}
+				if r := results[t][d]; r.Scored {
+					fmt.Fprintf(&sb, " %.3f |", r.F1)
+				} else {
+					sb.WriteString(" - |")
+				}
+			}
+			sb.WriteString("\n")
+		}
 	}
 	return sb.String(), sum.String()
 }

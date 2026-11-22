@@ -97,6 +97,9 @@ func main() {
 		timeSelf(*self, *workers)
 		return
 	}
+	// The Rust libraries start a pool of threads (rayon) for parts of a
+	// file; the comparison is of one thread each.
+	os.Setenv("RAYON_NUM_THREADS", "1")
 	if err := compare(); err != nil {
 		fmt.Fprintln(os.Stderr, "compare:", err)
 		os.Exit(1)
@@ -449,7 +452,7 @@ func render(tools []tool, kept []int, docs []document, results [][]result) (repo
 		}
 	}
 	fmt.Fprintf(&sum, "\n%d documents, %d pages, %.1f MB: the long documents of the public corpus's tuning set and one small one.\n", counted, pages, float64(size)/(1<<20))
-	fmt.Fprintf(&sum, "Each program reads each document %d times and its best time counts. Measured on %s with %s, %s.\n",
+	fmt.Fprintf(&sum, "Each program reads each document %d times and its best time counts; the table is the sum over the documents, as a batch of them would take, and on one document the order can differ. Measured on %s with %s, %s.\n",
 		*repeats, machine(), runtime.Version(), time.Now().UTC().Format("2006-01-02"))
 	fmt.Fprintf(&sum, "The method, the versions and the time for each document are in [bench/comparison.md](bench/comparison.md).\n")
 
@@ -477,7 +480,11 @@ func render(tools []tool, kept []int, docs []document, results [][]result) (repo
 - go-fast-pdf does more than give text: it builds the document of the shared model, with blocks in reading
   order, their boxes, headings, lists and tables. The others are asked for plain text.
 - The other programs read a page at a time on one thread, so the row to compare them with is the one with
-  one worker.
+  one worker. The Rust libraries are held to one thread (RAYON_NUM_THREADS=1); lopdf would otherwise
+  read large object streams on several. With one worker, Go's garbage collector can still work on other
+  processors beside it; held to one processor (GOMAXPROCS=1), go-fast-pdf is not slower.
+- The first table is the sum over the documents: what a batch of them takes. On one document the order
+  can differ, as the table of each document shows.
 - Memory is the most that the process had resident, the interpreter included for the Python libraries.
 - The documents are chosen by a rule, from what the manifest of the corpus says of them and nothing else:
   the tuning set, 30 pages or more, not encrypted, not damaged, at most two from one family of producers,

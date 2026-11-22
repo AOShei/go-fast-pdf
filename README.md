@@ -15,7 +15,7 @@ share.
   exhaust them.
 - It starts no program, fetches nothing, runs nothing that a file contains, and does no OCR.
 
-> **Status.** v0.2.1 (2026-11-22), on go-fast-core v0.1.1. The API is not that of v0.1:
+> **Status.** v0.2.2 (2026-11-23), on go-fast-core v0.1.1. The API is not that of v0.1:
 > [MIGRATION.md](MIGRATION.md) says what became what; [CHANGELOG.md](CHANGELOG.md) says what changed.
 
 ## Speed
@@ -23,17 +23,17 @@ share.
 <!-- comparison:begin (written by go run ./bench/compare -readme README.md) -->
 | | Pages per second | Time against go-fast-pdf | Most memory | Words as pdftotext's (F1) |
 |---|---:|---:|---:|---:|
-| go-fast-pdf | 10,073 | 1 | 32 MB | 0.984 |
-| go-fast-pdf, all processors | 20,392 | 0.49 times | 63 MB | 0.984 |
-| gofastpdf (the command) | 8,134 | 1.24 times | 25 MB | 0.984 |
-| pdftotext (poppler) | 1,957 | 5.15 times | 20 MB | the reference |
-| PyMuPDF | 2,099 | 4.80 times | 62 MB | 0.986 |
-| pypdfium2 (PDFium) | 2,116 | 4.76 times | 30 MB | 0.974 |
-| pypdf | 348 | 29.0 times | 72 MB | 0.970 |
-| pdfplumber | 56 | 179 times | 53 MB | 0.964 |
-| pdf_oxide (Rust) | 319 | 31.6 times | 30 MB | 0.974 |
-| pdf-extract (Rust) | 2,047 | 4.92 times | 25 MB | 0.970 |
-| lopdf (Rust) | 6,770 | 1.49 times | 25 MB | 0.900 |
+| go-fast-pdf | 10,184 | 1 | 32 MB | 0.984 |
+| go-fast-pdf, all processors | 19,200 | 0.53 times | 69 MB | 0.984 |
+| gofastpdf (the command) | 8,236 | 1.24 times | 24 MB | 0.984 |
+| pdftotext (poppler) | 2,009 | 5.07 times | 20 MB | the reference |
+| PyMuPDF | 2,238 | 4.55 times | 62 MB | 0.986 |
+| pypdfium2 (PDFium) | 2,230 | 4.57 times | 30 MB | 0.974 |
+| pypdf | 350 | 29.1 times | 72 MB | 0.970 |
+| pdfplumber | 57 | 179 times | 53 MB | 0.964 |
+| pdf_oxide (Rust) | 309 | 33.0 times | 30 MB | 0.974 |
+| pdf-extract (Rust) | 2,053 | 4.96 times | 24 MB | 0.970 |
+| lopdf (Rust) | 6,637 | 1.53 times | 25 MB | 0.900 |
 
 8 documents, 530 pages, 9.7 MB: the long documents of the public corpus's tuning set and one small one.
 Each program reads each document 5 times and its best time counts; the table is the sum over the documents, as a batch of them would take, and on one document the order can differ. Measured on AMD Ryzen 9 9900X 12-Core Processor (24 threads, linux/amd64) with go1.27.3-X:nodwarf5, 2026-11-22.
@@ -41,12 +41,12 @@ The last column is how far each program's words agree with pdftotext's, not how 
 The method, the versions, the time for each document, and how far each pair of programs agree, each as the reference in turn, are in [bench/comparison.md](bench/comparison.md).
 <!-- comparison:end -->
 
-Reading the 1,650 files of the public test corpus, damaged ones included, takes 1.3 seconds on one
+Reading the 1,650 files of the public test corpus, damaged ones included, takes 1.2 seconds on one
 thread. `go run ./bench/compare` makes the table again on your machine.
 
 With many workers, a good part of the time is Go's garbage collector, which a program can tune; the
 library leaves its settings alone. On the documents of the table, with 24 workers, the default takes
-16 to 17 ms, `GOGC=200` 13 ms, and `GOMEMLIMIT=1GiB GOGC=off` 12.6 ms: more memory for less time.
+15 to 17 ms, `GOGC=200` 13 ms, and `GOMEMLIMIT=1GiB GOGC=off` 12 to 13 ms: more memory for less time.
 
 ## Installation
 

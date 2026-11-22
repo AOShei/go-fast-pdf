@@ -94,7 +94,10 @@ func writeSamplePNG(out *bytes.Buffer, m *sampleImage) error {
 		b.bw.Reset(idatWriter{out})
 		b.zw.Reset(b.bw)
 	}
-	defer pngRowsPool.Put(b)
+	defer func() {
+		b.bw.Reset(nil) // it would keep out, the image's PNG, while it waits
+		pngRowsPool.Put(b)
+	}()
 	stride := s.stride()
 	if cap(b.row) < 1+stride {
 		b.row = make([]byte, 1+stride)

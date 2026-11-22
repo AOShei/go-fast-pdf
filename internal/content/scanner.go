@@ -106,6 +106,18 @@ func (s *Scanner) Reset(data []byte) {
 	s.done, s.Skipped, s.ElemsCut, s.InlineData, s.InlineDict = false, 0, 0, nil, nil
 }
 
+// Release lets go of the stream and of the operands read from it, the
+// room past their length included, keeping the room for the next.
+func (s *Scanner) Release() {
+	clear(s.args[:cap(s.args)]) // at most maxOperands
+	if cap(s.elems) > 4096 {
+		s.elems = nil // a long array once: not cleared, and not kept
+	} else {
+		clear(s.elems[:cap(s.elems)])
+	}
+	s.Reset(nil)
+}
+
 // Feed continues the same page with its next content stream.
 func (s *Scanner) Feed(data []byte) { s.data, s.pos = data, 0 }
 

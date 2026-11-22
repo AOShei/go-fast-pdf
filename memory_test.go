@@ -95,6 +95,7 @@ func TestMemoryOfTheIterator(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer f.Close()
 	n := 0
 	var peak uint64
 	for part, err := range f.Parts(context.Background()) {

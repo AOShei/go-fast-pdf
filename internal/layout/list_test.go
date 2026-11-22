@@ -29,9 +29,15 @@ func TestListMarker(t *testing.T) {
 		"- production\t656.3":   "",
 		"6. Options\t. . . 6-1": "",
 		"Text without a marker": "",
-		"1.":                    "",
-		"•":                     "",
-		"1.Numbered":            "",
+		// Spaces outside ASCII after the marker are not the item's text
+		// (found by FuzzOpen: an item that started with U+00A0).
+		"1. \u00a0First":           "1.|First|true",
+		"(a)\t\u2003Second":        "(a)|Second|true",
+		"\u2022 \u00a0\u3000Third": "\u2022|Third|false",
+		"1. \u00a0":                "",
+		"1.":                       "",
+		"•":                        "",
+		"1.Numbered":               "",
 	} {
 		marker, rest, ordered, ok := ListMarker(text)
 		got := ""

@@ -21,22 +21,23 @@ share.
 ## Speed
 
 <!-- comparison:begin (written by go run ./bench/compare -readme README.md) -->
-| | Pages per second | Time against go-fast-pdf | Most memory |
-|---|---:|---:|---:|
-| go-fast-pdf | 10,186 | 1 | 32 MB |
-| go-fast-pdf, all processors | 18,991 | 0.54 times | 49 MB |
-| gofastpdf (the command) | 8,144 | 1.25 times | 25 MB |
-| pdftotext (poppler) | 1,999 | 5.10 times | 20 MB |
-| PyMuPDF | 2,231 | 4.56 times | 61 MB |
-| pypdfium2 (PDFium) | 2,219 | 4.59 times | 30 MB |
-| pypdf | 348 | 29.3 times | 72 MB |
-| pdfplumber | 56 | 181 times | 52 MB |
-| pdf_oxide (Rust) | 318 | 32.0 times | 30 MB |
-| pdf-extract (Rust) | 2,033 | 5.01 times | 23 MB |
-| lopdf (Rust) | 6,433 | 1.58 times | 23 MB |
+| | Pages per second | Time against go-fast-pdf | Most memory | Words as pdftotext's (F1) |
+|---|---:|---:|---:|---:|
+| go-fast-pdf | 9,959 | 1 | 33 MB | 0.984 |
+| go-fast-pdf, all processors | 18,792 | 0.53 times | 62 MB | 0.984 |
+| gofastpdf (the command) | 7,986 | 1.25 times | 23 MB | 0.984 |
+| pdftotext (poppler) | 1,983 | 5.02 times | 20 MB | the reference |
+| PyMuPDF | 2,213 | 4.50 times | 62 MB | 0.986 |
+| pypdfium2 (PDFium) | 2,209 | 4.51 times | 30 MB | 0.974 |
+| pypdf | 345 | 28.9 times | 72 MB | 0.970 |
+| pdfplumber | 54 | 183 times | 53 MB | 0.964 |
+| pdf_oxide (Rust) | 313 | 31.9 times | 31 MB | 0.974 |
+| pdf-extract (Rust) | 2,019 | 4.93 times | 24 MB | 0.970 |
+| lopdf (Rust) | 6,565 | 1.52 times | 25 MB | 0.900 |
 
 8 documents, 530 pages, 9.7 MB: the long documents of the public corpus's tuning set and one small one.
 Each program reads each document 5 times and its best time counts; the table is the sum over the documents, as a batch of them would take, and on one document the order can differ. Measured on AMD Ryzen 9 9900X 12-Core Processor (24 threads, linux/amd64) with go1.27.3-X:nodwarf5, 2026-11-22.
+The last column is how far each program's words agree with pdftotext's, not how correct they are: 1 is the same words.
 The method, the versions and the time for each document are in [bench/comparison.md](bench/comparison.md).
 <!-- comparison:end -->
 

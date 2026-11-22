@@ -54,3 +54,35 @@ func TestWarnKeepsAndCounts(t *testing.T) {
 		t.Errorf("the count: %+v", last)
 	}
 }
+
+// What bounds cut is counted, by bound, and given once for each bound in
+// the order of their keys, whatever the order it was counted in; what an
+// id names is counted once; a bound where reading stopped says how many
+// times it did.
+func TestCuts(t *testing.T) {
+	names := &Bound{Key: "b names", Message: CutMessage("names", "names", 1024)}
+	files := &Bound{Key: "a files", Message: PastMessage("attached files", "files", 4096)}
+	outline := &Bound{Key: "c outline", Message: MoreMessage("the outline", "levels", 64)}
+	f := &File{}
+	f.CutOnce(names, "x", 1, 100)
+	f.Cut(outline, 1, 0)
+	f.CutOnce(names, "y", 1, 50)
+	f.CutOnce(names, "x", 1, 100) // the same name again
+	f.Cut(files, 3, 0)
+	f.Cut(outline, 1, 0)
+	var got []string
+	for _, w := range f.Warnings() {
+		if w.Code != gofastcore.WarnLimitExceeded || w.Severity != gofastcore.SeverityError {
+			t.Fatalf("%+v", w)
+		}
+		got = append(got, w.Message)
+	}
+	want := []string{
+		"attached files past 4096 were not read (3 files)",
+		"names longer than 1024 bytes were cut there (2 names, 150 bytes left out)",
+		"the outline has more than 64 levels; the rest were not read (2 times)",
+	}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("%q\nwant %q", got, want)
+	}
+}

@@ -276,11 +276,11 @@ func (st *state) image(part *gofastcore.Part, ref imageRef, inline *int) {
 	var bound boundError
 	switch {
 	case err == file.ErrTruncated && perStream:
-		st.imagesLong = true
+		st.imagesLong++
 	case err == file.ErrTruncated:
 		st.imagesCut = true
 	case errors.As(err, &bound):
-		partLimit(part, string(bound))
+		st.partCuts.Add(bound.bound, 1, 0)
 	case err != nil:
 		undelivered(err.Error())
 	default:

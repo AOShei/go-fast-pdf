@@ -2,35 +2,44 @@
 
 ## v0.2.1 (not yet tagged)
 
-What a fixed bound of the library leaves out is reported, never left out silently: `limit.exceeded`,
-an error, once for each bound, on the part or the document it cut (go-fast-core's convention, from
-its v0.1.1). An audit of v0.2.0 found bounds that cut without a word; each of them now reports, and
+What a fixed bound of the library leaves out of the output is reported, never left out silently:
+`limit.exceeded`, an error, once for each bound on the part or the document it cut, with a count, in
+the words the go-fast libraries share: "X longer than N bytes were cut there (K X, B bytes left
+out)", "X past N were not read (K X)", or where reading stops and nothing can be counted, "… has more
+than N X; the rest were not read". A bound on what is used only inside the library (the saved
+graphics states, the widths of a font) says nothing, and no other code is used for a cut: a document
+without `limit.exceeded` lost nothing to a bound. This is go-fast-core's rule from its v0.1.1 (core
+PRs #3 and #5). An audit of v0.2.0 found bounds that cut without a word; each of them now reports, and
 SECURITY.md lists them all. Over the 3,186 files of the test corpora, documents are the same as in
-v0.2.0, except for the nine named below, which gain what a bound cut.
+v0.2.0, except for the nine named below, which gain what a bound cut; no file of them meets a bound
+that is newly reported.
 
 ### Fixed
 
-- **A ToUnicode text longer than one code may have (4 KiB)** was dropped, and the code read by the
-  font's encoding: wrong text. It is cut at 4 KiB instead. A font whose ToUnicode map, encoding,
-  widths or program is larger than is kept now gives `limit.exceeded` on the pages that show its text.
+- **A ToUnicode text longer than one code may have (4,096 bytes)** was dropped, and the code read by
+  the font's encoding: wrong text. It is cut at 4,096 bytes instead, and counted. A CMap of a font
+  past its entries or text, and a font program longer than 33,554,432 bytes, are counted on the pages
+  that show text in the font.
 - **Annotations past the bound of a page** were not read, with no warning: their appearances, notes,
   form values, links and attached files. The page says how many are not read; the bound is now 65,536
   (it was 16,384; a file of the corpus has 32,768 links on one page, which are now read).
 - **The values of a property of the metadata packet** were cut at 256. Illustrator's list of swatches
   has up to 512 in the corpus (8 files); the bound is now 16,384 for a property and 65,536 for the
   packet.
-- **Reported now, where they were silent:** the elements of an operator's array past 1,048,576; the
-  options of a choice field past 4,096; names past 1,024 bytes; form field names past 32 levels; the
-  outline past 131,072 entries or 64 levels; name and number trees past their bounds; attached files,
-  scripts and form fields past theirs; entries of the document information and properties of the
-  metadata packet past 1,024; XML attributes past 256; XFA data past 64 levels, or 4,096 pieces of text
-  of a field; a figure's description past 64 KiB; marked-content identifiers of a page past 65,536; a
-  link's address past 4 KiB; saved graphics states and marked content nested past 4,096; an inline
-  image's dictionary past 64 KiB.
+- **Reported now, where they were silent:** the elements of an operator's arrays past 1,048,576; the
+  options of choice fields past 4,096; names longer than 1,024 bytes; form field names past 32 levels;
+  the outline past 131,072 entries or 64 levels; name and number trees past their bounds; attached
+  files, scripts and form fields past theirs; entries of the document information and properties of
+  the metadata packet past 1,024; XML attributes past 256; XFA data past 64 levels, or 4,096 pieces of
+  text of a field; descriptions of figures longer than 65,536 bytes; marked-content identifiers of a
+  page past 65,536; links with an address longer than 4,096 bytes; marked content nested past 4,096;
+  dictionaries of inline images longer than 65,536 bytes.
+- **The bounds that reported already** (images of a page past 100,000, forms nested or repeated past
+  their bounds, the text of a page) say it in the same words, with a count.
 - **An image past the pixels or the work whose data is made** gives `limit.exceeded`, not
   `image.unsupported_encoding`.
-- **An attached file or an image over the bound on one stream** (`MaxStreamBytes`) was reported as the
-  document's decoding budget running out; it is now reported as what it is.
+- **Attached files and images over the bound on one stream** (`MaxStreamBytes`) were reported as the
+  document's decoding budget running out; they are now reported as what they are, with a count.
 - **Several bounds on one page** gave one `limit.exceeded`, the first; each bound now gives its own.
 - **The warnings of the document as a whole** were kept up to 100, and the rest dropped without a
   count. Eight of each code are kept, in the order of their messages, and one more warning counts the

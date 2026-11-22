@@ -1,9 +1,6 @@
 package extract
 
 import (
-	"fmt"
-
-	gofastcore "github.com/AOShei/go-fast-core"
 	"github.com/AOShei/go-fast-pdf/internal/content"
 	"github.com/AOShei/go-fast-pdf/internal/syntax"
 )
@@ -66,8 +63,7 @@ func (in *interp) inlineImage(scan *content.Scanner, args []content.Operand) {
 // writes them out.
 func (in *interp) inlineDict(raw []byte) syntax.Value {
 	if len(raw) > maxInlineDict {
-		in.warn(gofastcore.SeverityError, gofastcore.WarnLimitExceeded,
-			fmt.Sprintf("an inline image's dictionary is longer than %d bytes and is not read; the image is listed without its size and encoding", maxInlineDict))
+		in.cut(boundInline, 1, 0)
 		return syntax.Value{}
 	}
 	buf := make([]byte, 0, len(raw)+4)

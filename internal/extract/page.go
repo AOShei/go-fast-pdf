@@ -217,6 +217,10 @@ type interp struct {
 	f    *file.File
 	opts Options
 	res  *Result
+	// cuts counts what the bounds of the page left out (cuts.go), and
+	// cutFonts the fonts whose cuts are counted.
+	cuts     file.Cuts
+	cutFonts map[*font.Font]bool
 
 	scans    []*content.Scanner // one per nesting level of forms
 	pageBufs [][]byte           // the page's content streams, decoded
@@ -326,6 +330,7 @@ func Page(f *file.File, p *file.Page, opts Options) (res Result) {
 	in.run(p)
 	in.appearances(p)
 	in.finish()
+	in.cutWarnings()
 	return res
 }
 
@@ -453,6 +458,8 @@ func (in *interp) trim() {
 
 func (in *interp) reset(f *file.File, p *file.Page, opts Options, res *Result) {
 	in.f, in.opts, in.res = f, opts, res
+	in.cuts.Reset()
+	clear(in.cutFonts)
 	in.level = 0
 	in.resourcesAt(0).reset(p.Resources())
 	in.stackFloor, in.mcFloor = append(in.stackFloor[:0], 0), append(in.mcFloor[:0], 0)
@@ -577,9 +584,8 @@ func (in *interp) run(p *file.Page) {
 // elemsCut reports the elements of arrays that a scanner left out, past
 // the most it keeps for one operator.
 func (in *interp) elemsCut(scan *content.Scanner) {
-	if scan.ElemsCut {
-		in.warn(gofastcore.SeverityError, gofastcore.WarnLimitExceeded,
-			fmt.Sprintf("an operator's array has more than %d elements; the rest, and their text, are not read", content.MaxElems))
+	if scan.ElemsCut > 0 {
+		in.cut(boundElems, int64(scan.ElemsCut), 0)
 	}
 }
 
@@ -627,11 +633,10 @@ func (in *interp) operator(scan *content.Scanner, op []byte, args []content.Oper
 	switch string(op) {
 	// --- graphics state ---
 	case "q":
+		// Deeper states are not kept. They place text and are not in
+		// it: no warning.
 		if len(in.stack) < maxStateDepth {
 			in.stack = append(in.stack, in.gs)
-		} else {
-			in.warn(gofastcore.SeverityError, gofastcore.WarnLimitExceeded,
-				fmt.Sprintf("graphics states are saved more than %d deep; the deeper ones are not kept, and what follows may be placed wrongly", maxStateDepth))
 		}
 	case "Q":
 		if n := len(in.stack); n > in.stackFloor[in.level] {
@@ -917,8 +922,9 @@ func (in *interp) lookupFont(raw []byte) *font.Font {
 
 func (in *interp) beginMarked(tag []byte, props content.Operand) {
 	if len(in.mc) >= maxMarkedDepth {
-		in.warn(gofastcore.SeverityError, gofastcore.WarnLimitExceeded,
-			fmt.Sprintf("marked content is nested more than %d deep; what the deeper sequences declare (actual text, a layer that is off, an identifier in the structure) is not read", maxMarkedDepth))
+		// What the sequence declares is not read: actual text, a layer
+		// that is off, an identifier in the structure tree.
+		in.cut(boundMarked, 1, 0)
 		return
 	}
 	m := marked{mcid: -1}
@@ -1079,7 +1085,7 @@ const maxImagesPerPage = 100000
 // painted.
 func (in *interp) addImage(img Image) {
 	if len(in.images) >= maxImagesPerPage {
-		in.warn(gofastcore.SeverityError, gofastcore.WarnLimitExceeded, "more than 100000 images on the page; the rest are not listed")
+		in.cut(boundImages, 1, 0)
 		return
 	}
 	// A size in pixels is a count. A file can state any number.
@@ -1131,7 +1137,7 @@ func (in *interp) drawForm(xobj syntax.Value) {
 		return
 	}
 	if in.level >= in.opts.MaxFormDepth || in.formCalls >= maxFormsPerPage {
-		in.warn(gofastcore.SeverityError, gofastcore.WarnLimitExceeded, "Form XObjects are nested or repeated beyond the limit; the rest are not read")
+		in.cut(boundForms, 1, 0)
 		return
 	}
 	for _, open := range in.formActive {

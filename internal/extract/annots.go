@@ -1,9 +1,6 @@
 package extract
 
 import (
-	"fmt"
-
-	gofastcore "github.com/AOShei/go-fast-core"
 	"github.com/AOShei/go-fast-pdf/internal/file"
 	"github.com/AOShei/go-fast-pdf/internal/syntax"
 )
@@ -40,9 +37,8 @@ func (in *interp) appearances(p *file.Page) {
 	if len(annots) > MaxAnnotations {
 		// This also bounds what the root package reads of the page's
 		// annotations: their notes, form values, links and attached
-		// files. This warning stands for all of it.
-		in.warn(gofastcore.SeverityError, gofastcore.WarnLimitExceeded,
-			fmt.Sprintf("the page has %d annotations; the %d past the first %d are not read: their appearances, notes, form values, links and attached files", len(annots), len(annots)-MaxAnnotations, MaxAnnotations))
+		// files. This count stands for all of it.
+		in.cut(boundAnnots, int64(len(annots)-MaxAnnotations), 0)
 		annots = annots[:MaxAnnotations]
 	}
 	in.res.Shown = make([]bool, len(annots))

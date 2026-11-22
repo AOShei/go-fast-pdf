@@ -244,7 +244,7 @@ func (e *Extractor) page(f *file.File, p *file.Page, opts *gofastcore.Options, w
 	// Spans are made from the words of the lines, placed by their share
 	// of their run: near enough to tell which words a link covers.
 	// What fixed bounds leave out of the page, reported at its end.
-	var limits pageLimits
+	var limits file.Cuts
 	var links []layout.Link
 	if opts.Spans {
 		links = pageLinks(f, p, m, width, height, w.dests, &limits)
@@ -355,7 +355,7 @@ func (e *Extractor) page(f *file.File, p *file.Page, opts *gofastcore.Options, w
 		part.Warn(gofastcore.SeverityWarning, gofastcore.WarnTextUnmappedGlyphs,
 			fmt.Sprintf("%d characters on the page are control characters and appear as U+FFFD", lay.Controls))
 	}
-	limits.warn(part)
+	warnCuts(part, &limits)
 	// A message can quote the file: a name, part of an object.
 	for i := range part.Warnings {
 		part.Warnings[i].Message = cleanString(part.Warnings[i].Message)

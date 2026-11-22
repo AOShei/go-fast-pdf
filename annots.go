@@ -317,6 +317,14 @@ func rectOnPage(f *file.File, v syntax.Value, m [6]float64) (r gofastcore.Rect) 
 	}
 	x0, y0 := m[0]*c[0]+m[2]*c[1]+m[4], m[1]*c[0]+m[3]*c[1]+m[5]
 	x1, y1 := m[0]*c[2]+m[2]*c[3]+m[4], m[1]*c[2]+m[3]*c[3]+m[5]
+	// The page's matrix can take a rectangle that is within the range
+	// out of it (a page turned, or its box moved): such a box is none,
+	// as one that is out of range in the file.
+	for _, v := range [...]float64{x0, y0, x1, y1} {
+		if v != v || v > 1e9 || v < -1e9 {
+			return gofastcore.Rect{}
+		}
+	}
 	return gofastcore.Rect{X0: min(x0, x1), Y0: min(y0, y1), X1: max(x0, x1), Y1: max(y0, y1)}
 }
 

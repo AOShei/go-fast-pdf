@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.2.2 (2026-11-22)
+## v0.2.2 (2026-11-23)
 
 Faster, with the same output: for each of the 3,253 PDF files of the corpora and fixtures, the
 document is the same JSON as with v0.2.1. The public corpus is read in 1.22 s on one thread, against
@@ -30,7 +30,8 @@ includes making the text of the document, as the other programs' times do.
 
 On the tree that is tagged: the 3,186 files of the corpora read in processes of their own, three
 times, with no crash, hang or memory failure, at most 2.3 s and 656 MiB for a file; the documents the
-same as those of v0.2.1.
+same as those of v0.2.1; fuzzing of its 27 targets for an hour each on machines of four processors,
+108 processor hours and 3.9 billion inputs, with nothing found.
 
 ## v0.2.1 (2026-11-22)
 

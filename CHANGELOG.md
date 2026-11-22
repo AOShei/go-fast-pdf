@@ -48,6 +48,8 @@ that is newly reported.
   a page whose rules are broken or turned: two cells had their text in one place, and the table kept
   one. Such a band of rows is not cut along its lines, and two cells never share a place; where they
   would, the text stays paragraphs.
+- **The text of a list item could start with a space outside ASCII** (U+00A0 and the like) after its
+  marker, against the shared model's rule that a block's text has none at its ends.
 - **The box of a note or of a form field's value** could fall past the range of coordinates when the
   page's matrix moved it there (a page turned, or its box moved). Such a box is none.
 - **q and marked content opened past their bound (4,096)** were not kept, but the Q or EMC that closed
@@ -90,7 +92,7 @@ On the tree that is tagged: the 3,186 files of the corpora read in processes of 
 times, with no crash, hang or memory failure, at most 2.3 s and 674 MiB for a file; the documents
 the same as those of v0.2.0 except for the nine that gain what a bound cut; fuzzing of every target
 for an hour on machines of four processors, 3.8 billion inputs, with nothing left that it found (the
-four defects it found on the way are fixed above); the public corpus read in 1.3 s on one thread.
+five defects it found on the way are fixed above); the public corpus read in 1.3 s on one thread.
 
 ## v0.2.0 (2026-11-21)
 

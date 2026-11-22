@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("01 0 obj <<>stream beginbfchar <41> <Aendstream0 2 0 obj <</Pages 6 0 R 4 0 obj <</ToUnicode 1 0 R 5 0 obj <<>stream/F1 0Tf ((00) A0) Tj endstream0 6 0 obj <<0/Resources <<0/Font <<0/F1 4 0 R>0>/Contents 5 0 R 0trailer <<0/Root 2 0 R")

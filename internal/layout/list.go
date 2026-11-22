@@ -62,9 +62,16 @@ func splitMarker[T ~string | ~[]byte](text T, item bool) (start, end, at int, or
 	if n == 0 || end >= len(text) || text[end] != ' ' && text[end] != '\t' {
 		return 0, 0, 0, false, false
 	}
+	// The text after the marker starts after every space, a space
+	// outside ASCII too (U+00A0, U+2003, ...): the text of a block has
+	// none at its ends (the shared model).
 	at = end
-	for at < len(text) && (text[at] == ' ' || text[at] == '\t') {
-		at++
+	for at < len(text) {
+		r, size := utf8.DecodeRuneInString(string(text[at:min(len(text), at+utf8.UTFMax)]))
+		if !unicode.IsSpace(r) {
+			break
+		}
+		at += size
 	}
 	if at == len(text) {
 		return 0, 0, 0, false, false

@@ -79,6 +79,18 @@ type tool struct {
 	// run times the program on the file at path, and has it write the
 	// text of its last run to the file text, or return it.
 	run func(path, text string) result
+	// again is set for a program whose text is that of the first,
+	// go-fast-pdf, made another way: it has no row of its own in the
+	// table of how the programs agree.
+	again bool
+}
+
+// agreement is how far the words of each pair of programs agree: f1[i][j]
+// is the mean F1 of programs[i] against programs[j], indexes into tools,
+// over the documents every program read.
+type agreement struct {
+	programs []int
+	f1       [][]float64
 }
 
 type document struct {
@@ -181,10 +193,10 @@ func compare() error {
 		{name: "go-fast-pdf", note: "library, one worker", run: func(path, text string) result {
 			return child(me, "-self", path, "-text", text, "-workers", "1", "-repeats", strconv.Itoa(*repeats), "-budget", budget.String())
 		}},
-		{name: "go-fast-pdf, all processors", note: fmt.Sprintf("library, %d workers", runtime.NumCPU()), run: func(path, text string) result {
+		{name: "go-fast-pdf, all processors", again: true, note: fmt.Sprintf("library, %d workers", runtime.NumCPU()), run: func(path, text string) result {
 			return child(me, "-self", path, "-text", text, "-workers", strconv.Itoa(runtime.NumCPU()), "-repeats", strconv.Itoa(*repeats), "-budget", budget.String())
 		}},
-		{name: "gofastpdf (the command)", note: "command, text output, one worker; the time of the process", run: func(path, _ string) result {
+		{name: "gofastpdf (the command)", again: true, note: "command, text output, one worker; the time of the process", run: func(path, _ string) result {
 			return process(func() string { return "" }, command, "-format", "text", "-workers", "1", "-quiet", path)
 		}},
 		{name: reference, note: "command; the time of the process", run: func(path, _ string) result {
@@ -255,13 +267,14 @@ func compare() error {
 			}
 		}
 	}
+	agree := agreeAll(tools, kept, docs, results)
 	for _, t := range kept {
 		for d := range docs {
 			results[t][d].Text = ""
 		}
 	}
 
-	report, summary := render(tools, kept, docs, results, ref)
+	report, summary := render(tools, kept, docs, results, ref, agree)
 	if err := os.WriteFile(*outPath, []byte(report), 0o644); err != nil {
 		return err
 	}
@@ -436,19 +449,66 @@ func between(text, summary string) (string, error) {
 	return text[:i+len(beginMarker)] + "\n" + summary + text[j:], nil
 }
 
-// render writes the report and the summary for the README.
-// ref is the program the others' words are compared with, or -1.
-func render(tools []tool, kept []int, docs []document, results [][]result, ref int) (report, summary string) {
-	// Totals over the documents that every program read.
-	readByAll := make([]bool, len(docs))
+// docsReadByAll says of each document whether every program read it.
+func docsReadByAll(kept []int, docs []document, results [][]result) []bool {
+	all := make([]bool, len(docs))
 	for d := range docs {
-		readByAll[d] = true
+		all[d] = true
 		for _, t := range kept {
 			if results[t][d].Err != "" {
-				readByAll[d] = false
+				all[d] = false
 			}
 		}
 	}
+	return all
+}
+
+// agreeAll compares the words of every pair of programs, each as the
+// reference in turn, over the documents every program read.
+func agreeAll(tools []tool, kept []int, docs []document, results [][]result) agreement {
+	var a agreement
+	for _, t := range kept {
+		if !tools[t].again {
+			a.programs = append(a.programs, t)
+		}
+	}
+	all := docsReadByAll(kept, docs, results)
+	n := 0
+	for _, ok := range all {
+		if ok {
+			n++
+		}
+	}
+	a.f1 = make([][]float64, len(a.programs))
+	for i := range a.programs {
+		a.f1[i] = make([]float64, len(a.programs))
+	}
+	if n == 0 {
+		return agreement{}
+	}
+	for i, ti := range a.programs {
+		for j := i + 1; j < len(a.programs); j++ {
+			tj := a.programs[j]
+			var sum float64
+			for d := range docs {
+				if all[d] {
+					sum += pdftest.Compare(results[ti][d].Text, results[tj][d].Text).F1
+				}
+			}
+			// F1 is the same whichever of the two is the reference.
+			a.f1[i][j] = sum / float64(n)
+			a.f1[j][i] = a.f1[i][j]
+		}
+	}
+	return a
+}
+
+// render writes the report and the summary for the README. ref is the
+// program the others' words are compared with, or -1, and agree how the
+// programs agree with each other.
+func render(tools []tool, kept []int, docs []document, results [][]result, ref int, agree agreement) (report, summary string) {
+	// Totals over the documents that every program read.
+	readByAll := docsReadByAll(kept, docs, results)
 	type total struct {
 		seconds float64
 		pages   int
@@ -527,7 +587,11 @@ func render(tools []tool, kept []int, docs []document, results [][]result, ref i
 	if ref >= 0 {
 		fmt.Fprintf(&sum, "The last column is how far each program's words agree with pdftotext's, not how correct they are: 1 is the same words.\n")
 	}
-	fmt.Fprintf(&sum, "The method, the versions and the time for each document are in [bench/comparison.md](bench/comparison.md).\n")
+	if len(agree.programs) > 1 {
+		fmt.Fprintf(&sum, "The method, the versions, the time for each document, and how far each pair of programs agree, each as the reference in turn, are in [bench/comparison.md](bench/comparison.md).\n")
+	} else {
+		fmt.Fprintf(&sum, "The method, the versions and the time for each document are in [bench/comparison.md](bench/comparison.md).\n")
+	}
 
 	var sb strings.Builder
 	sb.WriteString("# Comparison with other PDF text extractors\n\n")
@@ -643,6 +707,41 @@ Milliseconds, best run.
 				}
 			}
 			sb.WriteString("\n")
+		}
+	}
+	if len(agree.programs) > 1 {
+		sb.WriteString(`
+## How the programs agree with each other
+
+The words of each program's text against those of each other program's, as in the last column of the
+first table but with every program in turn as the reference: the mean F1 over the documents that every
+program read. The table is symmetric, as F1 is the same whichever of two programs is the reference.
+go-fast-pdf's three rows give the same text, and are one row here. Programs that agree make the same
+choices, which are not always right: what each one does with a running header, a hyphen at the end of
+a line, or a superscript is a choice as much as a mistake.
+
+`)
+		sb.WriteString("|")
+		for _, t := range agree.programs {
+			fmt.Fprintf(&sb, " | %s", tools[t].name)
+		}
+		sb.WriteString(" | Mean against the others |\n|---|")
+		for range agree.programs {
+			sb.WriteString("---:|")
+		}
+		sb.WriteString("---:|\n")
+		for i, t := range agree.programs {
+			fmt.Fprintf(&sb, "| **%s** |", tools[t].name)
+			var others float64
+			for j := range agree.programs {
+				if i == j {
+					sb.WriteString(" - |")
+					continue
+				}
+				fmt.Fprintf(&sb, " %.3f |", agree.f1[i][j])
+				others += agree.f1[i][j]
+			}
+			fmt.Fprintf(&sb, " %.3f |\n", others/float64(len(agree.programs)-1))
 		}
 	}
 	return sb.String(), sum.String()

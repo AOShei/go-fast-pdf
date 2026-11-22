@@ -273,6 +273,7 @@ func (f *File) rebuild() error {
 		f.putEntry(o.num, entry{kind: entryOffset, off: o.off, gen: o.gen})
 	}
 	f.objs = make([]atomic.Pointer[syntax.Value], len(f.xref))
+	f.resetFilled()
 	f.trailer = f.recoverTrailer(objects)
 	// Nothing else may trigger a second scan: the table now is the scan.
 	f.rec.once.Do(func() {})
@@ -288,6 +289,7 @@ func (f *File) rebuild() error {
 		f.putEntry(num, loc.e)
 	}
 	f.objs = make([]atomic.Pointer[syntax.Value], len(f.xref))
+	f.resetFilled()
 	if f.Resolve(f.trailer.Get("Root")).IsDict() {
 		return nil
 	}

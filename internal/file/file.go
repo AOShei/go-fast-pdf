@@ -114,10 +114,14 @@ type File struct {
 	trailer syntax.Value
 	objs    []atomic.Pointer[syntax.Value]
 	// kept is the estimated size of what objs holds, and letGo is set
-	// while it is being emptied.
-	kept  atomic.Int64
-	letGo atomic.Bool
-	enc   *decrypter
+	// while it is being emptied. filled are the numbers of the objects
+	// held, so that emptying it clears those and not every slot of a
+	// file of many objects.
+	kept     atomic.Int64
+	letGo    atomic.Bool
+	filledMu sync.Mutex
+	filled   []int64
+	enc      *decrypter
 	// password is what the caller gave to open an encrypted file, and
 	// keys the private keys for a file encrypted for a certificate.
 	password string
@@ -222,6 +226,7 @@ func (f *File) load() error {
 		return err
 	}
 	f.objs = make([]atomic.Pointer[syntax.Value], len(f.xref))
+	f.filled = make([]int64, 0, min(len(f.xref), 256))
 	if err := f.setupEncryption(); err != nil {
 		return err
 	}
@@ -710,19 +715,34 @@ func (f *File) object(num int64, depth int) syntax.Value {
 	// Two goroutines may parse the same object; both get the same result
 	// and one of the copies is dropped.
 	if f.objs[num].CompareAndSwap(nil, &v) {
+		f.filledMu.Lock()
+		f.filled = append(f.filled, num)
+		f.filledMu.Unlock()
 		// What is kept is bounded: a file of many pages has an object or
 		// several for each, and they are not needed once the page is read.
 		// When the budget is used up everything is let go; what is still
 		// wanted is parsed again.
 		if f.kept.Add(weigh(&v, 0)) > f.limits.ObjCacheBytes && f.letGo.CompareAndSwap(false, true) {
-			for i := range f.objs {
-				f.objs[i].Store(nil)
+			f.filledMu.Lock()
+			nums := f.filled
+			f.filled = make([]int64, 0, len(nums))
+			f.filledMu.Unlock()
+			for _, n := range nums {
+				f.objs[n].Store(nil)
 			}
 			f.kept.Store(0)
 			f.letGo.Store(false)
 		}
 	}
 	return v
+}
+
+// resetFilled forgets the objects held, for slots made afresh.
+func (f *File) resetFilled() {
+	f.filledMu.Lock()
+	f.filled = f.filled[:0]
+	f.filledMu.Unlock()
+	f.kept.Store(0)
 }
 
 // weigh estimates the memory a parsed object takes.

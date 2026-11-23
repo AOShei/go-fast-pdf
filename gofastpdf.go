@@ -261,12 +261,16 @@ func (e *Extractor) page(f *file.File, p *file.Page, opts *gofastcore.Options, w
 	// of their run: near enough to tell which words a link covers.
 	// What fixed bounds leave out of the page, reported at its end.
 	var limits file.Cuts
+	// The control characters removed from the strings of the page that
+	// are not its content: its annotations, links, the descriptions and
+	// identifiers of its structure, the names of its fonts.
+	var controls removed
 	// What the page has of its annotations besides their appearances is
 	// taken as the appearances are drawn, each annotation read once
 	// (pageAnnots): the links, for spans; the notes and the values of
 	// form fields, the text of which notes takes; the files attached and
 	// the actions, after those of the page itself.
-	notes := reader{f: f, room: maxPageNoteBytes}
+	notes := reader{f: f, room: maxPageNoteBytes, rm: &controls}
 	pa := newPageAnnots(f, p, m, notes, opts.Spans, w.dests)
 	var annot func(int, syntax.Value, bool)
 	if pa != nil {
@@ -320,6 +324,7 @@ func (e *Extractor) page(f *file.File, p *file.Page, opts *gofastcore.Options, w
 					// The description of the figure the image is part of.
 					if mc := c.Images[i].MCID; mc >= 0 && int(mc) < len(tags) && tags[mc].alt != "" {
 						lay.Blocks[k].Text = tags[mc].alt
+						controls.add(int(tags[mc].altControls))
 					}
 					if tags != nil {
 						lay.Styles[k].Marked = c.Images[i].MCID + 1
@@ -359,6 +364,7 @@ func (e *Extractor) page(f *file.File, p *file.Page, opts *gofastcore.Options, w
 			}
 			used[tags[mc].id] = true
 			part.Blocks[k].Loc.Anchor = tags[mc].id
+			controls.add(int(tags[mc].idControls))
 		}
 	}
 
@@ -384,6 +390,7 @@ func (e *Extractor) page(f *file.File, p *file.Page, opts *gofastcore.Options, w
 		part.Warn(gofastcore.SeverityWarning, gofastcore.WarnTextUnmappedGlyphs,
 			fmt.Sprintf("%d characters on the page are control characters and appear as U+FFFD", lay.Controls))
 	}
+	controls.add(lay.Removed)
 	warnCuts(part, &limits)
 	// A message can quote the file: a name, part of an object.
 	for i := range part.Warnings {
@@ -397,6 +404,9 @@ func (e *Extractor) page(f *file.File, p *file.Page, opts *gofastcore.Options, w
 		if cut && !notesCut {
 			noteWarning(part)
 		}
+	}
+	if w, ok := controls.warning("the strings of the page"); ok {
+		part.Warnings = append(part.Warnings, w)
 	}
 	out.scripts = nil
 	return out

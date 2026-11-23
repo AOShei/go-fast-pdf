@@ -85,15 +85,18 @@ func TestRect(t *testing.T) {
 }
 
 func TestCleanName(t *testing.T) {
-	for in, want := range map[string]string{
-		"DeviceRGB": "DeviceRGB",
-		"a\x00b":    "a�b",
-		"\xff\xfe":  "�",
-		"café":      "café",
-		"x\u0085y":  "x�y",
+	for in, want := range map[string]struct {
+		name    string
+		removed int
+	}{
+		"DeviceRGB":    {"DeviceRGB", 0},
+		"a\x00b":       {"ab", 1},
+		"\xff\xfe":     {"�", 0},
+		"café":         {"café", 0},
+		"x\u0085y\x1b": {"xy", 2},
 	} {
-		if got := cleanName(in); got != want {
-			t.Errorf("cleanName(%q) = %q, want %q", in, got, want)
+		if got, n := cleanName(in); got != want.name || n != want.removed {
+			t.Errorf("cleanName(%q) = %q, %d; want %q, %d", in, got, n, want.name, want.removed)
 		}
 	}
 }

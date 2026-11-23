@@ -89,35 +89,37 @@ func (f *File) describe() *described {
 
 		// --- document information ---
 		md := &d.meta
-		md.Encrypted = in.IsEncrypted()
+		// Encrypted states that the file was decrypted (input.decrypted):
+		// an encryption dictionary of null is none.
+		md.Encrypted = in.Decrypted() != ""
 		if info := in.Info(); info.IsDict() {
-			md.Title = text(in, info.Get("Title"))
-			if a := text(in, info.Get("Author")); a != "" {
+			md.Title = text(in, info.Get("Title"), &f.controls)
+			if a := text(in, info.Get("Author"), &f.controls); a != "" {
 				md.Authors = []string{a} // one field, one entry: it is not split
 			}
-			md.Subject = text(in, info.Get("Subject"))
-			if k := text(in, info.Get("Keywords")); k != "" {
+			md.Subject = text(in, info.Get("Subject"), &f.controls)
+			if k := text(in, info.Get("Keywords"), &f.controls); k != "" {
 				md.Keywords = []string{k}
 			}
-			md.Application = text(in, info.Get("Creator"))
-			if p := text(in, info.Get("Producer")); p != "" {
+			md.Application = text(in, info.Get("Creator"), &f.controls)
+			if p := text(in, info.Get("Producer"), &f.controls); p != "" {
 				md.Extra = map[string]string{"producer": p}
 			}
 			md.Created = parseDate(in.Resolve(info.Get("CreationDate")))
 			md.Modified = parseDate(in.Resolve(info.Get("ModDate")))
 		}
-		md.Language = text(in, catalog.Get("Lang"))
+		md.Language = text(in, catalog.Get("Lang"), &f.controls)
 		// The lists of the metadata packet, and what the information
 		// leaves out (xmp.go).
 		pk := readPacket(in, catalog)
-		fromPacket(md, pk)
+		fromPacket(md, pk, &f.controls)
 
 		// --- page labels and outline ---
-		d.label = pageLabels(in, catalog.Get("PageLabels"))
-		d.dests = newDestinations(in, catalog, f.pages)
+		d.label = pageLabels(in, catalog.Get("PageLabels"), &f.controls)
+		d.dests = newDestinations(in, catalog, f.pages, &f.controls)
 		d.structure = newStructure(in, catalog)
 		if outlines := in.Resolve(catalog.Get("Outlines")); outlines.IsDict() {
-			d.outline, d.outlineCut = outline(in, d.dests, outlines, f.textLimit)
+			d.outline, d.outlineCut = outline(in, d.dests, outlines, f.textLimit, &f.controls)
 		}
 
 		// --- things that run, and things outside the file ---
@@ -139,12 +141,12 @@ func (f *File) describe() *described {
 				cutDoc(in, boundAttachments, 1, 0) // and on, to count them
 				return true
 			}
-			d.attachments = append(d.attachments, attachment{name: clipName(in, text(in, key)), spec: val})
+			d.attachments = append(d.attachments, attachment{name: clipName(in, text(in, key, &f.controls)), spec: val})
 			return true
 		})
 
 		// --- what the file holds and shows nowhere ---
-		d.stored, d.storedCut = stored(in, catalog, md, facts.scripts, pk)
+		d.stored, d.storedCut = stored(in, catalog, md, facts.scripts, pk, &f.storedControls)
 		_, d.afterEnd, _ = afterEnd(in.AfterEnd())
 
 	})
@@ -203,7 +205,9 @@ func clipped(s string) (string, int64) {
 func nameID(kept, whole string) string { return kept + "\x00" + strconv.Itoa(len(whole)) }
 
 // text returns a text string of the file, cleaned for the shared model.
-func text(f *file.File, v syntax.Value) string {
+// The control characters it removes are counted in rm, which may be
+// nil.
+func text(f *file.File, v syntax.Value, rm *removed) string {
 	if v = f.Resolve(v); v.Kind != syntax.String {
 		return ""
 	}
@@ -214,9 +218,11 @@ func text(f *file.File, v syntax.Value) string {
 	if !(len(data) >= 2 && (data[0] == 0xFE && data[1] == 0xFF || data[0] == 0xFF && data[1] == 0xFE)) {
 		// Zero bytes at the end are what a C program leaves there. In
 		// UTF-16 they are found after decoding.
+		n := len(data)
 		data = bytes.TrimRight(data, "\x00")
+		rm.add(n - len(data))
 	}
-	return cleanString(charset.TextString(data))
+	return cleanText(charset.Text(data), rm)
 }
 
 // plainASCII reports whether a string of the file is printable ASCII,
@@ -230,16 +236,18 @@ func plainASCII(data []byte) bool {
 	return true
 }
 
-// cleanString makes a string from outside the pages fit the shared
+// cleanText makes a string from outside the pages fit the shared
 // model's text rules: no control characters but line breaks and tabs.
-// Zero bytes at the end are what C programs leave there and are
-// dropped; a carriage return is a line break; any other control
-// character becomes U+FFFD.
-func cleanString(s string) string {
+// A carriage return is a line break; a vertical tab, a form feed and
+// U+0085 are white space, as on a page, and become a space. Any other
+// control character (U+0000 to U+001F, U+007F to U+009F) has no meaning
+// as text and is removed, zero bytes at the end, which C programs leave
+// there, among them; rm, which may be nil, counts them. Bytes that are
+// not UTF-8 become U+FFFD.
+func cleanText(s string, rm *removed) string {
 	if !utf8.ValidString(s) {
 		s = strings.ToValidUTF8(s, "\uFFFD")
 	}
-	s = strings.TrimRight(s, "\x00")
 	clean := true
 	for i := 0; i < len(s); i++ {
 		if c := s[i]; c < 0x20 && c != '\n' && c != '\t' || c == 0x7F || c == 0xC2 {
@@ -252,6 +260,7 @@ func cleanString(s string) string {
 	}
 	var sb strings.Builder
 	sb.Grow(len(s))
+	n := 0
 	for i, r := range s {
 		switch {
 		case r == '\r':
@@ -261,14 +270,21 @@ func cleanString(s string) string {
 			sb.WriteByte('\n')
 		case r == '\n' || r == '\t':
 			sb.WriteRune(r)
+		case r == '\v' || r == '\f' || r == 0x85:
+			sb.WriteByte(' ')
 		case r < 0x20 || r >= 0x7F && r <= 0x9F:
-			sb.WriteRune(utf8.RuneError)
+			n++
 		default:
 			sb.WriteRune(r)
 		}
 	}
+	rm.add(n)
 	return sb.String()
 }
+
+// cleanString is cleanText for a string that is not counted: a message,
+// which can quote the file.
+func cleanString(s string) string { return cleanText(s, nil) }
 
 // parseDate reads a PDF date: D:YYYYMMDDHHmmSSOHH'mm', of which
 // everything after the year may be missing. It returns the zero time
@@ -440,7 +456,7 @@ func findName(f *file.File, root syntax.Value, name string) (syntax.Value, bool)
 
 // pageLabels returns the function from a page's index, counted from 0,
 // to its label, or nil if the document has no page labels.
-func pageLabels(f *file.File, tree syntax.Value) func(index int) string {
+func pageLabels(f *file.File, tree syntax.Value, rm *removed) func(index int) string {
 	type span struct {
 		from   int
 		style  byte
@@ -454,7 +470,7 @@ func pageLabels(f *file.File, tree syntax.Value) func(index int) string {
 		if !ok || from < 0 || !d.IsDict() {
 			return true
 		}
-		s := span{from: int(from), prefix: text(f, d.Get("P")), start: 1}
+		s := span{from: int(from), prefix: text(f, d.Get("P"), rm), start: 1}
 		if style := f.Resolve(d.Get("S")).NameString(); len(style) == 1 {
 			s.style = style[0]
 		}
@@ -537,7 +553,7 @@ func letters(n int, first byte) string {
 // most bounds the titles, taken together: every entry can name one long
 // string of the file as its title, so the outline of a small file can
 // be very large. cut reports that the outline ends for that reason.
-func outline(f *file.File, dests *destinations, outlines syntax.Value, most int64) (items []gofastcore.OutlineItem, cut bool) {
+func outline(f *file.File, dests *destinations, outlines syntax.Value, most int64, rm *removed) (items []gofastcore.OutlineItem, cut bool) {
 	target := dests.target
 	var out []gofastcore.OutlineItem
 	seen := map[int64]bool{}
@@ -563,7 +579,7 @@ func outline(f *file.File, dests *destinations, outlines syntax.Value, most int6
 		if !item.IsDict() {
 			continue
 		}
-		title := text(f, item.Get("Title"))
+		title := text(f, item.Get("Title"), rm)
 		if most -= int64(len(title)); most < 0 {
 			return out, true
 		}
@@ -612,7 +628,7 @@ func (st *state) child(ctx context.Context, a *attachment) (doc *gofastcore.Docu
 	}
 	name := a.name
 	for _, key := range []string{"UF", "F", "Unix", "Mac", "DOS"} {
-		if s := text(f, spec.Get(key)); s != "" {
+		if s := text(f, spec.Get(key), &st.f.controls); s != "" {
 			name = clipName(st.f.f, s)
 			break
 		}
@@ -629,7 +645,7 @@ func (st *state) child(ctx context.Context, a *attachment) (doc *gofastcore.Docu
 	}
 	mime := ""
 	if sub := f.Resolve(stream.Get("Subtype")); sub.Kind == syntax.Name {
-		mime = clipName(st.f.f, cleanString(strings.ToValidUTF8(sub.NameString(), "�")))
+		mime = clipName(st.f.f, cleanText(strings.ToValidUTF8(sub.NameString(), "�"), &st.f.controls))
 	}
 	size, _ := f.Resolve(f.Resolve(stream.Get("Params")).Get("Size")).Integer()
 	if size < 0 {

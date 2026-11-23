@@ -1,5 +1,45 @@
 # Changelog
 
+## Unreleased
+
+Two shared warning codes of go-fast-core v0.1.2, for events that were silent until now. No code is
+renamed; the output gains warnings, and loses control characters that were U+FFFD.
+
+### Added
+
+- **`input.decrypted`** (info) on every document that was decrypted, with `Metadata.Encrypted`. The
+  message names the security handler (standard, with its revision, or public-key, with its
+  sub-filter), the cipher (RC4 with the length of its key, AES-128, AES-256) and what opened the
+  file: the user or the owner password given, the empty user password, or which of the private keys
+  given. A file that opens with the empty user password is encrypted all the same. An encryption
+  dictionary of null is none: such a file is not `Encrypted`.
+- **`text.control_characters_removed`** (info), with the count, once for the document (its
+  information and metadata packet, outline, page labels, names and attached files), once for a page
+  (its notes, form fields, link addresses, and the descriptions and identifiers of its structure),
+  and once for the stored part.
+
+### Changed
+
+- **Control characters in the strings of a file are removed, not U+FFFD.** In the strings outside the
+  pages' content, a control character other than a tab or a line end was U+FFFD; it is now removed
+  and counted. NUL is among them, and so are the zero bytes a C program leaves at the end of a
+  string, which were removed silently. A vertical tab, a form feed and U+0085 are white space, as on a
+  page, and become a space: a title that PowerPoint broke over two lines reads as one. A byte that
+  PDFDocEncoding leaves undefined among 0x00 to 0x17, and 0x7F, is the control character of that
+  number. A glyph of a page whose text is a control character is still U+FFFD with
+  `text.unmapped_glyphs`: that is a mapping that is wrong, not a control character in text.
+- **A language escape is no text.** UTF-16 and UTF-8 text strings can say in which language the text
+  that follows is written: ESC, a language code, perhaps a country code, ESC (ISO 32000-2,
+  7.9.2.2.1). It is left out; it was a CJK character between two U+FFFD.
+- go-fast-core v0.1.2.
+
+Over the 3,190 files of the corpora, 3,150 of which are read (the other 40 fail with both versions),
+the documents are the same JSON as with v0.2.2 except for the new warnings, in all but 36 files.
+In 34 of those, U+FFFD is gone or is a space, in outline titles, descriptions of figures and
+the document information. In one, the language escapes of its document information. In one more, the
+description of a figure was one control character and is now empty. `input.decrypted` is on 97
+documents and `text.control_characters_removed` on 45.
+
 ## v0.2.2 (2026-11-23)
 
 Faster, with the same output: for each of the 3,253 PDF files of the corpora and fixtures, the

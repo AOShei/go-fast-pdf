@@ -19,7 +19,7 @@ func FuzzPacket(f *testing.F) {
 		// What the document information takes of it keeps to the rules
 		// of the shared model.
 		var md gofastcore.Metadata
-		fromPacket(&md, packet{read: true, whole: true, props: props})
+		fromPacket(&md, packet{read: true, whole: true, props: props}, nil)
 		doc := gofastcore.New(Format)
 		doc.Metadata = md
 		part := gofastcore.Part{Kind: gofastcore.PartPage, Number: 1, Width: 612, Height: 792}
@@ -83,7 +83,7 @@ func FuzzXFAData(f *testing.F) {
 	f.Add(`<xdp:xdp><template/><xfa:datasets><xfa:data><f><r><body xmlns="http://www.w3.org/1999/xhtml"><p>rich <b>text</b></p></body></r></f></xfa:data><dd:dataDescription/></xfa:datasets></xdp:xdp>`)
 	f.Add(`<xfa:datasets><xfa:data><f><a/><b></b><c>`)
 	f.Fuzz(func(t *testing.T, src string) {
-		blocks, _ := xfaValues(src, map[string]bool{}, noCut)
+		blocks, _ := xfaValues(src, map[string]bool{}, noCut, nil)
 		if len(blocks) > maxFields {
 			t.Fatalf("%d values", len(blocks))
 		}
@@ -103,7 +103,12 @@ func TestNamesAreCleaned(t *testing.T) {
 	if len(props) != 1 || props[0].name != "\x1c" {
 		t.Fatalf("%+v", props)
 	}
-	blocks, _ := xfaValues("<xfa:datasets><xfa:data><f\x1c><a\x01>v</a\x01></f\x1c></xfa:data></xfa:datasets>", map[string]bool{}, noCut)
+	var rm removed
+	blocks, _ := xfaValues("<xfa:datasets><xfa:data><f\x1c><a\x01>v\x02</a\x01></f\x1c></xfa:data></xfa:datasets>", map[string]bool{}, noCut, &rm)
+	// The two of the field's name and the one of its value.
+	if len(blocks) != 1 || blocks[0].Text != "v" || rm.count() != 3 {
+		t.Errorf("%+v, %d removed", blocks, rm.count())
+	}
 	for _, b := range blocks {
 		for _, r := range b.Attrs["field"] + b.Text {
 			if r < 0x20 && r != '\n' && r != '\t' {

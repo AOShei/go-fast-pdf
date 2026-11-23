@@ -51,6 +51,10 @@ type File struct {
 	once sync.Once
 	desc described
 
+	// controls counts the control characters removed from the strings
+	// of the document, storedControls those of the stored part.
+	controls, storedControls removed
+
 	// What the pages read through this handle have shown so far.
 	active, external atomic.Bool
 	closed           atomic.Bool
@@ -251,6 +255,12 @@ func (f *File) warnings(active, external bool) []gofastcore.Warning {
 	if external {
 		add(gofastcore.SeverityWarning, gofastcore.WarnInputExternalReference, "the document refers to files or addresses outside itself other than by links; nothing was fetched")
 	}
+	if how := f.f.Decrypted(); how != "" {
+		add(gofastcore.SeverityInfo, gofastcore.WarnInputDecrypted, "the file was decrypted: "+how)
+	}
+	if w, ok := f.controls.warning("the strings of the document: its information, outline, page labels, names and attached files"); ok {
+		ws = append(ws, w)
+	}
 	// Data after the end of the file is told where its text is, in the
 	// stored part, and here when there is no such part to tell it.
 	if w, ok := f.trailingData(); ok && !f.storedComes() {
@@ -413,6 +423,9 @@ func (st *state) stored() (part gofastcore.Part, ok, whole bool) {
 			fmt.Sprintf("the file stores more than %d bytes of text that it shows on no page; the rest is not read", maxStoredBytes))
 	}
 	if w, ok := f.trailingData(); ok && f.storedComes() {
+		part.Warnings = append(part.Warnings, w)
+	}
+	if w, ok := f.storedControls.warning("the stored data"); ok {
 		part.Warnings = append(part.Warnings, w)
 	}
 	whole = st.charge(&part)

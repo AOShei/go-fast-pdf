@@ -120,6 +120,9 @@ type tag struct {
 	// id is the identifier of the innermost element that the content
 	// begins.
 	id string
+	// altControls and idControls are the numbers of control characters
+	// removed from alt and id, counted where they are used.
+	altControls, idControls int64
 	// cell and table are the object numbers of the cell of a table the
 	// content is in, TD or TH, and of the table; 0 for none.
 	cell, table int64
@@ -160,12 +163,12 @@ func (s *structure) pageTags(p *file.Page, limits *file.Cuts) ([]tag, *treePage)
 	var out []tag
 	for mcid, ref := range elems {
 		r := w.reach(ref, 0)
-		t := tag{alt: r.alt}
+		t := tag{alt: r.alt, altControls: r.altControls}
 		if r.cell != 0 && r.table != 0 {
 			t.cell, t.table = r.cell, r.table
 		}
 		if s.ids {
-			t.id = w.firstID(ref, mcid, p.Obj)
+			t.id, t.idControls = w.firstID(ref, mcid, p.Obj)
 		}
 		switch {
 		case r.heading > 0:
@@ -200,8 +203,10 @@ type reach struct {
 	hSections int
 	// sections is the number of sections, the element included.
 	sections int
-	// alt is the description of the nearest figure that has one.
-	alt string
+	// alt is the description of the nearest figure that has one, and
+	// altControls the number of control characters removed from it.
+	alt         string
+	altControls int64
 	// cell is the nearest cell of a table, TD or TH, inside the nearest
 	// table, and table that table, by their object numbers.
 	cell, table int64
@@ -265,8 +270,9 @@ func (w *walker) reach(ref syntax.Value, depth int) reach {
 	case t == "Lbl":
 		r.label = r.item != 0
 	case t == "Figure":
-		if alt := strings.TrimSpace(text(f, el.Get("Alt"))); alt != "" {
-			r.alt = clipText(alt, maxAltBytes)
+		var rm removed
+		if alt := strings.TrimSpace(text(f, el.Get("Alt"), &rm)); alt != "" {
+			r.alt, r.altControls = clipText(alt, maxAltBytes), rm.count()
 			if len(alt) > len(r.alt) {
 				w.limits.Add(boundAlt, 1, int64(len(alt)-len(r.alt)))
 			}
@@ -282,24 +288,26 @@ func (w *walker) reach(ref syntax.Value, depth int) reach {
 // content with an MCID on a page begins, from ref, the element the
 // content is in: that element if the content is its first item, the
 // element above it if that one is its first kid as well, and so on up.
-// "" for none.
-func (w *walker) firstID(ref syntax.Value, mcid int, page int64) string {
+// "" for none. controls is the number of control characters removed from
+// the identifier.
+func (w *walker) firstID(ref syntax.Value, mcid int, page int64) (id string, controls int64) {
 	f := w.s.f
 	var child int64 // the element below, 0 at the content
 	for hops := 0; hops < maxStructHops; hops++ {
 		el := f.Resolve(ref)
 		if !el.IsDict() || f.Resolve(el.Get("Type")).IsName("StructTreeRoot") || !w.begins(el, child, mcid, page) {
-			return ""
+			return "", 0
 		}
-		if id := text(f, el.Get("ID")); id != "" && len(id) <= maxAnchorBytes {
-			return id
+		var rm removed
+		if id := text(f, el.Get("ID"), &rm); id != "" && len(id) <= maxAnchorBytes {
+			return id, rm.count()
 		}
 		if child = file.RefNumber(ref); child == 0 {
-			return "" // an element that is not an object is no parent's kid by number
+			return "", 0 // an element that is not an object is no parent's kid by number
 		}
 		ref = el.Get("P")
 	}
-	return ""
+	return "", 0
 }
 
 // begins reports whether the first item of an element is the element

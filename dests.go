@@ -26,10 +26,13 @@ type destinations struct {
 	// on, read once (anchors.go).
 	namedOnce sync.Once
 	byPart    map[int][]named
+	// rm counts the control characters removed from the names that
+	// are kept.
+	rm *removed
 }
 
-func newDestinations(f *file.File, catalog syntax.Value, pages []file.Page) *destinations {
-	d := &destinations{f: f, pages: pages, byObj: make(map[int64]int, len(pages))}
+func newDestinations(f *file.File, catalog syntax.Value, pages []file.Page, rm *removed) *destinations {
+	d := &destinations{f: f, rm: rm, pages: pages, byObj: make(map[int64]int, len(pages))}
 	for i := range pages {
 		if pages[i].Obj != 0 {
 			if _, dup := d.byObj[pages[i].Obj]; !dup {

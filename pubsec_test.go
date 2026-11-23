@@ -92,9 +92,15 @@ func TestPublicKeyFiles(t *testing.T) {
 					t.Errorf("%+v: %v", opts, err)
 				}
 			}
-			// The right key among others.
-			if _, err := gofastpdf.Extract(context.Background(), bytes.NewReader(data), int64(len(data)), &gofastcore.Options{Keys: []crypto.Decrypter{other, keys[f.key]}}); err != nil {
-				t.Errorf("the key second of two: %v", err)
+			// The right key among others, which input.decrypted names.
+			doc, err := gofastpdf.Extract(context.Background(), bytes.NewReader(data), int64(len(data)), &gofastcore.Options{Keys: []crypto.Decrypter{other, keys[f.key]}})
+			if err != nil {
+				t.Fatalf("the key second of two: %v", err)
+			}
+			w, ok := warning(doc.Warnings, gofastcore.WarnInputDecrypted)
+			if !ok || w.Severity != gofastcore.SeverityInfo || !strings.Contains(w.Message, "the public-key security handler, adbe.pkcs7.s") ||
+				!strings.HasSuffix(w.Message, "; opened with private key 2 of the 2 given") {
+				t.Errorf("input.decrypted: %+v", w)
 			}
 		})
 	}

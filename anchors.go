@@ -73,7 +73,9 @@ func (d *destinations) named(part int) []named {
 func (d *destinations) readNamed() {
 	f := d.f
 	seen := map[string]bool{}
-	add := func(name string, dest syntax.Value) {
+	// controls is the number of control characters removed from the
+	// name, counted when the name is kept.
+	add := func(name string, controls int64, dest syntax.Value) {
 		if name == "" || len(name) > maxAnchorBytes || seen[name] {
 			return
 		}
@@ -86,15 +88,20 @@ func (d *destinations) readNamed() {
 			d.byPart = map[int][]named{}
 		}
 		d.byPart[at.part] = append(d.byPart[at.part], named{name: name, x: at.x, y: at.y})
+		d.rm.add(int(controls))
 	}
 	walkTree(f, d.tree, "Names", func(key, val syntax.Value) bool {
-		add(text(f, key), val)
+		var rm removed
+		name := text(f, key, &rm)
+		add(name, rm.count(), val)
 		return true
 	})
 	if dict := f.Resolve(d.dict); dict.IsDict() {
 		for i := 0; i < dict.Entries(); i++ {
 			key, val := dict.Entry(i)
-			add(cleanString(string(key)), val)
+			var rm removed
+			name := cleanText(string(key), &rm)
+			add(name, rm.count(), val)
 		}
 	}
 }

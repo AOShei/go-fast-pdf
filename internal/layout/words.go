@@ -82,7 +82,10 @@ func fontName(name string) string {
 			name = name[7:]
 		}
 	}
-	return cleanName(name)
+	// A font's name is in the lines alone, which are not the part's: the
+	// control characters removed from it are not the part's to count.
+	name, _ = cleanName(name)
+	return name
 }
 
 // isLineSpace reports whether a byte of a run's text is a space in the

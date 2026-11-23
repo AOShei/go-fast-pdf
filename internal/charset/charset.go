@@ -424,19 +424,28 @@ func Core(baseFont string) *CoreFont {
 // streams, in the document information and in /ActualText: UTF-16 with a
 // byte order mark, UTF-8 with one, or PDFDocEncoding. The result is
 // valid UTF-8; a byte with no character becomes U+FFFD, and a ligature
-// is written as its letters.
+// is written as its letters. A language escape of UTF-16 or UTF-8 (ISO
+// 32000-2, 7.9.2.2.1) is no text and is left out.
 func TextString(b []byte) string {
-	return Letters(textString(b))
+	return Letters(textString(b, false))
 }
 
-func textString(b []byte) string {
+// Text is TextString for text that is cleaned of control characters
+// after: a byte that PDFDocEncoding leaves undefined among 0x00 to 0x17,
+// and 0x7F, is the control character of that number, as in ASCII,
+// for the cleaning to remove and count, and not U+FFFD.
+func Text(b []byte) string {
+	return Letters(textString(b, true))
+}
+
+func textString(b []byte, controls bool) string {
 	switch {
 	case len(b) >= 2 && b[0] == 0xFE && b[1] == 0xFF:
 		return decodeUTF16(b[2:], true)
 	case len(b) >= 2 && b[0] == 0xFF && b[1] == 0xFE:
 		return decodeUTF16(b[2:], false)
 	case len(b) >= 3 && b[0] == 0xEF && b[1] == 0xBB && b[2] == 0xBF:
-		return strings.ToValidUTF8(string(b[3:]), "�")
+		return strings.ToValidUTF8(string(withoutEscapes(b[3:])), "�")
 	}
 	ascii := true
 	for _, c := range b {
@@ -451,9 +460,12 @@ func textString(b []byte) string {
 	var sb strings.Builder
 	sb.Grow(len(b) + 8)
 	for _, c := range b {
-		if r := pdfDocEncoding[c]; r != 0 {
+		switch r := pdfDocEncoding[c]; {
+		case r != 0:
 			sb.WriteRune(rune(r))
-		} else {
+		case controls && (c < 0x18 || c == 0x7F):
+			sb.WriteByte(c)
+		default:
 			sb.WriteRune(utf8.RuneError)
 		}
 	}
@@ -464,12 +476,17 @@ func textString(b []byte) string {
 // its other half becomes U+FFFD, and so does a trailing odd byte.
 func decodeUTF16(b []byte, bigEndian bool) string {
 	units := make([]uint16, 0, len(b)/2+1)
+	escape := false
 	for i := 0; i+1 < len(b); i += 2 {
 		if bigEndian {
 			units = append(units, uint16(b[i])<<8|uint16(b[i+1]))
 		} else {
 			units = append(units, uint16(b[i+1])<<8|uint16(b[i]))
 		}
+		escape = escape || units[len(units)-1] == 0x1B
+	}
+	if escape {
+		units = withoutUnitEscapes(units, bigEndian)
 	}
 	s := string(utf16.Decode(units))
 	if len(b)%2 != 0 {
@@ -477,3 +494,83 @@ func decodeUTF16(b []byte, bigEndian bool) string {
 	}
 	return s
 }
+
+// A language escape (ISO 32000-2, 7.9.2.2.1) says in which language the
+// text that follows is written: ESC, a language code of two ASCII
+// letters (ISO 639), maybe a country code of two more (ISO 3166), ESC.
+// In UTF-16 the letters are bytes of their own, two to a unit. An ESC
+// that does not begin one is a control character like any other, left
+// for the cleaning that follows.
+
+// withoutUnitEscapes returns units without the language escapes in them.
+func withoutUnitEscapes(units []uint16, bigEndian bool) []uint16 {
+	out := units[:0]
+	for i := 0; i < len(units); i++ {
+		if units[i] == 0x1B {
+			if n := unitEscape(units[i+1:], bigEndian); n > 0 {
+				i += n
+				continue
+			}
+		}
+		out = append(out, units[i])
+	}
+	return out
+}
+
+// unitEscape returns how many units after an ESC belong to a language
+// escape, the closing ESC included: 2 or 3, or 0 when it is none.
+func unitEscape(after []uint16, bigEndian bool) int {
+	for n := 1; n <= 2 && n < len(after); n++ {
+		if after[n] != 0x1B {
+			continue
+		}
+		for _, u := range after[:n] {
+			hi, lo := byte(u>>8), byte(u)
+			if !bigEndian {
+				hi, lo = lo, hi
+			}
+			if !asciiLetter(hi) || !asciiLetter(lo) {
+				return 0
+			}
+		}
+		return n + 1
+	}
+	return 0
+}
+
+// withoutEscapes returns UTF-8 bytes without the language escapes in
+// them. b, which is the file's, is not changed.
+func withoutEscapes(b []byte) []byte {
+	if bytes.IndexByte(b, 0x1B) < 0 {
+		return b
+	}
+	out := make([]byte, 0, len(b))
+	for i := 0; i < len(b); i++ {
+		if b[i] == 0x1B {
+			if n := byteEscape(b[i+1:]); n > 0 {
+				i += n
+				continue
+			}
+		}
+		out = append(out, b[i])
+	}
+	return out
+}
+
+// byteEscape is unitEscape for UTF-8: 3 or 5 bytes, or 0.
+func byteEscape(after []byte) int {
+	for _, n := range []int{2, 4} {
+		if n < len(after) && after[n] == 0x1B {
+			ok := true
+			for _, c := range after[:n] {
+				ok = ok && asciiLetter(c)
+			}
+			if ok {
+				return n + 1
+			}
+		}
+	}
+	return 0
+}
+
+func asciiLetter(c byte) bool { return c|0x20 >= 'a' && c|0x20 <= 'z' }

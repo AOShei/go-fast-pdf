@@ -418,7 +418,9 @@ func (b *builder) placeImages(res *Result) {
 			if img.ColorSpace != "" || img.Inline {
 				block.Attrs = map[string]string{}
 				if img.ColorSpace != "" {
-					block.Attrs["color_space"] = cleanName(strings.TrimPrefix(img.ColorSpace, "/"))
+					name, n := cleanName(strings.TrimPrefix(img.ColorSpace, "/"))
+					block.Attrs["color_space"] = name
+					res.Removed += n
 				}
 				if img.Inline {
 					block.Attrs["inline"] = "true"
@@ -435,8 +437,10 @@ func (b *builder) placeImages(res *Result) {
 }
 
 // cleanName makes a name from the file fit for a string of the shared
-// model: a name can hold any bytes at all.
-func cleanName(s string) string {
+// model: a name can hold any bytes at all. Control characters are
+// removed, and removed is how many; bytes that are not UTF-8 become
+// U+FFFD.
+func cleanName(s string) (name string, removed int) {
 	clean := true
 	for i := 0; i < len(s); i++ {
 		if c := s[i]; c < 0x20 || c >= 0x7F {
@@ -445,14 +449,15 @@ func cleanName(s string) string {
 		}
 	}
 	if clean {
-		return s
+		return s, 0
 	}
 	var sb strings.Builder
 	for _, r := range strings.ToValidUTF8(s, "\uFFFD") {
 		if r < 0x20 || r >= 0x7F && r <= 0x9F {
-			r = '\uFFFD'
+			removed++
+			continue
 		}
 		sb.WriteRune(r)
 	}
-	return sb.String()
+	return sb.String(), removed
 }

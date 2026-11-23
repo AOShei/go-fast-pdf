@@ -444,12 +444,12 @@ func TestLimitXML(t *testing.T) {
 	}
 
 	got = nil
-	xfaValues("<xfa:datasets><xfa:data><f>"+strings.Repeat("a<b/>", maxXFAPieces+5)+"</f></xfa:data></xfa:datasets>", map[string]bool{}, warn)
+	xfaValues("<xfa:datasets><xfa:data><f>"+strings.Repeat("a<b/>", maxXFAPieces+5)+"</f></xfa:data></xfa:datasets>", map[string]bool{}, warn, nil)
 	if !has("pieces of text") {
 		t.Errorf("pieces: %v", got)
 	}
 	got = nil
-	xfaValues("<xfa:datasets><xfa:data>"+strings.Repeat("<n>", maxXFADepth+5)+"v"+strings.Repeat("</n>", maxXFADepth+5)+"</xfa:data></xfa:datasets>", map[string]bool{}, warn)
+	xfaValues("<xfa:datasets><xfa:data>"+strings.Repeat("<n>", maxXFADepth+5)+"v"+strings.Repeat("</n>", maxXFADepth+5)+"</xfa:data></xfa:datasets>", map[string]bool{}, warn, nil)
 	if !has("data has more than 64 levels") {
 		t.Errorf("nesting: %v", got)
 	}

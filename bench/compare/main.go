@@ -117,8 +117,18 @@ var (
 
 func main() {
 	flag.Parse()
-	if *self != "" {
+	switch {
+	case *self != "":
 		timeSelf(*self, *workers)
+		return
+	case *batchList != "":
+		timeBatch(*batchList, *workers, *parallel)
+		return
+	case *gcMode:
+		if err := measureGC(); err != nil {
+			fmt.Fprintln(os.Stderr, "compare:", err)
+			os.Exit(1)
+		}
 		return
 	}
 	// The Rust libraries start a pool of threads (rayon) for parts of a
@@ -378,17 +388,7 @@ func clip(s string) string {
 // two from one family of producers, the longest first.
 func documents() ([]document, error) {
 	docs := []document{{name: "english.pdf (in the repository)", path: filepath.Join("testdata", "fixtures", "english.pdf"), pages: 3}}
-	cache := *cacheDir
-	if cache == "" {
-		cache = os.Getenv("GOFASTPDF_CACHE")
-	}
-	if cache == "" {
-		base, err := os.UserCacheDir()
-		if err != nil {
-			return nil, err
-		}
-		cache = filepath.Join(base, "gofastpdf-corpus")
-	}
+	cache := corpusCache()
 	raw, err := os.ReadFile(filepath.Join("testdata", "corpus-public.json"))
 	if err != nil {
 		return nil, fmt.Errorf("run this from the root of the module: %v", err)
@@ -440,13 +440,33 @@ const (
 	endMarker   = "<!-- comparison:end -->"
 )
 
-// between replaces what is between the markers of a text.
+// between replaces what is between the comparison markers of a text.
 func between(text, summary string) (string, error) {
-	i, j := strings.Index(text, beginMarker), strings.Index(text, endMarker)
+	return betweenMarkers(text, beginMarker, endMarker, summary)
+}
+
+// betweenMarkers replaces what is between two markers of a text.
+func betweenMarkers(text, begin, end, summary string) (string, error) {
+	i, j := strings.Index(text, begin), strings.Index(text, end)
 	if i < 0 || j < i {
-		return "", errors.New("the comparison markers are not there")
+		return "", fmt.Errorf("the markers %s and %s are not there", begin, end)
 	}
-	return text[:i+len(beginMarker)] + "\n" + summary + text[j:], nil
+	return text[:i+len(begin)] + "\n" + summary + text[j:], nil
+}
+
+// corpusCache is the directory the public corpus was fetched to.
+func corpusCache() string {
+	if *cacheDir != "" {
+		return *cacheDir
+	}
+	if c := os.Getenv("GOFASTPDF_CACHE"); c != "" {
+		return c
+	}
+	base, err := os.UserCacheDir()
+	if err != nil {
+		return "gofastpdf-corpus"
+	}
+	return filepath.Join(base, "gofastpdf-corpus")
 }
 
 // docsReadByAll says of each document whether every program read it.

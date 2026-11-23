@@ -15,7 +15,7 @@ share.
   exhaust them.
 - It starts no program, fetches nothing, runs nothing that a file contains, and does no OCR.
 
-> **Status.** v0.2.2 (2026-11-23), on go-fast-core v0.1.1. The API is not that of v0.1:
+> **Status.** v0.3.0 (2026-11-23), on go-fast-core v0.1.2. The API is not that of v0.1:
 > [MIGRATION.md](MIGRATION.md) says what became what; [CHANGELOG.md](CHANGELOG.md) says what changed.
 
 ## Speed
@@ -44,9 +44,21 @@ The method, the versions, the time for each document, and how far each pair of p
 Reading the 1,650 files of the public test corpus, damaged ones included, takes 1.2 seconds on one
 thread. `go run ./bench/compare` makes the table again on your machine.
 
-With many workers, a good part of the time is Go's garbage collector, which a program can tune; the
-library leaves its settings alone. On the documents of the table, with 24 workers, the default takes
-15 to 17 ms, `GOGC=200` 13 ms, and `GOMEMLIMIT=1GiB GOGC=off` 12 to 13 ms: more memory for less time.
+A good part of the time is Go's garbage collector. The library leaves its settings alone, since they
+are the whole program's; a program with memory to spare can set GOGC above 100 (the environment
+variable, or `debug.SetGCPercent`) and spend less time collecting, with `GOMEMLIMIT` as a ceiling.
+What each setting costs and gives, on the documents of the table and on a batch of the corpus:
+
+<!-- gc:begin (written by go run ./bench/compare -gc -readme README.md) -->
+| Setting | One worker: time | memory | 24 workers: time | memory | 24 documents at once: time | memory |
+|---|---:|---:|---:|---:|---:|---:|
+| `GOGC=100` (default) | 51.5 ms | 29 MB | 16.9 ms | 92 MB | 145 ms | 597 MB |
+| `GOGC=200` | 48.6 ms (-6%) | 43 MB (+47%) | 13.1 ms (-22%) | 140 MB (+53%) | 121 ms (-17%) | 1,217 MB (+104%) |
+| `GOGC=400` | 45.4 ms (-12%) | 55 MB (+89%) | 12.8 ms (-24%) | 234 MB (+155%) | 115 ms (-21%) | 2,109 MB (+253%) |
+
+Time is the best run; memory is the most the process had resident, the median of 5 processes. Measured on AMD Ryzen 9 9900X 12-Core Processor (24 threads, linux/amd64) with go1.27.3-X:nodwarf5, 2026-11-23;
+what each workload reads, the processor time and the number of collections are in [bench/gc.md](bench/gc.md).
+<!-- gc:end -->
 
 ## Installation
 

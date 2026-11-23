@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.3.0 (2026-11-23)
 
 Two shared warning codes of go-fast-core v0.1.2, for events that were silent until now. No code is
 renamed; the output gains warnings, and loses control characters that were U+FFFD.
@@ -17,6 +17,10 @@ renamed; the output gains warnings, and loses control characters that were U+FFF
   information and metadata packet, outline, page labels, names and attached files), once for a page
   (its notes, form fields, link addresses, and the descriptions and identifiers of its structure),
   and once for the stored part.
+- **What the settings of the garbage collector cost and give**, in the README and in
+  `bench/gc.md`: the time and the memory with GOGC at 100 (the default), 200 and 400, one document at
+  a time with one worker and with 24, and 24 documents at once. The library still leaves the
+  settings alone; `go run ./bench/compare -gc` measures them on another machine.
 
 ### Changed
 
@@ -39,6 +43,13 @@ In 34 of those, U+FFFD is gone or is a space, in outline titles, descriptions of
 the document information. In one, the language escapes of its document information. In one more, the
 description of a figure was one control character and is now empty. `input.decrypted` is on 97
 documents and `text.control_characters_removed` on 45.
+
+### Checked before the release
+
+On the tree that is tagged: the 3,186 files of the corpora read in processes of their own, three
+times, with no crash, hang or memory failure, at most 2.4 s and 657 MiB for a file; the speed of the
+benchmarks the same as v0.2.2's (`bench/v0.3.0.txt`); fuzzing of its 27 targets for an hour each on
+machines of four processors, 108 processor hours and 4.0 billion inputs, with nothing found.
 
 ## v0.2.2 (2026-11-23)
 

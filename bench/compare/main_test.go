@@ -132,3 +132,55 @@ func TestAgreement(t *testing.T) {
 		t.Errorf("the summary does not point to the table:\n%s", summary)
 	}
 }
+
+func TestParseSettings(t *testing.T) {
+	got, err := parseSettings("GOGC=100; GOGC=off GOMEMLIMIT=1GiB;")
+	if err != nil || len(got) != 2 || settingName(got[0]) != "GOGC=100 (the default)" || settingName(got[1]) != "GOGC=off GOMEMLIMIT=1GiB" {
+		t.Errorf("%v, %v", got, err)
+	}
+	for _, bad := range []string{"", ";", "GOGC", "GOMAXPROCS=1", "GOGC="} {
+		if _, err := parseSettings(bad); err == nil {
+			t.Errorf("%q: no error", bad)
+		}
+	}
+}
+
+// The summary compares each setting with the first, and the report has
+// every workload.
+func TestRenderGC(t *testing.T) {
+	settings, _ := parseSettings("GOGC=100;GOGC=200")
+	loads := []workload{{name: "Load A", short: "A", paths: []string{"a"}, pages: 10}, {name: "Load B", short: "B", paths: []string{"b", "c"}, pages: 20}}
+	results := [][]batchResult{
+		{{Seconds: 0.100, Peak: 100 << 20, Pages: 10}, {Seconds: 0.080, Peak: 150 << 20, Pages: 10}},
+		{{Seconds: 0.200, Peak: 200 << 20, Pages: 20, Failed: 1, Docs: 2}, {Err: "failed: no result"}},
+	}
+	report, summary := renderGC(loads, settings, results)
+	for _, want := range []string{
+		"| `GOGC=100` (default) | 100 ms | 100 MB | 200 ms | 200 MB |",
+		"| `GOGC=200` | 80.0 ms (-20%) | 150 MB (+50%) | failed | - |",
+	} {
+		if !strings.Contains(summary, want) {
+			t.Errorf("the summary has no %q:\n%s", want, summary)
+		}
+	}
+	for _, want := range []string{summary, "### Load A", "### Load B", "| GOGC=200 | failed: no result |", "1 of the 2 documents end in an error"} {
+		if !strings.Contains(report, want) {
+			t.Errorf("the report has no %q:\n%s", want, report)
+		}
+	}
+}
+
+// The best time counts, with its processor time; the memory is the
+// median of the processes.
+func TestCombine(t *testing.T) {
+	got := combine([]batchResult{{Seconds: 0.3, CPU: 3, Peak: 30}, {Seconds: 0.1, CPU: 1, Peak: 50}, {Seconds: 0.2, CPU: 2, Peak: 10}})
+	if got.Seconds != 0.1 || got.CPU != 1 || got.Peak != 30 || got.PeakLow != 10 || got.PeakHigh != 50 || got.Processes != 3 {
+		t.Errorf("%+v", got)
+	}
+	if got := combine([]batchResult{{Seconds: 0.1, Peak: 10}, {Seconds: 0.2, Peak: 20}}); got.Peak != 15 {
+		t.Errorf("median of two: %+v", got)
+	}
+	if got := combine([]batchResult{{Seconds: 0.1}, {Err: "failed"}}); got.Err != "failed" {
+		t.Errorf("a failed process: %+v", got)
+	}
+}

@@ -150,7 +150,7 @@ func (f *File) setupPublicKey(dict syntax.Value) error {
 		return fmt.Errorf("%w: the file is encrypted for a certificate and names no recipient", gofastcore.ErrMalformed)
 	}
 
-	seed, err := openEnvelopes(recipients, f.keys)
+	seed, which, err := openEnvelopes(recipients, f.keys)
 	if err != nil {
 		return err
 	}
@@ -167,6 +167,8 @@ func (f *File) setupPublicKey(dict syntax.Value) error {
 	}
 	d.key = h.Sum(nil)[:keyLen]
 	f.enc = d
+	f.decrypted = fmt.Sprintf("the public-key security handler, %s, %s; opened with private key %d of the %d given",
+		sub.NameString(), d.ciphers(keyLen), which+1, len(f.keys))
 	return nil
 }
 
@@ -188,27 +190,28 @@ func (f *File) recipients(v syntax.Value) [][]byte {
 }
 
 // openEnvelopes finds an envelope that one of the keys opens and returns
-// what is in it: the seed and the permissions.
-func openEnvelopes(recipients [][]byte, keys []crypto.Decrypter) ([]byte, error) {
+// what is in it: the seed and the permissions; which is the index in
+// keys of the key that opened it.
+func openEnvelopes(recipients [][]byte, keys []crypto.Decrypter) (seed []byte, which int, err error) {
 	if len(keys) == 0 {
-		return nil, fmt.Errorf("%w: the file is encrypted for a certificate", gofastcore.ErrKeyRequired)
+		return nil, 0, fmt.Errorf("%w: the file is encrypted for a certificate", gofastcore.ErrKeyRequired)
 	}
 	var unsupported error
 	for _, r := range recipients {
-		for _, key := range keys {
+		for i, key := range keys {
 			seed, err := openEnvelope(r, key)
 			switch {
 			case err == nil:
-				return seed, nil
+				return seed, i, nil
 			case errors.Is(err, gofastcore.ErrUnsupported):
 				unsupported = err
 			}
 		}
 	}
 	if unsupported != nil {
-		return nil, unsupported
+		return nil, 0, unsupported
 	}
-	return nil, fmt.Errorf("%w: none of the %d keys opens any of the %d envelopes of the file", gofastcore.ErrKeyRequired, len(keys), len(recipients))
+	return nil, 0, fmt.Errorf("%w: none of the %d keys opens any of the %d envelopes of the file", gofastcore.ErrKeyRequired, len(keys), len(recipients))
 }
 
 // openEnvelope opens one envelope (a CMS ContentInfo of EnvelopedData)

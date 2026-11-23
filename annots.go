@@ -52,6 +52,10 @@ type extra struct {
 	// field is set for the value of a form field, which is put where
 	// its widget is. A note goes after everything else.
 	field bool
+	// controls is the number of control characters removed from the
+	// names of the block, counted when it is kept. Those of its text are
+	// counted as it is read (reader.text).
+	controls int64
 }
 
 // pageAnnots takes from the annotations of a page what the page has of
@@ -124,7 +128,7 @@ func (pa *pageAnnots) extrasOf() ([]extra, bool) {
 // showed text when shown is set.
 func (pa *pageAnnots) annot(i int, a syntax.Value, shown bool) {
 	if pa.spans {
-		if l, ok := pageLink(pa.f, a, pa.m, pa.dests, &pa.cuts); ok {
+		if l, ok := pageLink(pa.f, a, pa.m, pa.dests, &pa.cuts, pa.notes.rm); ok {
 			pa.links = append(pa.links, l)
 		}
 	}
@@ -189,6 +193,7 @@ func (pa *pageAnnots) note(a syntax.Value, shown bool) {
 			b.Display |= gofastcore.DisplayHidden
 		}
 		pa.extras = append(pa.extras, x)
+		pa.notes.rm.add(int(x.controls))
 	}
 }
 
@@ -225,6 +230,7 @@ type formField struct {
 	name                 string // the full name, the names from the top joined by full stops
 	kind, value, options syntax.Value
 	flags                int64
+	controls             int64 // control characters removed from name
 }
 
 // fieldOf walks from a widget, or a field, up to the top of the form.
@@ -237,7 +243,9 @@ func fieldOf(f *file.File, widget syntax.Value) formField {
 	depth := 0
 	for ; depth < maxFieldDepth && node.IsDict(); depth++ {
 		if t := f.Resolve(node.Get("T")); t.Kind == syntax.String {
-			names = append(names, clipName(f, strings.TrimSpace(cleanString(charset.TextString(t.Data)))))
+			name, n := cleanCounted(charset.Text(t.Data))
+			names = append(names, clipName(f, strings.TrimSpace(name)))
+			ff.controls += n
 		}
 		if ff.kind.IsNull() {
 			ff.kind = f.Resolve(node.Get("FT"))
@@ -308,7 +316,7 @@ func fieldChoices(f *file.File, widget syntax.Value, text func(syntax.Value) (st
 	}
 	b := gofastcore.Block{Kind: gofastcore.KindNote, Text: charset.Letters(strings.Join(lines, "\n"))}
 	b.Attrs = map[string]string{gofastcore.AttrNoteType: gofastcore.NoteChoices, gofastcore.AttrField: ff.name}
-	return extra{block: b, field: true}, true
+	return extra{block: b, field: true, controls: ff.controls}, true
 }
 
 func fieldValue(f *file.File, widget syntax.Value, text func(syntax.Value) (string, bool)) (extra, bool) {
@@ -360,15 +368,17 @@ func fieldValue(f *file.File, widget syntax.Value, text func(syntax.Value) (stri
 		if state := f.Resolve(widget.Get("AS")); state.Kind == syntax.Name && state.NameString() != value.NameString() {
 			return extra{}, true
 		}
-		out = strings.TrimSpace(cleanString(strings.ToValidUTF8(value.NameString(), "\uFFFD")))
-		out = clipName(f, charset.Letters(out))
+		var n int64
+		out, n = cleanCounted(strings.ToValidUTF8(value.NameString(), "\uFFFD"))
+		out = clipName(f, charset.Letters(strings.TrimSpace(out)))
+		ff.controls += n
 	}
 	if !ok || out == "" {
 		return extra{}, ok
 	}
 	b := gofastcore.Block{Kind: gofastcore.KindParagraph, Text: out}
 	b.Attrs = map[string]string{gofastcore.AttrField: ff.name}
-	return extra{block: b, field: true}, true
+	return extra{block: b, field: true, controls: ff.controls}, true
 }
 
 // rectOnPage is a rectangle of the page's own coordinates as the box it

@@ -126,10 +126,12 @@ type File struct {
 	// keys the private keys for a file encrypted for a certificate.
 	password string
 	keys     []crypto.Decrypter
-	encObj   int64 // object number of the encryption dictionary, -1 if none
-	stms     objStmCache
-	pages    []Page
-	rec      recovery
+	// decrypted says how the file was decrypted (Decrypted).
+	decrypted string
+	encObj    int64 // object number of the encryption dictionary, -1 if none
+	stms      objStmCache
+	pages     []Page
+	rec       recovery
 	// rebuilt and redefined describe a file read by scanning; see
 	// Rebuilt.
 	rebuilt   bool

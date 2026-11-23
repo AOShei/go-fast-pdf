@@ -72,21 +72,24 @@ func readPacket(f *file.File, catalog syntax.Value) (pk packet) {
 }
 
 // fromPacket fills in the document information from the metadata
-// packet.
-func fromPacket(md *gofastcore.Metadata, pk packet) {
-	var authors, subjects, keywords []string
-	var title, description, language, tool, producer string
+// packet. The control characters removed from what it fills in are
+// counted in rm.
+func fromPacket(md *gofastcore.Metadata, pk packet, rm *removed) {
+	var authors, subjects []string
+	var keywords []value
+	var title, description, language, tool, producer value
 	// Dates are read only where they are wanted: a date with a zone
 	// takes room of its own.
-	var created, modified, changed string
+	var created, modified, changed value
 	// The first value that is text, as a property of one value has it.
-	first := func(values []string) string {
+	first := func(values []string) value {
 		for _, v := range values {
-			if v = strings.TrimSpace(charset.Letters(cleanString(v))); v != "" {
-				return v
+			v, n := cleanCounted(v)
+			if v = strings.TrimSpace(charset.Letters(v)); v != "" {
+				return value{v, n}
 			}
 		}
-		return ""
+		return value{}
 	}
 	for i := range pk.props {
 		p := &pk.props[i]
@@ -96,8 +99,8 @@ func fromPacket(md *gofastcore.Metadata, pk packet) {
 		case nsDC + "subject":
 			subjects = p.values
 		case nsPDF + "Keywords":
-			if k := first(p.values); k != "" {
-				keywords = []string{k} // one string, one entry: it is not split
+			if k := first(p.values); k.s != "" {
+				keywords = []value{k} // one string, one entry: it is not split
 			}
 		case nsDC + "title":
 			title = first(p.values) // the first language, the default by convention
@@ -117,57 +120,76 @@ func fromPacket(md *gofastcore.Metadata, pk packet) {
 			changed = first(p.values)
 		}
 	}
-	if changed == "" {
+	if changed.s == "" {
 		changed = modified
 	}
 	// The information changed after the packet keeps its lists.
 	newer := func() bool {
-		at := xmpDate(changed)
+		at := xmpDate(changed.s)
 		return !md.Modified.IsZero() && !at.IsZero() && md.Modified.After(at)
 	}
-	authors, subjects = cleanValues(authors), cleanValues(subjects)
-	if len(subjects) > 0 {
-		keywords = subjects
+	list := func(values []value) []string {
+		out := make([]string, len(values))
+		for i, v := range values {
+			out[i] = v.s
+			rm.add(int(v.controls))
+		}
+		return out
 	}
-	if len(authors) > 0 && (len(md.Authors) == 0 || !newer()) {
-		md.Authors = authors
+	authorValues, subjectValues := cleanValues(authors), cleanValues(subjects)
+	if len(subjectValues) > 0 {
+		keywords = subjectValues
+	}
+	if len(authorValues) > 0 && (len(md.Authors) == 0 || !newer()) {
+		md.Authors = list(authorValues)
 	}
 	if len(keywords) > 0 && (len(md.Keywords) == 0 || !newer()) {
-		md.Keywords = keywords
+		md.Keywords = list(keywords)
 	}
-	fill := func(s *string, v string) {
-		if *s == "" {
-			*s = v
+	fill := func(s *string, v value) {
+		if *s == "" && v.s != "" {
+			*s = v.s
+			rm.add(int(v.controls))
 		}
 	}
 	fill(&md.Title, title)
 	fill(&md.Subject, description)
 	fill(&md.Language, language)
 	fill(&md.Application, tool)
-	if producer != "" && md.Extra["producer"] == "" {
+	if producer.s != "" && md.Extra["producer"] == "" {
 		if md.Extra == nil {
 			md.Extra = map[string]string{}
 		}
-		md.Extra["producer"] = producer
+		md.Extra["producer"] = producer.s
+		rm.add(int(producer.controls))
 	}
-	if md.Created.IsZero() && created != "" {
-		md.Created = xmpDate(created)
+	if md.Created.IsZero() && created.s != "" {
+		md.Created = xmpDate(created.s)
 	}
-	if md.Modified.IsZero() && modified != "" {
-		md.Modified = xmpDate(modified)
+	if md.Modified.IsZero() && modified.s != "" {
+		md.Modified = xmpDate(modified.s)
 	}
 }
 
+// value is a value of the packet, cleaned, with the number of control
+// characters removed from it, counted when it is used.
+type value struct {
+	s        string
+	controls int64
+}
+
 // cleanValues makes the values of a property fit the shared model's
-// text rules, and leaves out those that are then empty.
-func cleanValues(values []string) []string {
+// text rules, and leaves out those that are then empty. Each value
+// comes with the number of control characters removed from it.
+func cleanValues(values []string) []value {
 	if len(values) == 0 {
 		return nil
 	}
-	out := make([]string, 0, len(values))
+	out := make([]value, 0, len(values))
 	for _, v := range values {
-		if v = strings.TrimSpace(charset.Letters(cleanString(v))); v != "" {
-			out = append(out, v)
+		v, n := cleanCounted(v)
+		if v = strings.TrimSpace(charset.Letters(v)); v != "" {
+			out = append(out, value{v, n})
 		}
 	}
 	return out

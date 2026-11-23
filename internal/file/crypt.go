@@ -148,7 +148,7 @@ func (f *File) setupEncryption() error {
 		return fmt.Errorf("%w: /O, /U, /OE or /UE is too short for AES-256", gofastcore.ErrMalformed)
 	}
 
-	key, err := e.authenticate(f.password)
+	key, opener, err := e.authenticate(f.password)
 	if err != nil {
 		if f.rec.lostTrailer && e.r <= 4 && e.id == nil {
 			// Up to AES-128 the key depends on the file identifier,
@@ -160,8 +160,38 @@ func (f *File) setupEncryption() error {
 	}
 	d.key = key
 	f.enc = d
+	keyLen := e.keyLen
+	if e.r >= 5 {
+		keyLen = 32
+	}
+	f.decrypted = fmt.Sprintf("the standard security handler, revision %d, %s; opened with %s", e.r, d.ciphers(keyLen), opener)
 	return nil
 }
+
+// ciphers names the ciphers of d, whose keys for RC4 are keyLen bytes
+// long.
+func (d *decrypter) ciphers(keyLen int) string {
+	name := func(k cipherKind) string {
+		switch k {
+		case cipherRC4:
+			return fmt.Sprintf("RC4 with a %d-bit key", 8*keyLen)
+		case cipherAESV2:
+			return "AES-128"
+		case cipherAESV3:
+			return "AES-256"
+		}
+		return "no cipher"
+	}
+	if d.stm == d.str {
+		return name(d.stm)
+	}
+	return name(d.stm) + " for streams and " + name(d.str) + " for strings"
+}
+
+// Decrypted says how the file was decrypted: the security handler, its
+// ciphers, and the password or key that opened it. "" when the file is
+// not encrypted.
+func (f *File) Decrypted() string { return f.decrypted }
 
 // cryptFilters reads the crypt filters of /CF for encryption version v
 // into d, and the ciphers that /StmF and /StrF choose.
@@ -206,20 +236,32 @@ func (f *File) cryptFilters(dict syntax.Value, v int64, d *decrypter) error {
 
 // authenticate finds the file key. It tries the password as the user
 // password and as the owner password, and the empty user password, which
-// opens most encrypted files.
-func (e *encryptDict) authenticate(password string) ([]byte, error) {
+// opens most encrypted files. opener says which of them opened it.
+func (e *encryptDict) authenticate(password string) (key []byte, opener string, err error) {
 	for _, pw := range passwordForms(password, e.r) {
-		if key := e.tryPassword(pw); key != nil {
-			return key, nil
+		if key, owner := e.tryPassword(pw); key != nil {
+			switch {
+			case password == "" && owner:
+				return key, "the empty owner password", nil
+			case password == "":
+				return key, "the empty user password", nil
+			case owner:
+				return key, "the owner password given", nil
+			}
+			return key, "the user password given", nil
 		}
 	}
 	if password == "" {
-		return nil, fmt.Errorf("%w", gofastcore.ErrPasswordRequired)
+		return nil, "", fmt.Errorf("%w", gofastcore.ErrPasswordRequired)
 	}
-	if key := e.tryPassword(nil); key != nil {
-		return key, nil // the file needs no password after all
+	if key, owner := e.tryPassword(nil); key != nil {
+		// The file needs no password after all.
+		if owner {
+			return key, "the empty owner password; the password given opens nothing", nil
+		}
+		return key, "the empty user password; the password given opens nothing", nil
 	}
-	return nil, fmt.Errorf("%w", gofastcore.ErrWrongPassword)
+	return nil, "", fmt.Errorf("%w", gofastcore.ErrWrongPassword)
 }
 
 // passwordForms returns the byte strings a password may have been stored
@@ -256,18 +298,21 @@ func passwordForms(password string, r int64) [][]byte {
 	return forms
 }
 
-func (e *encryptDict) tryPassword(pw []byte) []byte {
+// tryPassword returns the file key if pw is the user password or the
+// owner password, and owner when it is the owner password.
+func (e *encryptDict) tryPassword(pw []byte) (key []byte, owner bool) {
 	if e.r >= 5 {
 		return e.tryAES256(pw)
 	}
 	if key := e.tryUser(padPassword(pw)); key != nil {
-		return key
+		return key, false
 	}
 	// As the owner password, it decrypts /O to the user password.
 	if len(e.o) < 32 {
-		return nil
+		return nil, false
 	}
-	return e.tryUser(e.userFromOwner(pw))
+	key = e.tryUser(e.userFromOwner(pw))
+	return key, key != nil
 }
 
 func padPassword(pw []byte) []byte {
@@ -367,20 +412,21 @@ func rc4Rounds(key, data []byte, first, last int) {
 
 // tryAES256 checks a password against /U and then /O of a revision 5 or
 // 6 dictionary and returns the file key from /UE or /OE (Algorithm 2.A).
-func (e *encryptDict) tryAES256(pw []byte) []byte {
+func (e *encryptDict) tryAES256(pw []byte) (key []byte, owner bool) {
 	hash := hashR5
 	if e.r == 6 {
 		hash = hashR6
 	}
 	u := e.u[:48]
 	if subtle.ConstantTimeCompare(hash(pw, u[32:40], nil), u[:32]) == 1 {
-		return aes256NoIV(hash(pw, u[40:48], nil), e.ue[:32])
+		return aes256NoIV(hash(pw, u[40:48], nil), e.ue[:32]), false
 	}
 	o := e.o[:48]
 	if subtle.ConstantTimeCompare(hash(pw, o[32:40], u), o[:32]) == 1 {
-		return aes256NoIV(hash(pw, o[40:48], u), e.oe[:32])
+		key = aes256NoIV(hash(pw, o[40:48], u), e.oe[:32])
+		return key, key != nil
 	}
-	return nil
+	return nil, false
 }
 
 // aes256NoIV decrypts 32 bytes with AES-256 in CBC mode, a zero

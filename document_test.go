@@ -663,9 +663,14 @@ func TestMetadata(t *testing.T) {
 		b.Add("<< /Title (Report\\000\\000) /Author (A\\rB\\r\\nC\\007) /Subject <FEFFFB01006C0065> >>")
 		pdftest.Doc(pdftest.DocOptions{Base: b}, pdftest.PageSpec{Content: visibleLines})
 		b.Trailer = "/Info 1 0 R"
-		md := mustExtract(t, b.Bytes(), nil).Metadata
-		if md.Title != "Report" || len(md.Authors) != 1 || md.Authors[0] != "A\nB\nC�" || md.Subject != "file" {
+		doc := mustExtract(t, b.Bytes(), nil)
+		md := doc.Metadata
+		if md.Title != "Report" || len(md.Authors) != 1 || md.Authors[0] != "A\nB\nC" || md.Subject != "file" {
 			t.Errorf("%q, %q, %q", md.Title, md.Authors, md.Subject)
+		}
+		// The zero bytes and the bell are removed, and counted.
+		if w, ok := warning(doc.Warnings, gofastcore.WarnTextControlCharactersRemoved); !ok || !strings.HasPrefix(w.Message, "3 control characters were removed") {
+			t.Errorf("%+v", doc.Warnings)
 		}
 	})
 

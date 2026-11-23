@@ -27,8 +27,10 @@ import (
 const maxHrefBytes = 4096
 
 // pageLink is the link that annotation a of a page makes, if it makes
-// one: an address, or a page of the document, and where it is.
-func pageLink(f *file.File, a syntax.Value, m [6]float64, dests *destinations, limits *file.Cuts) (layout.Link, bool) {
+// one: an address, or a page of the document, and where it is. The
+// control characters removed from an address that is kept are counted
+// in rm.
+func pageLink(f *file.File, a syntax.Value, m [6]float64, dests *destinations, limits *file.Cuts, rm *removed) (layout.Link, bool) {
 	if !a.IsDict() || !f.Resolve(a.Get("Subtype")).IsName("Link") {
 		return layout.Link{}, false
 	}
@@ -37,11 +39,13 @@ func pageLink(f *file.File, a syntax.Value, m [6]float64, dests *destinations, l
 		return layout.Link{}, false
 	}
 	href := ""
+	var controls int64
 	act := f.Resolve(a.Get("A"))
 	switch {
 	case act.IsDict() && f.Resolve(act.Get("S")).IsName("URI"):
 		if uri := f.Resolve(act.Get("URI")); uri.Kind == syntax.String {
-			href = strings.TrimSpace(cleanString(strings.ToValidUTF8(string(uri.Data), "")))
+			href, controls = cleanCounted(strings.ToValidUTF8(string(uri.Data), ""))
+			href = strings.TrimSpace(href)
 		}
 	case a.Has("Dest") || act.IsDict() && f.Resolve(act.Get("S")).IsName("GoTo"):
 		if dests != nil {
@@ -79,7 +83,11 @@ func pageLink(f *file.File, a syntax.Value, m [6]float64, dests *destinations, l
 			l.Boxes = append(l.Boxes, r)
 		}
 	}
-	return l, len(l.Boxes) > 0
+	if len(l.Boxes) == 0 {
+		return l, false
+	}
+	rm.add(int(controls))
+	return l, true
 }
 
 // cutSpans keeps the spans of a block whose first n bytes of text were

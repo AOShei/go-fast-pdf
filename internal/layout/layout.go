@@ -102,6 +102,9 @@ type Result struct {
 	HasText bool
 	// Controls is the number of control characters that were replaced.
 	Controls int
+	// Removed is the number of control characters removed from the
+	// names that the blocks have in their attributes.
+	Removed int
 	// Lines are the lines of the text blocks, block by block, when
 	// Options.Lines is set.
 	Lines []Line

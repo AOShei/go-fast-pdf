@@ -36,45 +36,60 @@ const (
 	maxVariables = 1024
 )
 
-// script is a script that an action of the file would run.
+// script is a script that an action of the file would run. controls is
+// the number of control characters removed from its name.
 type script struct {
-	name string
-	js   syntax.Value
+	name     string
+	controls int64
+	js       syntax.Value
 }
 
 // reader reads strings of the file for blocks that do not come from the
-// content of a page, as long as there is room for them.
+// content of a page, as long as there is room for them. rm counts the
+// control characters removed from what it reads for the output.
 type reader struct {
 	f    *file.File
 	room int
+	rm   *removed
 }
 
-// text reads a text string, trimmed. ok is false when there is no room
-// for it: a string is not longer decoded than three times its bytes.
+// text reads a text string, trimmed, and counts the control characters
+// removed from it. ok is false when there is no room for it: a string
+// is not longer decoded than three times its bytes.
 func (r *reader) text(v syntax.Value) (s string, ok bool) {
+	s, n, ok := r.textCounted(v)
+	r.rm.add(int(n))
+	return s, ok
+}
+
+// textCounted is text for a string that may not be kept: it returns the
+// number of control characters removed, and does not count them.
+func (r *reader) textCounted(v syntax.Value) (s string, controls int64, ok bool) {
 	v = r.f.Resolve(v)
 	if v.Kind != syntax.String || len(v.Data) == 0 {
-		return "", true
+		return "", 0, true
 	}
 	if 3*len(v.Data) > r.room {
-		return "", false
+		return "", 0, false
 	}
-	s = strings.TrimSpace(cleanString(charset.TextString(v.Data)))
+	s, controls = cleanCounted(charset.Text(v.Data))
+	s = strings.TrimSpace(s)
 	r.room -= len(s)
-	return s, true
+	return s, controls, true
 }
 
 // source reads the text of a script, which the file has as a string or
 // as a stream, and is a text string of the file in either. It is not
-// trimmed.
-func (r *reader) source(v syntax.Value) (s string, ok bool) {
+// trimmed. controls is the number of control characters removed, not
+// counted: a script is kept once.
+func (r *reader) source(v syntax.Value) (s string, controls int64, ok bool) {
 	data, ok := r.bytes(v)
 	if !ok || len(data) == 0 {
-		return "", ok
+		return "", 0, ok
 	}
-	s = cleanString(charset.TextString(data))
+	s, controls = cleanCounted(charset.Text(data))
 	r.room -= len(s)
-	return s, true
+	return s, controls, true
 }
 
 // packet reads a metadata packet. It is XML, in UTF-8 unless it starts
@@ -128,7 +143,7 @@ func (r *reader) bytes(v syntax.Value) (data []byte, ok bool) {
 // written out again for each of a thousand fields, is given once.
 func scriptBlocks(r *reader, scripts []script, seen map[string]bool) (blocks []gofastcore.Block, cut bool) {
 	for _, s := range scripts {
-		src, ok := r.source(s.js)
+		src, controls, ok := r.source(s.js)
 		if !ok {
 			return blocks, true
 		}
@@ -136,10 +151,12 @@ func scriptBlocks(r *reader, scripts []script, seen map[string]bool) (blocks []g
 			continue
 		}
 		seen[src] = true
+		r.rm.add(int(controls))
 		b := gofastcore.Block{Kind: gofastcore.KindCode, Text: src, Origin: gofastcore.OriginNative}
 		b.Attrs = map[string]string{gofastcore.AttrStored: gofastcore.StoredMacro, gofastcore.AttrLanguage: "javascript"}
 		if s.name != "" {
 			b.Attrs[gofastcore.AttrName] = clipName(r.f, s.name)
+			r.rm.add(int(s.controls))
 		}
 		blocks = append(blocks, b)
 	}
@@ -156,18 +173,22 @@ var standardInfo = map[string]bool{
 // stored reads what the file holds for itself and shows on no page.
 // scripts are those of the actions of the catalog and of the form, and
 // pk the metadata packet, read already for the document information.
-func stored(f *file.File, catalog syntax.Value, md *gofastcore.Metadata, scripts []script, pk packet) (blocks []gofastcore.Block, cut bool) {
-	r := &reader{f: f, room: maxStoredBytes}
+//
+// The control characters removed from what it reads are counted in rm.
+func stored(f *file.File, catalog syntax.Value, md *gofastcore.Metadata, scripts []script, pk packet, rm *removed) (blocks []gofastcore.Block, cut bool) {
+	r := &reader{f: f, room: maxStoredBytes, rm: rm}
 	// What the document information says, and what has been said here
 	// already: a value is given once. Programs write the same title in
 	// the information and in three properties of the packet, and the
 	// entries of their own making in both.
 	said := []string{md.Title, md.Subject, md.Application, md.Extra["producer"]}
 	said = append(append(said, md.Authors...), md.Keywords...)
-	variable := func(kind, name, value string) {
+	// controls is the number of control characters removed from value.
+	variable := func(kind, name, value string, controls int64) {
 		// The name is the file's too: a property of the packet can be
 		// called anything, a control character included.
-		name = clipName(f, strings.TrimSpace(cleanString(name)))
+		name = clipName(f, strings.TrimSpace(cleanText(name, rm)))
+		rm.add(int(controls))
 		text := charset.Letters(strings.TrimSpace(name + ": " + value))
 		blocks = append(blocks, gofastcore.Block{Kind: gofastcore.KindParagraph, Text: text, Origin: gofastcore.OriginNative,
 			Attrs: map[string]string{gofastcore.AttrStored: kind}})
@@ -182,7 +203,9 @@ func stored(f *file.File, catalog syntax.Value, md *gofastcore.Metadata, scripts
 			return true
 		}
 		if act := f.Resolve(val); act.IsDict() {
-			named = append(named, script{name: text(f, key), js: act.Get("JS")})
+			var rm removed
+			name := text(f, key, &rm)
+			named = append(named, script{name: name, controls: rm.count(), js: act.Get("JS")})
 		}
 		return true
 	})
@@ -200,12 +223,13 @@ func stored(f *file.File, catalog syntax.Value, md *gofastcore.Metadata, scripts
 			if standardInfo[string(key)] {
 				continue
 			}
-			value, ok := r.text(val)
+			value, controls, ok := r.textCounted(val)
 			if !ok {
 				return blocks, true
 			}
-			if name := clipName(f, strings.TrimSpace(cleanString(strings.ToValidUTF8(string(key), "\uFFFD")))); value != "" && name != "" && !mechanical(value) && !within(value, said) {
-				variable(gofastcore.StoredDocumentVariable, name, value)
+			name, n := cleanCounted(strings.ToValidUTF8(string(key), "\uFFFD"))
+			if name = strings.TrimSpace(name); value != "" && name != "" && !mechanical(value) && !within(value, said) {
+				variable(gofastcore.StoredDocumentVariable, name, value, controls+n)
 			}
 		}
 	}
@@ -221,15 +245,18 @@ func stored(f *file.File, catalog syntax.Value, md *gofastcore.Metadata, scripts
 		r.room -= pk.size
 		for _, p := range pk.props {
 			var values []string
+			var controls int64
 			has := map[string]bool{}
 			for _, v := range p.values {
-				if v = strings.TrimSpace(cleanString(v)); v != "" && !has[v] && !mechanical(v) && !within(v, said) {
+				v, n := cleanCounted(v)
+				if v = strings.TrimSpace(v); v != "" && !has[v] && !mechanical(v) && !within(v, said) {
 					values = append(values, v)
+					controls += n
 					has[v] = true
 				}
 			}
 			if len(values) > 0 {
-				variable(gofastcore.StoredCustomXML, p.name, strings.Join(values, "; "))
+				variable(gofastcore.StoredCustomXML, p.name, strings.Join(values, "; "), controls)
 			}
 		}
 	}
@@ -267,7 +294,7 @@ func stored(f *file.File, catalog syntax.Value, md *gofastcore.Metadata, scripts
 		}
 		name := at.name
 		if t := f.Resolve(field.Get("T")); t.Kind == syntax.String {
-			if own := strings.TrimSpace(cleanString(charset.TextString(t.Data))); own != "" {
+			if own := strings.TrimSpace(cleanString(charset.Text(t.Data))); own != "" {
 				name = strings.TrimPrefix(name+"."+own, ".")
 			}
 		}
@@ -298,6 +325,7 @@ func stored(f *file.File, catalog syntax.Value, md *gofastcore.Metadata, scripts
 				b.Attrs[gofastcore.AttrField] = clipName(f, name)
 			}
 			blocks = append(blocks, b)
+			rm.add(int(x.controls))
 		}
 	}
 	if len(stack) > 0 {
@@ -416,14 +444,15 @@ func xfaData(r *reader, v syntax.Value, named map[string]bool) (blocks []gofastc
 	if !ok {
 		return nil, true
 	}
-	return xfaValues(src, named, cutter(r.f))
+	return xfaValues(src, named, cutter(r.f), r.rm)
 }
 
 // xfaValues reads the values of the data packet of an XFA form, which is
 // in src, alone or in a whole XDP document.
 //
-// what a bound of the reading leaves out is counted by cutf.
-func xfaValues(src string, named map[string]bool, cutf cutFunc) (blocks []gofastcore.Block, cut bool) {
+// what a bound of the reading leaves out is counted by cutf, and the
+// control characters removed from what is kept by rm.
+func xfaValues(src string, named map[string]bool, cutf cutFunc, rm *removed) (blocks []gofastcore.Block, cut bool) {
 	x := &xmlScan{s: src, cut: cutf}
 	// Find xfa:data inside xfa:datasets.
 	for inDatasets := false; ; {
@@ -445,10 +474,11 @@ func xfaValues(src string, named map[string]bool, cutf cutFunc) (blocks []gofast
 	// whose value is a list has an element "value" for each item, and
 	// one whose value is rich text has XHTML in it.
 	type frame struct {
-		name   string
-		text   []string
-		group  bool // it has elements other than "value"
-		values bool // it has "value" elements
+		name     string
+		text     []string
+		controls int64 // removed from text
+		group    bool  // it has elements other than "value"
+		values   bool  // it has "value" elements
 	}
 	var stack []frame
 	rich := 0 // depth inside XHTML
@@ -466,9 +496,11 @@ func xfaValues(src string, named map[string]bool, cutf cutFunc) (blocks []gofast
 			return blocks, false
 		case tokText:
 			if len(stack) > 0 {
-				if s := strings.TrimSpace(cleanString(t.text)); s != "" {
-					if len(stack[len(stack)-1].text) < maxXFAPieces {
-						stack[len(stack)-1].text = append(stack[len(stack)-1].text, s)
+				s, n := cleanCounted(t.text)
+				if s = strings.TrimSpace(s); s != "" {
+					if top := &stack[len(stack)-1]; len(top.text) < maxXFAPieces {
+						top.text = append(top.text, s)
+						top.controls += n
 					} else {
 						cutf(boundXFAPieces, "", 1, 0)
 					}
@@ -518,6 +550,7 @@ func xfaValues(src string, named map[string]bool, cutf cutFunc) (blocks []gofast
 				stack = stack[:len(stack)-1]
 				parent := &stack[len(stack)-1]
 				parent.text = append(parent.text, strings.Join(top.text, " "))
+				parent.controls += top.controls
 				continue
 			}
 			field := path()
@@ -535,7 +568,8 @@ func xfaValues(src string, named map[string]bool, cutf cutFunc) (blocks []gofast
 			}
 			blocks = append(blocks, gofastcore.Block{Kind: gofastcore.KindParagraph, Text: text, Origin: gofastcore.OriginNative,
 				Attrs: map[string]string{
-					gofastcore.AttrStored: gofastcore.StoredFormField, gofastcore.AttrField: x.name(cleanString(field))}})
+					gofastcore.AttrStored: gofastcore.StoredFormField, gofastcore.AttrField: x.name(cleanText(field, rm))}})
+			rm.add(int(top.controls))
 		}
 	}
 	return blocks, true

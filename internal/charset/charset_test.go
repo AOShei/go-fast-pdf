@@ -2,6 +2,7 @@ package charset
 
 import (
 	"sort"
+	"strings"
 	"testing"
 	"unicode/utf8"
 )
@@ -196,11 +197,35 @@ func TestTextString(t *testing.T) {
 		{"\x93le of\x94ine", "file offline"}, // PDFDocEncoding has fi and fl
 		{"\xfe\xff\x00o\xfb\x03\x00c\x00e", "office"},
 		{"\xef\xbb\xbf\xef\xac\x86op", "stop"},
+		// A language escape is no text (ISO 32000-2, 7.9.2.2.1), in
+		// UTF-16 of either order and in UTF-8, with a country or not.
+		{"\xfe\xff\x00\x1bja\x00\x1b\x00S\x00e", "Se"},
+		{"\xfe\xff\x00A\x00\x1ben\x00\x1b\x00B", "AB"},
+		{"\xfe\xff\x00\x1benUS\x00\x1b\x00B", "B"},
+		{"\xff\xfe\x1b\x00fr\x1b\x00B\x00", "B"},
+		{"\xef\xbb\xbf\x1bde\x1bTor \x1bdeAT\x1bOrt", "Tor Ort"},
+		// An ESC that begins none is left for the cleaning.
+		{"\xfe\xff\x00\x1b\x00B", "\x1bB"},
+		{"\xfe\xff\x00\x1b\x00\x31\x00\x1b", "\x1b1\x1b"},
+		{"\xef\xbb\xbf\x1bd1\x1bx", "\x1bd1\x1bx"},
 	}
 	for _, c := range cases {
 		got := TextString([]byte(c.in))
 		if got != c.want || !utf8.ValidString(got) {
 			t.Errorf("TextString(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+	// Text gives the control characters that PDFDocEncoding leaves
+	// undefined as themselves; other bytes with no character are still
+	// U+FFFD, and the rest is as TextString has it.
+	for in, want := range map[string]string{
+		"a\x00b\x01\x17\x7f\x9f\xad": "a\x00b\x01\x17\x7f\ufffd\ufffd",
+		"\x18\x1b":                   "\u02d8\u02d9",
+		"\x93le\x0b":                 "file\x0b",
+		"\xfe\xff\x00\x01\x00A":      "\x01A",
+	} {
+		if got := Text([]byte(in)); got != want {
+			t.Errorf("Text(%q) = %q, want %q", in, got, want)
 		}
 	}
 }
@@ -220,7 +245,26 @@ func FuzzTextString(f *testing.F) {
 	f.Add([]byte("uniFB03"))
 	f.Add([]byte("a\xef\xac\x81\xef\xac"))
 	f.Add([]byte("R\xe9sum\xe9"))
+	f.Add([]byte("\xfe\xff\x00\x1benUS\x00\x1b\x00A"))
+	f.Add([]byte("\xef\xbb\xbf\x1bja\x1bx"))
 	f.Fuzz(func(t *testing.T, b []byte) {
+		// Text differs from TextString only where TextString has U+FFFD
+		// for a control character that PDFDocEncoding leaves undefined.
+		if text := Text(b); !utf8.ValidString(text) || hasLigature(text) {
+			t.Fatalf("Text: %q", text)
+		} else if strings.Map(func(r rune) rune {
+			if r < 0x18 || r == 0x7F {
+				return '\uFFFD'
+			}
+			return r
+		}, text) != strings.Map(func(r rune) rune {
+			if r < 0x18 || r == 0x7F {
+				return '\uFFFD'
+			}
+			return r
+		}, TextString(b)) {
+			t.Fatalf("Text %q, TextString %q", text, TextString(b))
+		}
 		s := TextString(b)
 		if !utf8.ValidString(s) {
 			t.Fatalf("not valid UTF-8: %q", s)

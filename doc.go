@@ -282,7 +282,8 @@
 // The document information becomes Metadata: the title; the author as
 // one entry, not split; subject and keywords; the creating program as
 // Application and the producing one as Extra["producer"]; the dates;
-// the language of the catalog; and whether the file was encrypted. The
+// the language of the catalog; and whether the file was encrypted
+// (input.decrypted). The
 // metadata packet (XMP) adds to it. Its lists of authors (dc:creator)
 // and of keywords (dc:subject) are the authors and the keywords, an
 // entry for each item as the file declares it, unless the information
@@ -408,7 +409,24 @@
 // Ligatures are written as their letters, and so are the Arabic
 // presentation forms, the forms of letters at the start, in the middle
 // and at the end of a word. A character the file gives no meaning for is
-// U+FFFD, and so is a control character.
+// U+FFFD, and so is a glyph of a page whose text is a control character
+// (text.unmapped_glyphs).
+//
+// The strings of the file outside the content of its pages (the document
+// information and the metadata packet, the outline, page labels, names,
+// the notes and form fields of a page, link addresses, the descriptions
+// and identifiers of the structure tree, stored data) have no control
+// characters but line breaks and tabs. A carriage return is a line
+// break; a vertical tab, a form feed and U+0085 are white space and
+// become a space; a language escape (ESC, a language code, ESC) is not
+// text and is left out. Any other control character, C0 or C1, NUL and
+// the zero bytes a C program leaves at the end included, is removed, and
+// text.control_characters_removed (info) says how many: once for the
+// document, for its information, outline, page labels, names and
+// attached files; once for a page, for its notes, fields, links and
+// structure; once for the stored part. A byte that PDFDocEncoding leaves
+// undefined among 0x00 to 0x17, and 0x7F, is the control character of
+// that number. Bytes that are not text in their encoding are U+FFFD.
 //
 // Two characters in a block's text are put there by this package. A tab
 // stands where two pieces of a line are more than twice the font size
@@ -540,6 +558,20 @@
 //	                          in the stored part (Attrs["stored"] is
 //	                          after_end), which then has the warning;
 //	                          otherwise the document has it
+//	input.decrypted           the file was decrypted, and
+//	                          Metadata.Encrypted is set. The message
+//	                          names the security handler, its revision
+//	                          or sub-filter, the cipher (RC4 with the
+//	                          length of its key, AES-128, AES-256), and
+//	                          what opened it: the user or the owner
+//	                          password given, the empty user password,
+//	                          or which of the private keys given. A file
+//	                          that opens with the empty user password is
+//	                          encrypted all the same
+//	text.control_characters_removed
+//	                          control characters were removed from the
+//	                          strings outside the pages' content; see
+//	                          the text above
 //
 // Scripts and actions are looked for on the pages that are extracted
 // and in the catalog and the form fields; no script is read.

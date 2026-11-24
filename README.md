@@ -385,7 +385,7 @@ PDF file → objects and cross-references → content interpreter → layout →
 ```
 
 1. **Nothing is decoded that is not needed:** image and font streams are not touched during text extraction.
-2. **Streams are decompressed by a decoder made for a slice in memory** (`internal/inflate`), about twice as fast as the standard library's, which has to serve a reader.
+2. **Streams are decompressed by a decoder made for a slice in memory** (`go-fast-core/inflate`, written here and moved to go-fast-core for every library), about twice as fast as the standard library's, which has to serve a reader.
 3. **Fonts are parsed once** per document and shared by all pages.
 4. **Pages are independent:** each worker fills one part, and the parts are put together in page order.
 5. **Drawing operators are skipped without converting their operands**, which keeps pages full of vector graphics cheap.

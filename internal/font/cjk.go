@@ -1,12 +1,11 @@
 package font
 
 import (
-	"bytes"
-	"compress/flate"
 	_ "embed"
 	"encoding/binary"
-	"io"
 	"sync"
+
+	"github.com/AOShei/go-fast-core/inflate"
 )
 
 // The CMaps that the PDF specification predefines for Chinese, Japanese
@@ -34,6 +33,11 @@ type cjkEntry struct {
 	once       sync.Once
 	m          *cmap
 }
+
+// maxCMapBytes bounds a CMap of cjk.bin decompressed. The largest is
+// 324 KB; the bound only keeps a damaged cjk.bin from taking memory
+// without end.
+const maxCMapBytes = 16 << 20
 
 // maxCMapDepth bounds the CMaps that one uses in turn.
 const maxCMapDepth = 4
@@ -88,7 +92,7 @@ func predefinedAt(name string, depth int) *cmap {
 		return nil
 	}
 	e.once.Do(func() {
-		data, err := io.ReadAll(flate.NewReader(bytes.NewReader(cjkData[e.off : e.off+e.n])))
+		data, err := inflate.Raw(nil, cjkData[e.off:e.off+e.n], maxCMapBytes)
 		if err != nil {
 			return
 		}

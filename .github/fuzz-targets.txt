@@ -17,8 +17,6 @@
 ./internal/extract FuzzExtract
 . FuzzOpen
 . FuzzPage
-./internal/inflate FuzzZlib
-./internal/inflate FuzzAdler32
 . FuzzPacket
 ./internal/file FuzzEnvelope
 . FuzzXFAData

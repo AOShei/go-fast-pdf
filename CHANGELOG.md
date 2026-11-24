@@ -7,6 +7,12 @@
   `bytes.Buffer`. The output is the same: over the 1,650 files of the public corpus, the JSON, Markdown
   and text of the command and the text and Markdown of the library are byte-identical to v0.3.0's.
   `Table.RowLocs` (core v0.1.3) is not filled.
+- go-fast-core v0.1.5: the decompressor of zlib streams is go-fast-core's `inflate`, which is this
+  library's moved to core for every library (`internal/inflate` is gone). Its tests and fuzz targets
+  are in core; `TestCorpusLikeCompressZlib` and `BenchmarkZlibCorpus` stay here, on the streams of PDF
+  files. On the 11,394 streams of the tuning set it takes 3.0 percent fewer instructions than before,
+  and gives the same bytes as compress/zlib. The CJK CMaps are decompressed with it too, in place of
+  compress/flate. An error of a damaged stream in a warning now begins `inflate:` where it said `zlib:`.
 
 ## v0.3.0 (2026-11-23)
 

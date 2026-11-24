@@ -1,4 +1,4 @@
-package inflate
+package file_test
 
 import (
 	"bytes"
@@ -10,8 +10,14 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/AOShei/go-fast-core/inflate"
 	"github.com/AOShei/go-fast-pdf/internal/pdftest"
 )
+
+// The zlib streams of real PDF files through go-fast-core's
+// decompressor, which was this library's: core fuzzes and tests it on
+// zip, zlib and gzip; these check it, and time it, on the streams of PDF
+// files.
 
 // corpusStreams are the zlib streams of the files of the tuning set of
 // the public corpus, as the cache has them, with the size of each one's
@@ -76,7 +82,7 @@ var corpusStreams = sync.OnceValues(func() (streams [][]byte, sizes []int) {
 				break
 			}
 			src := data[start : start+end]
-			out, err := Zlib(nil, src, 1<<28)
+			out, err := inflate.Zlib(nil, src, 1<<28)
 			if err != nil {
 				continue
 			}
@@ -100,11 +106,13 @@ func BenchmarkZlibCorpus(b *testing.B) {
 		most = max(most, n)
 	}
 	b.SetBytes(int64(total))
-	dst := make([]byte, 0, most+fastRoom)
+	// Room past the output for the fast path's longest write (fastRoom in
+	// go-fast-core/inflate), so that dst is never grown.
+	dst := make([]byte, 0, most+3+258+8)
 	defer pdftest.BenchInstructions(b)()
 	for b.Loop() {
 		for _, src := range streams {
-			if _, err := Zlib(dst, src, 1<<28); err != nil {
+			if _, err := inflate.Zlib(dst, src, 1<<28); err != nil {
 				b.Fatal(err)
 			}
 		}
@@ -122,7 +130,7 @@ func TestCorpusLikeCompressZlib(t *testing.T) {
 		t.Skip("the corpus is skipped with -short")
 	}
 	for i, src := range streams {
-		got, err := Zlib(nil, src, 1<<28)
+		got, err := inflate.Zlib(nil, src, 1<<28)
 		zr, zerr := zlib.NewReader(bytes.NewReader(src))
 		if zerr != nil {
 			t.Fatalf("stream %d: compress/zlib: %v", i, zerr)

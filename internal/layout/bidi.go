@@ -164,7 +164,13 @@ type segment struct {
 // across gaps (extract's endLine): each piece is placed where it is
 // drawn, and a program that fills the gaps between words with spaces and
 // punctuation drawn later is read as it is seen.
-func (b *builder) bidiUnits(ln *line) (rtl bool) {
+//
+// before is the type of the last letter before the line in its
+// paragraph (bidiL, bidiR or bidiAL), 0 for none or not known: the rules
+// that resolve numbers look back past the start of a line to it.
+// numberFirst is set when a number comes before the first letter of the
+// line as it is read, which is where before can change the reading.
+func (b *builder) bidiUnits(ln *line, before bidiClass) (rtl, numberFirst bool) {
 	segs := b.segs[:0]
 	for k := ln.lo; k < ln.hi; k++ {
 		p := &b.pieces[b.lidx[k]]
@@ -264,7 +270,7 @@ func (b *builder) bidiUnits(ln *line) (rtl bool) {
 			}
 		}
 	}
-	rtl = bidiOrder(us)
+	rtl, numberFirst = bidiOrder(us, before)
 	// One space where two met, from either side of a stretch turned
 	// round.
 	space := func(u *unit) bool {
@@ -281,7 +287,7 @@ func (b *builder) bidiUnits(ln *line) (rtl bool) {
 	us = us[:w]
 	b.units = us
 	b.mirrorLine = b.mirrors(us, ln)
-	return rtl
+	return rtl, numberFirst
 }
 
 // mirrors reports whether the brackets of line ln, in units us in the
@@ -331,14 +337,21 @@ func (b *builder) mirrors(us []unit, ln *line) bool {
 }
 
 // bidiOrder puts units that stand from left to right in the order they
-// are read, and reports whether the line reads from right to left.
+// are read, and reports whether the line reads from right to left, and
+// whether a number comes before its first letter as it is read.
 //
 // The rules that resolve the types of numbers and neutrals look at what
 // comes before a unit in the order of reading. For a line read from
 // right to left they are applied to its units from right to left, which
 // is that order but within the stretches read the other way, where
 // they change nothing that matters.
-func bidiOrder(us []unit) bool {
+//
+// The algorithm resolves a paragraph, not a line: a number at the start
+// of a line takes the type of the last letter before it, which may end
+// the line before. before is that letter's type (bidiL, bidiR or
+// bidiAL), 0 for none: then the line's direction stands in for it, as
+// at the start of a paragraph.
+func bidiOrder(us []unit, before bidiClass) (rtl, numberFirst bool) {
 	// The direction of the line: that of its letters at both ends, where
 	// they agree, else that of most of its words, right to left when as
 	// many are written each way. (The algorithm takes the first letter of
@@ -370,12 +383,20 @@ func bidiOrder(us []unit) bool {
 		}
 		prev = c
 	}
-	rtl := left == bidiR && right == bidiR || left != right && nr > 0 && nr >= nl
+	rtl = left == bidiR && right == bidiR || left != right && nr > 0 && nr >= nl
 	base := bidiL
 	var level uint8
 	if rtl {
 		base, level = bidiR, 1
 		slices.Reverse(us)
+	}
+	for i := range us {
+		if c := us[i].class; c == bidiL || c == bidiR || c == bidiAL {
+			break
+		} else if c == bidiEN {
+			numberFirst = true
+			break
+		}
 	}
 	cls := func(i int) bidiClass { return us[i].class }
 	// W1: a mark takes the type of what it is set on.
@@ -390,6 +411,9 @@ func bidiOrder(us []unit) bool {
 	// W2: a European number after an Arabic letter is an Arabic number;
 	// W3: an Arabic letter is a letter written from right to left.
 	last := base
+	if before != 0 {
+		last = before
+	}
 	for i := range us {
 		switch c := cls(i); c {
 		case bidiL, bidiR, bidiAL:
@@ -432,6 +456,12 @@ func bidiOrder(us []unit) bool {
 	// W6: other separators and terminators are neutral; W7: a European
 	// number after a letter written from left to right is such a letter.
 	strong := base
+	switch before {
+	case bidiL:
+		strong = bidiL
+	case bidiR, bidiAL:
+		strong = bidiR
+	}
 	for i := range us {
 		switch c := cls(i); c {
 		case bidiES, bidiET, bidiCS:
@@ -515,7 +545,7 @@ func bidiOrder(us []unit) bool {
 			i = j
 		}
 	}
-	return rtl
+	return rtl, numberFirst
 }
 
 // unitText appends the text of a unit, a bracket read from right to

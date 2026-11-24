@@ -27,13 +27,48 @@ func TestBidiOrder(t *testing.T) {
 			text = append(text, r)
 			us = append(us, unit{lo: int32(len(text) - 1), class: classOf(r)})
 		}
-		rtl := bidiOrder(us)
+		rtl, _ := bidiOrder(us, 0)
 		var got []rune
 		for _, u := range us {
 			got = append(got, text[u.lo])
 		}
 		if string(got) != c.read || rtl != c.rtl {
 			t.Errorf("%q: %q (right to left %v), want %q (%v)", c.seen, string(got), rtl, c.read, c.rtl)
+		}
+	}
+}
+
+// bidiOrder on a line that starts with a number, after a letter of the
+// paragraph on the line before: an Arabic letter makes the number an
+// Arabic one, after which a percent sign stands at its left; with no
+// letter before, or a Hebrew one, it is a European number, which the
+// sign follows.
+func TestBidiOrderBefore(t *testing.T) {
+	for _, c := range []struct {
+		seen   string
+		before bidiClass
+		read   string
+		first  bool
+	}{
+		{"نع %75", bidiAL, "75% عن", true},
+		{"נע 75%", 0, "75% ענ", true},
+		{"נע 75%", bidiR, "75% ענ", true},
+		{"نع 75%", 0, "75% عن", true},
+		{"%75 ةبسنب", bidiAL, "بنسبة 75%", false},
+	} {
+		var us []unit
+		var text []rune
+		for _, r := range c.seen {
+			text = append(text, r)
+			us = append(us, unit{lo: int32(len(text) - 1), class: classOf(r)})
+		}
+		_, first := bidiOrder(us, c.before)
+		var got []rune
+		for _, u := range us {
+			got = append(got, text[u.lo])
+		}
+		if string(got) != c.read || first != c.first {
+			t.Errorf("%q after %d: %q (number first %v), want %q (%v)", c.seen, c.before, string(got), first, c.read, c.first)
 		}
 	}
 }

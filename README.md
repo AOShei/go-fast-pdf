@@ -361,9 +361,7 @@ file can be read from many goroutines, and the result is the same for any number
   markers is paragraphs
 - **Scripts written from right to left** - a line's direction is that of the letters at its ends or of
   most of its words, so a line of a paragraph read from right to left that is mostly Latin can be read
-  the other way. Columns are read from right to left where most of their text reads so. A line is read
-  by itself, so a number that starts a line of Arabic is a European number even where the Arabic letter
-  that makes it an Arabic number ends the line before: "75%" there is read "%75". Glyphs that a font leaves
+  the other way. Columns are read from right to left where most of their text reads so. Glyphs that a font leaves
   without a character are read by their outlines only for the fonts built in (Noto Sans, Naskh and
   Kufi Arabic, Regular and Bold, of one version each, which Firefox embeds), and the page has the
   warning `pdf.glyph_text_by_outline`; in other fonts they are not read

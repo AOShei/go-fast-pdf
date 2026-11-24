@@ -101,7 +101,7 @@ func (b *builder) atoms(dst []atom, ln *line) []atom {
 	if ln.bidi {
 		// The units, in the order they are read: one read from right to
 		// left runs from its right end.
-		b.bidiUnits(ln)
+		b.bidiUnits(ln, ln.before)
 		for i := range b.units {
 			u := &b.units[i]
 			if u.put != 0 || u.hi-u.lo == 1 && isLineSpace(b.c.Text[u.lo]) {

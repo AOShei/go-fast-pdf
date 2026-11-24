@@ -239,6 +239,9 @@ func (b *builder) paragraphs(first int, display gofastcore.Display) {
 			ln := &lines[at]
 			bl.x0, bl.y0, bl.x1, bl.y1 = min(bl.x0, ln.x0), min(bl.y0, ln.y0), max(bl.x1, ln.x1), max(bl.y1, ln.y1)
 			bl.key = min(bl.key, ln.key)
+			if ln.numberFirst {
+				b.numberAfterLine(lines, ln)
+			}
 			b.joinLine(prev, ln)
 			prev = ln
 			if ln.next = -1; b.claims[at] >= 0 {
@@ -249,6 +252,113 @@ func (b *builder) paragraphs(first int, display gofastcore.Display) {
 			b.blocks = append(b.blocks, bl)
 		}
 	}
+}
+
+// numberAfterLine writes again the text of line ln of a paragraph, a
+// line with letters written from right to left and a number before its
+// first letter, when the letter before it in the paragraph changes how
+// the number reads: an Arabic letter makes it an Arabic number, a Latin
+// letter a Latin one, where the line by itself took the type of its
+// direction. The Unicode bidirectional algorithm resolves a paragraph,
+// and the line is read as a part of one. lines are those of the group,
+// to which pred refers.
+func (b *builder) numberAfterLine(lines []line, ln *line) {
+	var before bidiClass
+	for at := ln.pred; at >= 0 && before == 0; at = lines[at].pred {
+		before = lastLetter(b.text[lines[at].tlo:lines[at].thi])
+	}
+	if numberReadsOtherwise(ln, before) {
+		b.bidiText(ln, before, true)
+	}
+}
+
+// numbersAcrossBlocks does what numberAfterLine does for a paragraph
+// that goes on from one block to the next in reading order, idx: from
+// the foot of one column to the head of the next. The block before is
+// taken to go on when its last line leaves no room for the first word of
+// the block after, the test by which two lines are one paragraph, and
+// their sizes are alike. The block's text is then put together again.
+func (b *builder) numbersAcrossBlocks(idx []int32) {
+	if b.rtlLines == 0 {
+		return
+	}
+	plain := func(bl *blk) bool { return bl.grid == nil && bl.table == 0 && bl.cell == 0 && bl.line >= 0 }
+	for k := 1; k < len(idx); k++ {
+		up, at := &b.blocks[idx[k-1]], &b.blocks[idx[k]]
+		if !plain(up) || !plain(at) || up.display != at.display {
+			continue
+		}
+		ln := &b.lines[at.line]
+		if !ln.numberFirst || ln.before != 0 {
+			continue
+		}
+		// The last line of the block before, and how far its lines reach
+		// where a line ends: at the left for lines read from right to
+		// left.
+		last := &b.lines[up.line]
+		reach := last.u1
+		if ln.rtl {
+			reach = last.u0
+		}
+		for li := up.line; li >= 0; li = b.lines[li].next {
+			l := &b.lines[li]
+			last = l
+			if ln.rtl {
+				reach = min(reach, l.u0)
+			} else {
+				reach = max(reach, l.u1)
+			}
+		}
+		size := max(last.size, ln.size)
+		if last.rtl != ln.rtl || size <= 0 || min(last.size, ln.size) < (1-sameSize)*size {
+			continue
+		}
+		room := reach - last.u1
+		if ln.rtl {
+			room = last.u0 - reach
+		}
+		if room > ln.firstWord+ln.space+0.5*size {
+			continue
+		}
+		before := lastLetter([]byte(up.text))
+		if !numberReadsOtherwise(ln, before) {
+			continue
+		}
+		b.bidiText(ln, before, true)
+		b.out = b.out[:0]
+		var prev *line
+		for li := at.line; li >= 0; li = b.lines[li].next {
+			b.joinLine(prev, &b.lines[li])
+			prev = &b.lines[li]
+		}
+		if t := b.clean(b.out); t != "" {
+			at.text = t
+		}
+	}
+}
+
+// lastLetter returns the type of the last letter of t: bidiL, bidiR or
+// bidiAL, 0 for none.
+func lastLetter(t []byte) bidiClass {
+	for len(t) > 0 {
+		r, n := utf8.DecodeLastRune(t)
+		t = t[:len(t)-n]
+		if c := classOf(r); c == bidiL || c == bidiR || c == bidiAL {
+			return c
+		}
+	}
+	return 0
+}
+
+// numberReadsOtherwise reports whether the number at the start of line
+// ln reads otherwise after a letter of type before than as the line
+// read it by itself, after the type of its own direction.
+func numberReadsOtherwise(ln *line, before bidiClass) bool {
+	took := bidiL
+	if ln.rtl {
+		took = bidiR
+	}
+	return ln.numberFirst && before != 0 && before != took
 }
 
 // rowTab returns a line as the rule on rows sees it: the gap after the

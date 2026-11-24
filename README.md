@@ -15,7 +15,7 @@ share.
   exhaust them.
 - It starts no program, fetches nothing, runs nothing that a file contains, and does no OCR.
 
-> **Status.** v0.3.0 (2026-11-23), on go-fast-core v0.1.2. The API is not that of v0.1:
+> **Status.** v0.3.1 (2026-11-24), on go-fast-core v0.1.5. The API is not that of v0.1:
 > [MIGRATION.md](MIGRATION.md) says what became what; [CHANGELOG.md](CHANGELOG.md) says what changed.
 
 ## Speed
@@ -340,11 +340,12 @@ file can be read from many goroutines, and the result is the same for any number
 - **A public corpus** of 1,650 PDFs (the test suites of pdf.js and PDFium, and documents of GovDocs1),
   scored against `pdftotext` word by word. A third of it is held out: scored, and never looked at when
   a heuristic is changed. A change may not lower the score of any file.
-- **A soak run** over 3,186 files and 50,569 pages, each file in a process of its own under a time limit
+- **A soak run** over 3,186 files and 50,995 pages, each file in a process of its own under a time limit
   and a memory ceiling, with the default options and with `Spans`: no crash, no file over its
   limits, every result within the contract of the shared model.
 - **Fuzzing** of every target listed in `.github/fuzz-targets.txt`, 30 seconds each on every change and an hour each every night. The
-  decompressor is compared with `compress/zlib` on every input.
+  decompressor is go-fast-core's, fuzzed there against `compress/zlib` on every input; here it is
+  compared with `compress/zlib` on the 11,394 streams of the tuning set.
 - **Budgets**: the allocations per page of the benchmark documents, and the instructions a benchmark
   executes against the last release.
 - **Every change** runs on linux/amd64, linux/arm64, darwin/arm64 and windows/amd64 under the race

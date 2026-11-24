@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- go-fast-core v0.1.4: `Document.Text`, `Document.Markdown`, `Part.Text` and `Part.Markdown` allocate
+  their result once, and `WriteText` and `WriteMarkdown` write straight into a `strings.Builder` or
+  `bytes.Buffer`. The output is the same: over the 1,650 files of the public corpus, the JSON, Markdown
+  and text of the command and the text and Markdown of the library are byte-identical to v0.3.0's.
+  `Table.RowLocs` (core v0.1.3) is not filled.
+
 ## v0.3.0 (2026-11-23)
 
 Two shared warning codes of go-fast-core v0.1.2, for events that were silent until now. No code is

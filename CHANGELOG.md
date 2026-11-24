@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- **Columns of text written from right to left are read from right to left.** Where the reading order
+  cuts a page, or a part of it, into blocks side by side, they were read from left to right whatever
+  the script; they are now read from right to left where most of their text is in lines that read so,
+  as the columns of a page in Hebrew or Arabic are. Five fixtures set by LibreOffice and Firefox
+  (`testdata/gen-rtl-columns.sh`) check it, one of them English with Hebrew and Arabic in it, whose
+  columns stay from left to right. Over the 3,192 files of the corpora, one file of the public corpus
+  is read otherwise, with the same score.
+
 ## v0.3.1 (2026-11-24)
 
 Two releases of go-fast-core, v0.1.4 and v0.1.5, with the same output except for the words of one

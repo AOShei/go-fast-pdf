@@ -523,6 +523,9 @@ func (b *builder) lineText(ln *line) {
 func (b *builder) bidiText(ln *line) {
 	start := len(b.text)
 	ln.bidi, ln.rtl = true, b.bidiUnits(ln)
+	if ln.rtl {
+		b.rtlLines++
+	}
 	// The fonts where the line meets the lines before and after it: of
 	// its first and its last letters as they are read.
 	first, last := -1, -1

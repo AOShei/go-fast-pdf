@@ -68,3 +68,61 @@ func TestRightToLeftFixtures(t *testing.T) {
 		})
 	}
 }
+
+// The fixtures of testdata/gen-rtl-columns.sh: the Hebrew and the Arabic
+// of TestRightToLeftFixtures under a heading across the page, in two
+// columns, the first on the right, set by LibreOffice and by Firefox; and
+// the English with Hebrew and Arabic in it, the first column on the left.
+// The words are read in the order of the source: the right column
+// before the left, and in the English the left before the right. A paragraph that goes on into the next column is two
+// blocks there, so the text is compared word by word.
+func TestRightToLeftColumns(t *testing.T) {
+	firefoxYeh := strings.NewReplacer("على ", "علی ")
+	// Firefox breaks the Arabic between "بنسبة" and "75%", at the foot of
+	// the right column. The Arabic letter before the number makes it an
+	// Arabic number, and the percent sign after it stands left of it;
+	// the letter is on the line before, and a line is read by itself, so
+	// the number is read as a European one, with the sign before it.
+	numberAtLineStart := strings.NewReplacer("75% ", "%75 ")
+	for _, c := range []struct {
+		fixture, source string
+		declared        []*strings.Replacer
+		byOutline       bool
+	}{
+		{"rtl-he-columns-libreoffice", "rtl-he", nil, false},
+		{"rtl-he-columns-firefox", "rtl-he", nil, false},
+		{"rtl-ar-columns-libreoffice", "rtl-ar", nil, false},
+		{"rtl-ar-columns-firefox", "rtl-ar", []*strings.Replacer{firefoxYeh, numberAtLineStart}, true},
+		{"rtl-mixed-columns-libreoffice", "rtl-mixed", nil, false},
+	} {
+		t.Run(c.fixture, func(t *testing.T) {
+			src, err := os.ReadFile("testdata/src/" + c.source + ".txt")
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := strings.Join(strings.Fields(string(src)), " ")
+			for _, r := range c.declared {
+				want = r.Replace(want)
+			}
+			data, err := os.ReadFile("testdata/fixtures/" + c.fixture + ".pdf")
+			if err != nil {
+				t.Fatal(err)
+			}
+			doc := mustExtract(t, data, nil)
+			var got []string
+			for i := range doc.Parts {
+				got = append(got, texts(&doc.Parts[i])...)
+			}
+			if g := strings.Join(strings.Fields(strings.Join(got, " ")), " "); g != want {
+				t.Errorf("got:\n%s\nwant:\n%s", strings.Join(got, "\n\n"), want)
+			}
+			for i := range doc.Parts {
+				ws := doc.Parts[i].Warnings
+				if c.byOutline && (len(ws) != 1 || ws[0].Code != gofastpdf.WarnGlyphTextByOutline || ws[0].Severity != gofastcore.SeverityInfo) ||
+					!c.byOutline && len(ws) != 0 {
+					t.Errorf("page %d: warnings %v", i+1, ws)
+				}
+			}
+		})
+	}
+}

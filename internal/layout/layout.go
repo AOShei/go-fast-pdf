@@ -323,7 +323,6 @@ func Build(page Page, c *extract.Content, opts Options) Result {
 		visible[i] = int32(i)
 	}
 	b.readingOrder(visible)
-	b.numbersAcrossBlocks(visible)
 	var cellText []string
 	var cellBox []gofastcore.Rect
 	var cellSize []float64

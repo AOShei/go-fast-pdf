@@ -78,10 +78,10 @@ func TestRightToLeftFixtures(t *testing.T) {
 // blocks there, so the text is compared word by word.
 func TestRightToLeftColumns(t *testing.T) {
 	firefoxYeh := strings.NewReplacer("على ", "علی ")
-	// Firefox breaks the Arabic between "بنسبة" and "75%", at the foot of
-	// the right column: the Arabic letter before the number, on the line
-	// before in another block, makes it an Arabic number, and the percent
-	// sign after it stands left of it.
+	// Firefox breaks the Arabic between "بنسبة" and "75%", two lines of
+	// the left column: the Arabic letter before the number, on the line
+	// before, makes it an Arabic number, and the percent sign after it
+	// stands left of it.
 	for _, c := range []struct {
 		fixture, source string
 		declared        []*strings.Replacer
@@ -135,7 +135,7 @@ func TestRightToLeftNumberAtLineStart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	paras := strings.Split(strings.TrimSpace(string(src)), "\n\n")
+	paras := strings.Split(strings.TrimSpace(strings.ReplaceAll(string(src), "\r\n", "\n")), "\n\n")
 	want := paras[len(paras)-1]
 	data, err := os.ReadFile("testdata/fixtures/rtl-ar-line-number-firefox.pdf")
 	if err != nil {

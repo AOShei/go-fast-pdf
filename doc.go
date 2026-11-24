@@ -495,10 +495,9 @@
 // a page, are read from right to left where most of their text reads
 // so. The algorithm resolves a paragraph, not a line: a number at the
 // start of a line takes the type of the letter before it in its
-// paragraph, on the line before, or at the foot of the column before
-// where the paragraph goes on there (its last line leaves no room for
-// the first word that follows), so that after an Arabic letter it is an
-// Arabic number and the sign after it (75%) stands left of it. A mark (a vowel sign, a hamza, the dots
+// paragraph, on the line before, so
+// that after an Arabic letter it is an Arabic number and the sign after
+// it (75%) stands left of it. A mark (a vowel sign, a hamza, the dots
 // of a letter drawn in pieces) that the page draws by itself on the
 // glyph before it, however far up or down, is read with that glyph, and
 // a letter and the hamza on it are the letter with hamza.

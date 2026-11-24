@@ -216,7 +216,8 @@ Settings that only PDF has are fields of `gofastpdf.Extractor`. The
 - **Paragraphs and reading order** - lines are joined into paragraphs; columns, tables drawn by rows, and
   pages drawn out of order are put in reading order; in a tagged PDF the order of the structure tree
   decides where the white space of the page leaves it open; text written from right to left (Hebrew,
-  Arabic) reads in the order it is written, with numbers and Latin words in it from left to right
+  Arabic) reads in the order it is written, with numbers and Latin words in it from left to right, and
+  its columns from right to left
 - **Running headers and footers** - titles, dates and page numbers that the pages repeat in their margins
   are tagged, and the renderers leave them out; a paragraph split by a page break is joined again
 - **Headings** - from the structure tree of a tagged PDF or the outline where they name them, otherwise by
@@ -360,7 +361,9 @@ file can be read from many goroutines, and the result is the same for any number
   markers is paragraphs
 - **Scripts written from right to left** - a line's direction is that of the letters at its ends or of
   most of its words, so a line of a paragraph read from right to left that is mostly Latin can be read
-  the other way. Columns are read from left to right whatever the script. Glyphs that a font leaves
+  the other way. Columns are read from right to left where most of their text reads so. A line is read
+  by itself, so a number that starts a line of Arabic is a European number even where the Arabic letter
+  that makes it an Arabic number ends the line before: "75%" there is read "%75". Glyphs that a font leaves
   without a character are read by their outlines only for the fonts built in (Noto Sans, Naskh and
   Kufi Arabic, Regular and Bold, of one version each, which Firefox embeds), and the page has the
   warning `pdf.glyph_text_by_outline`; in other fonts they are not read

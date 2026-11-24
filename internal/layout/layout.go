@@ -231,6 +231,11 @@ type builder struct {
 	units      []unit
 	segs       []segment
 	mirrorLine bool
+	// rtlLines counts the lines of the page that read from right to
+	// left, and dirLines is where the ordering step lists the lines of a
+	// part of the page to weigh their directions (order.go).
+	rtlLines int
+	dirLines []int32
 
 	controls int
 }
@@ -511,7 +516,7 @@ func (b *builder) reset(page Page, c *extract.Content, opts Options) {
 	b.pieces, b.order, b.lines, b.lidx = b.pieces[:0], b.order[:0], b.lines[:0], b.lidx[:0]
 	b.text, b.cands, b.frags, b.blocks, b.bidx = b.text[:0], b.cands[:0], b.frags[:0], b.blocks[:0], b.bidx[:0]
 	b.stats = Stats{Runs: len(c.Runs)}
-	b.controls = 0
+	b.controls, b.rtlLines = 0, 0
 }
 
 // trim drops what one unusually large page grew.
@@ -524,7 +529,7 @@ func (b *builder) trim() {
 		b.order, b.sorted, b.sortB, b.pred, b.claims = nil, nil, nil, nil, nil
 	}
 	if cap(b.lines) > keep {
-		b.lines, b.lidx = nil, nil
+		b.lines, b.lidx, b.dirLines = nil, nil, nil
 	}
 	if cap(b.text) > 4<<20 {
 		b.text, b.out = nil, nil

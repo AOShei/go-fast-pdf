@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	gofastcore "github.com/AOShei/go-fast-core"
 )
@@ -52,7 +53,8 @@ func (b *builder) cutBox(i int32) box {
 //
 // The page is cut along the white space between its blocks, across and
 // down, again and again (a recursive XY cut): the parts are read from
-// top to bottom and from left to right. Where the page can be cut in
+// top to bottom, and from left to right, or from right to left where
+// the text of the blocks side by side is mainly written that way. Where the page can be cut in
 // more than one way, the cut is taken that the order of drawing agrees
 // with best. A page drawn column by column is read by columns; a table
 // drawn row by row is read by rows. Blocks that no white space
@@ -279,8 +281,14 @@ func (b *builder) cut(idx []int32, depth int) {
 		}
 		part[k] = parts - 1
 	}
+	// Parts side by side are read from right to left where most of
+	// their text is: the columns of a page in Arabic or Hebrew.
+	first, last, step := int32(0), parts, int32(1)
+	if use == &ax[0] && parts > 1 && b.readsRightToLeft(idx) {
+		first, last, step = parts-1, -1, -1
+	}
 	out := make([]int32, 0, n)
-	for p := int32(0); p < parts; p++ {
+	for p := first; p != last; p += step {
 		from := len(out)
 		for k, i := range idx {
 			if part[k] == p {
@@ -290,6 +298,30 @@ func (b *builder) cut(idx []int32, depth int) {
 		b.cut(out[from:], depth+1)
 	}
 	copy(idx, out)
+}
+
+// readsRightToLeft reports whether most of the characters of the
+// blocks idx are in lines that read from right to left.
+func (b *builder) readsRightToLeft(idx []int32) bool {
+	if b.rtlLines == 0 {
+		return false
+	}
+	lines := b.dirLines[:0]
+	for _, i := range idx {
+		lines = b.blockLines(lines, i)
+	}
+	b.dirLines = lines
+	rtl, ltr := 0, 0
+	for _, li := range lines {
+		ln := &b.lines[li]
+		n := utf8.RuneCount(b.text[ln.tlo:ln.thi])
+		if ln.rtl {
+			rtl += n
+		} else {
+			ltr += n
+		}
+	}
+	return rtl > ltr
 }
 
 // place returns where among the boxes, which are in reading order, a

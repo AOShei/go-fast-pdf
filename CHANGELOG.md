@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+## v0.3.1 (2026-11-24)
+
+Two releases of go-fast-core, v0.1.4 and v0.1.5, with the same output except for the words of one
+warning: an error of a damaged stream now begins `inflate:` where it said `zlib:`.
 
 - go-fast-core v0.1.4: `Document.Text`, `Document.Markdown`, `Part.Text` and `Part.Markdown` allocate
   their result once, and `WriteText` and `WriteMarkdown` write straight into a `strings.Builder` or
@@ -13,6 +16,19 @@
   files. On the 11,394 streams of the tuning set it takes 3.0 percent fewer instructions than before,
   and gives the same bytes as compress/zlib. The CJK CMaps are decompressed with it too, in place of
   compress/flate. An error of a damaged stream in a warning now begins `inflate:` where it said `zlib:`.
+
+Over the 3,192 files of the corpora, the Markdown and text are byte-identical to v0.3.0's, and the JSON
+too except in 5 damaged files of the pdf.js and PDFium suites, whose 12 warnings about a stream say
+`inflate:` for `zlib:`.
+
+### Checked before the release
+
+On the tree that is tagged: the 3,186 files of the corpora read in processes of their own, three
+times, with no crash, hang or memory failure, at most 2.3 s and 666 MiB for a file; instructions per
+operation of the benchmarks within 1.1 percent of v0.3.0's, a median 0.3 percent fewer
+(`bench/v0.3.1.txt`); fuzzing of its 25 targets for an hour each on machines of four processors,
+100 processor hours and 3.5 billion inputs, with nothing found. The two targets of the decompressor
+went to go-fast-core with it.
 
 ## v0.3.0 (2026-11-23)
 

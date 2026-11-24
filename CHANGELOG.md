@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Arabic given as ActualText reads in whole words, whatever order its glyphs are drawn in.** A run of
+  `/ActualText` began where the first glyph drawn began. LibreOffice, with fonts such as Noto Sans
+  Arabic, draws the dots of a letter before its body, so the letter began at its dots, the gap to the
+  letter before looked like a space, and words were cut ("ف ي" for "في"). Such a run, in letters
+  written from right to left, now reaches over all its glyphs, on the baseline of the widest. A fixture
+  checks it (`rtl-ar-noto-libreoffice.pdf`, from `testdata/gen-rtl.sh`). Over the 3,192 files of the
+  corpora one changes, PDFium's `arabic_actual_text_ordering.pdf`: the word it sets four times in
+  different orders reads the same each time, where three were cut. No score changes.
 - **Columns of text written from right to left are read from right to left.** Where the reading order
   cuts a page, or a part of it, into blocks side by side, they were read from left to right whatever
   the script; they are now read from right to left where most of their text is in lines that read so,

@@ -162,3 +162,31 @@ func TestRightToLeftNumberAtLineStart(t *testing.T) {
 		}
 	}
 }
+
+// The Arabic set by LibreOffice in Noto Sans Arabic (testdata/gen-rtl.sh),
+// which gives each dotted letter as ActualText and draws its dots before
+// its body. Every word is whole: a letter reaches over all its glyphs,
+// and does not begin at its dots. (The lines are further apart than the
+// paragraph step joins, so the text is compared word by word.)
+func TestRightToLeftActualText(t *testing.T) {
+	src, err := os.ReadFile("testdata/src/rtl-ar.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := strings.Join(strings.Fields(string(src)), " ")
+	data, err := os.ReadFile("testdata/fixtures/rtl-ar-noto-libreoffice.pdf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := mustExtract(t, data, nil)
+	var got []string
+	for i := range doc.Parts {
+		got = append(got, texts(&doc.Parts[i])...)
+		if ws := doc.Parts[i].Warnings; len(ws) != 0 {
+			t.Errorf("page %d: warnings %v", i+1, ws)
+		}
+	}
+	if g := strings.Join(strings.Fields(strings.Join(got, " ")), " "); g != want {
+		t.Errorf("got:\n%s\nwant:\n%s", g, want)
+	}
+}

@@ -500,7 +500,9 @@
 // it (75%) stands left of it. A mark (a vowel sign, a hamza, the dots
 // of a letter drawn in pieces) that the page draws by itself on the
 // glyph before it, however far up or down, is read with that glyph, and
-// a letter and the hamza on it are the letter with hamza.
+// a letter and the hamza on it are the letter with hamza. Text given
+// for glyphs (ActualText) in such letters reaches over all the glyphs it
+// is given for, in whatever order they are drawn.
 //
 // # What the file declares
 //

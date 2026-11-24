@@ -4,7 +4,8 @@
 # Hebrew and of Arabic, with numbers, Latin words and brackets in them,
 # and English paragraphs with Hebrew and Arabic in them, each set by
 # LibreOffice, and the Hebrew and the Arabic by Firefox (the Arabic in Noto Sans
-# Arabic and in Noto Naskh Arabic). rtl_fixtures_test.go compares what the
+# Arabic and in Noto Naskh Arabic); and the Arabic by LibreOffice in Noto
+# Sans Arabic. rtl_fixtures_test.go compares what the
 # library reads with the source, in the order it is written.
 #
 # The output is committed. Run this only to add a fixture or after
@@ -52,6 +53,13 @@ page rtl-ar ar rtl '"Noto Sans Arabic", sans-serif'
 contained 180 512 python3 -I ./browser-print.py "$tmp/rtl-ar.html" "$out/rtl-ar-firefox.pdf" "$tmp/firefox-rtl-ar"
 page rtl-ar ar rtl '"Noto Naskh Arabic", serif' rtl-ar-naskh
 contained 180 512 python3 -I ./browser-print.py "$tmp/rtl-ar-naskh.html" "$out/rtl-ar-naskh-firefox.pdf" "$tmp/firefox-rtl-ar-naskh"
+
+# LibreOffice with the Arabic in Noto Sans Arabic: each dotted letter is
+# given as ActualText, its dots drawn before its body.
+page rtl-ar ar rtl '"Noto Sans Arabic", sans-serif' rtl-ar-noto
+contained 300 256 soffice --headless --norestore -env:UserInstallation="file://$tmp/lo-profile" \
+	--convert-to pdf --outdir "$tmp" "$tmp/rtl-ar-noto.html" >/dev/null
+cp "$tmp/rtl-ar-noto.pdf" "$out/rtl-ar-noto-libreoffice.pdf"
 
 (cd "$out" && sha256sum -- *.pdf >MANIFEST.sha256)
 ls -l "$out"/rtl-*

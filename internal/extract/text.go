@@ -157,6 +157,27 @@ func Separator(prev, next *Run) (sep byte, gap float64) {
 	return sep, (next.X0-prev.X1)*prev.Dx + (next.Y0-prev.Y1)*prev.Dy
 }
 
+// cover makes a run of text given for glyphs (ActualText), in letters
+// written from right to left, reach over a further string of them, from
+// x0, y0 to x1, y1. The strings come in any order: LibreOffice draws the
+// dots of an Arabic letter before its body, so that neither the first
+// nor the last is where the letter begins or ends. The baseline is that
+// of the widest string, the body.
+func (r *Run) cover(x0, y0, x1, y1 float64) {
+	at := func(x, y float64) float64 { return x*r.Dx + y*r.Dy }
+	a, e := min(at(r.X0, r.Y0), at(r.X1, r.Y1)), max(at(r.X0, r.Y0), at(r.X1, r.Y1))
+	lo, hi := min(at(x0, y0), at(x1, y1)), max(at(x0, y0), at(x1, y1))
+	bx, by := r.X0, r.Y0
+	if hi-lo > e-a {
+		bx, by = x0, y0
+	}
+	b := at(bx, by)
+	a, e = min(a, lo), max(e, hi)
+	r.X0, r.Y0 = bx+(a-b)*r.Dx, by+(a-b)*r.Dy
+	r.X1, r.Y1 = bx+(e-b)*r.Dx, by+(e-b)*r.Dy
+	r.LX, r.LY = r.X0, r.Y0
+}
+
 // SpaceGap is the distance along the line from which two strings set at
 // the size and space width of r are apart by a space.
 func (r *Run) SpaceGap() float64 {
@@ -509,9 +530,14 @@ func (in *interp) showCodes(f *font.Font, raw []byte) {
 	if replaced && !first {
 		// Part of a replaced sequence: it moved the position, no more.
 		if n := len(in.runs); n > 0 && in.runs[n-1].ActualText {
-			in.runs[n-1].X1, in.runs[n-1].Y1 = x1, y1
-			in.runs[n-1].LX, in.runs[n-1].LY = x0, y0
-			in.runs[n-1].Glyphs += int32(sh.Glyphs)
+			r := &in.runs[n-1]
+			r.Glyphs += int32(sh.Glyphs)
+			if r.RTL {
+				r.cover(x0, y0, x1, y1)
+			} else {
+				r.X1, r.Y1 = x1, y1
+				r.LX, r.LY = x0, y0
+			}
 		}
 		return
 	}

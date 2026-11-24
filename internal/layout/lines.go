@@ -56,6 +56,13 @@ type line struct {
 	// to left, whose text is put together from its units (bidi.go); rtl
 	// when it reads from right to left.
 	bidi, rtl bool
+	// numberFirst is set for such a line that has a number before its
+	// first letter as it is read: the letter before it in its paragraph,
+	// on the line before, can change how the number reads.
+	numberFirst bool
+	// before is the type of the letter before the line in its paragraph
+	// that its text was read with (bidiText), 0 for none.
+	before bidiClass
 	// The fonts of the first and last piece, and of the piece with the
 	// most text.
 	first, last, main *font.Font
@@ -430,9 +437,9 @@ const (
 
 // lineText writes the text of a line to b.text.
 func (b *builder) lineText(ln *line) {
-	ln.bidi, ln.rtl = false, false
+	ln.bidi, ln.rtl, ln.numberFirst, ln.before = false, false, false, 0
 	if b.rightToLeftLine(ln) {
-		b.bidiText(ln)
+		b.bidiText(ln, 0, false)
 		return
 	}
 	b.cands = b.cands[:0]
@@ -519,11 +526,15 @@ func (b *builder) lineText(ln *line) {
 }
 
 // bidiText writes the text of a line with letters of a script written
-// from right to left to b.text, in the order it is read (bidi.go).
-func (b *builder) bidiText(ln *line) {
+// from right to left to b.text, in the order it is read (bidi.go), with
+// before the type of the last letter before it in its paragraph, 0 for
+// none or not known. again is set when the line is written a second
+// time, once its paragraph is known; it is not counted again.
+func (b *builder) bidiText(ln *line, before bidiClass, again bool) {
 	start := len(b.text)
-	ln.bidi, ln.rtl = true, b.bidiUnits(ln)
-	if ln.rtl {
+	ln.bidi, ln.before = true, before
+	ln.rtl, ln.numberFirst = b.bidiUnits(ln, before)
+	if ln.rtl && !again {
 		b.rtlLines++
 	}
 	// The fonts where the line meets the lines before and after it: of
@@ -546,7 +557,9 @@ func (b *builder) bidiText(ln *line) {
 		b.text = b.unitText(b.text, u)
 		if u.put == '\t' {
 			ln.tab = true
-			b.stats.Tabs++
+			if !again {
+				b.stats.Tabs++
+			}
 			continue
 		}
 		for k := n; k < len(b.text); k++ {
@@ -575,6 +588,11 @@ func (b *builder) endLine(ln *line, start int) {
 	}
 	if len(t) > 0 {
 		ln.firstWord = (ln.u1 - ln.u0) * float64(j-i) / float64(len(t))
+		if ln.bidi {
+			// A digit is one byte and an Arabic or Hebrew letter two: by
+			// bytes, a number is taken for half as wide as it is.
+			ln.firstWord = (ln.u1 - ln.u0) * float64(utf8.RuneCount(t[i:j])) / float64(utf8.RuneCount(t))
+		}
 	}
 }
 

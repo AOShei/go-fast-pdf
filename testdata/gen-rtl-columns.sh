@@ -9,6 +9,11 @@
 # columns; the Arabic in Noto Sans Arabic). rtl_fixtures_test.go reads
 # them in the order the source is written.
 #
+# And rtl-ar-line-number-firefox.pdf: the last paragraph of rtl-ar.txt,
+# 210 points wide, which Firefox breaks between "بنسبة" and "75%": the
+# number starts a line, after an Arabic letter at the end of the line
+# before.
+#
 # The output is committed. Run this only to add a fixture or after
 # changing a source text.
 #
@@ -52,5 +57,14 @@ contained 180 512 python3 -I ./browser-print.py "$tmp/rtl-he-columns-ff.html" "$
 page rtl-ar ar rtl rtl-ar-columns-ff css '"Noto Sans Arabic", sans-serif'
 contained 180 512 python3 -I ./browser-print.py "$tmp/rtl-ar-columns-ff.html" "$out/rtl-ar-columns-firefox.pdf" "$tmp/firefox-ar"
 
+{
+	printf '<!doctype html>\n<html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>rtl-ar-line-number</title>\n<style>\n'
+	printf 'body { font-family: "Noto Sans Arabic", sans-serif; font-size: 12pt; line-height: 1.4; margin: 0 }\n'
+	printf 'p { margin: 0; width: 210pt }\n</style></head><body>\n'
+	awk 'BEGIN { RS = ""; FS = "\n" } { last = $0 } END { print "<p>" last "</p>" }' src/rtl-ar.txt
+	printf '</body></html>\n'
+} >"$tmp/rtl-ar-line-number.html"
+contained 180 512 python3 -I ./browser-print.py "$tmp/rtl-ar-line-number.html" "$out/rtl-ar-line-number-firefox.pdf" "$tmp/firefox-number"
+
 (cd "$out" && sha256sum -- *.pdf >MANIFEST.sha256)
-ls -l "$out"/rtl-*-columns-*
+ls -l "$out"/rtl-*-columns-* "$out"/rtl-ar-line-number-firefox.pdf

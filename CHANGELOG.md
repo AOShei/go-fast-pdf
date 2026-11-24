@@ -9,6 +9,14 @@
   (`testdata/gen-rtl-columns.sh`) check it, one of them English with Hebrew and Arabic in it, whose
   columns stay from left to right. Over the 3,192 files of the corpora, one file of the public corpus
   is read otherwise, with the same score.
+- **A number at the start of a line reads after the letter before it in its paragraph.** The Unicode
+  bidirectional algorithm resolves a paragraph, and the library resolved a line: a number that starts
+  a line of Arabic, after an Arabic letter at the end of the line before, is an Arabic number, and a
+  percent sign after it stands at its left; it was read as a European number, "%75" for "75%". And a
+  paragraph with letters written from right to left is no longer split before a short number: the
+  width of a line's first word was its share of the line's bytes, and a digit is one byte where an
+  Arabic or Hebrew letter is two. Two Firefox fixtures check it; over the 3,192 files of the corpora
+  nothing changes.
 
 ## v0.3.1 (2026-11-24)
 

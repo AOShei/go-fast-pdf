@@ -78,12 +78,10 @@ func TestRightToLeftFixtures(t *testing.T) {
 // blocks there, so the text is compared word by word.
 func TestRightToLeftColumns(t *testing.T) {
 	firefoxYeh := strings.NewReplacer("على ", "علی ")
-	// Firefox breaks the Arabic between "بنسبة" and "75%", at the foot of
-	// the right column. The Arabic letter before the number makes it an
-	// Arabic number, and the percent sign after it stands left of it;
-	// the letter is on the line before, and a line is read by itself, so
-	// the number is read as a European one, with the sign before it.
-	numberAtLineStart := strings.NewReplacer("75% ", "%75 ")
+	// Firefox breaks the Arabic between "بنسبة" and "75%", two lines of
+	// the left column: the Arabic letter before the number, on the line
+	// before, makes it an Arabic number, and the percent sign after it
+	// stands left of it.
 	for _, c := range []struct {
 		fixture, source string
 		declared        []*strings.Replacer
@@ -92,7 +90,7 @@ func TestRightToLeftColumns(t *testing.T) {
 		{"rtl-he-columns-libreoffice", "rtl-he", nil, false},
 		{"rtl-he-columns-firefox", "rtl-he", nil, false},
 		{"rtl-ar-columns-libreoffice", "rtl-ar", nil, false},
-		{"rtl-ar-columns-firefox", "rtl-ar", []*strings.Replacer{firefoxYeh, numberAtLineStart}, true},
+		{"rtl-ar-columns-firefox", "rtl-ar", []*strings.Replacer{firefoxYeh}, true},
 		{"rtl-mixed-columns-libreoffice", "rtl-mixed", nil, false},
 	} {
 		t.Run(c.fixture, func(t *testing.T) {
@@ -124,5 +122,43 @@ func TestRightToLeftColumns(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// The last paragraph of testdata/src/rtl-ar.txt, which Firefox breaks
+// between "بنسبة" and "75%" (testdata/gen-rtl-columns.sh): the Arabic
+// letter at the end of the line before makes the number at the start of
+// the next an Arabic number, and the percent sign after it stands at its
+// left. It reads as the source, "75%", and not "%75".
+func TestRightToLeftNumberAtLineStart(t *testing.T) {
+	src, err := os.ReadFile("testdata/src/rtl-ar.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	paras := strings.Split(strings.TrimSpace(strings.ReplaceAll(string(src), "\r\n", "\n")), "\n\n")
+	want := paras[len(paras)-1]
+	data, err := os.ReadFile("testdata/fixtures/rtl-ar-line-number-firefox.pdf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := mustExtract(t, data, nil)
+	if len(doc.Parts) != 1 {
+		t.Fatalf("%d parts", len(doc.Parts))
+	}
+	if got := texts(&doc.Parts[0]); len(got) != 1 || got[0] != want {
+		t.Errorf("got:\n%s\nwant:\n%s", strings.Join(got, "\n\n"), want)
+	}
+	// With spans, the words of the line are found in the text it was
+	// written again with (mustExtract holds the result to the contract).
+	for _, name := range []string{"rtl-ar-line-number-firefox", "rtl-ar-columns-firefox"} {
+		data, err := os.ReadFile("testdata/fixtures/" + name + ".pdf")
+		if err != nil {
+			t.Fatal(err)
+		}
+		plain := mustExtract(t, data, nil)
+		spans := mustExtract(t, data, &gofastcore.Options{Spans: true})
+		if a, b := texts(&plain.Parts[0]), texts(&spans.Parts[0]); strings.Join(a, "\n") != strings.Join(b, "\n") {
+			t.Errorf("%s: the text with spans differs:\n%s\nwithout:\n%s", name, strings.Join(b, "\n"), strings.Join(a, "\n"))
+		}
 	}
 }

@@ -8,7 +8,7 @@ import (
 	"sync"
 
 	gofastcore "github.com/AOShei/go-fast-core"
-	zlib "github.com/AOShei/go-fast-pdf/internal/inflate"
+	zlib "github.com/AOShei/go-fast-core/inflate"
 	"github.com/AOShei/go-fast-pdf/internal/syntax"
 )
 
@@ -241,7 +241,8 @@ func filterName(v syntax.Value) string {
 	}
 }
 
-// inflate appends the zlib-decompressed form of src to dst. It stops at
+// inflate appends the zlib-decompressed form of src to dst, with the
+// decompressor of go-fast-core, which was this library's. It stops at
 // limit bytes of output with ErrTruncated. On a damaged stream it returns
 // what was decompressed before the damage, with the error.
 func inflate(dst, src []byte, limit int64) ([]byte, error) {
@@ -249,7 +250,7 @@ func inflate(dst, src []byte, limit int64) ([]byte, error) {
 	switch {
 	case err == nil:
 		return out, nil
-	case err == zlib.ErrLimit:
+	case errors.Is(err, zlib.ErrLimit):
 		return out, ErrTruncated
 	}
 	return out, fmt.Errorf("%w: %v", gofastcore.ErrMalformed, err)

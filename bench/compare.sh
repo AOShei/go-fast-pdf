@@ -26,7 +26,7 @@ rounds=${ROUNDS:-6}
 benchtime=${BENCHTIME:-1s}
 limit=${LIMIT:-10}
 out=${OUT:-bench-compare.txt}
-pattern='^(BenchmarkExtract$|BenchmarkExtractFiles$|BenchmarkScanner$|BenchmarkResolve$|BenchmarkZlib$)'
+pattern='^(BenchmarkExtract$|BenchmarkExtractFiles$|BenchmarkScanner$|BenchmarkResolve$)'
 
 work=$(mktemp -d)
 cleanup() {
@@ -40,7 +40,7 @@ git worktree add --detach "$work/base" "$base" >/dev/null
 
 run() { # run <directory> <file to append to>
 	(cd "$1" && GOWORK=off go test -run '^$' -bench "$pattern" -benchtime "$benchtime" -count 1 ./... 2>/dev/null) |
-		grep -E '^Benchmark' | grep -v 'workers=8\|compress-zlib' >>"$2" || true
+		grep -E '^Benchmark' | grep -v 'workers=8' >>"$2" || true
 }
 : >"$work/base.txt"
 : >"$work/head.txt"

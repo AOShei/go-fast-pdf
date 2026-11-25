@@ -27,11 +27,12 @@ import (
 //
 // The algorithm is applied to one line at a time, without the explicit
 // embeddings and isolates that a file cannot give: the direction of the
-// line is that of the letters at its ends, or of most of its words;
-// numbers, and Latin words, read
-// from left to right within it; spaces and punctuation take the
-// direction of what surrounds them. A bracket in a stretch read from
-// right to left is the other bracket, as a reader sees it (L4).
+// line is that of the letters at its ends, or of most of its words,
+// until its paragraph is known, and then that of most of the paragraph
+// (paragraphDirection); numbers, and Latin words, read from left to right
+// within it; spaces and punctuation take the direction of what surrounds
+// them. A bracket in a stretch read from right to left is the other
+// bracket, as a reader sees it (L4).
 //
 // Pieces are placed within their run by their share of its text; the
 // spaces between runs are found from the gaps between them, as for any
@@ -270,7 +271,7 @@ func (b *builder) bidiUnits(ln *line, before bidiClass) (rtl, numberFirst bool) 
 			}
 		}
 	}
-	rtl, numberFirst = bidiOrder(us, before)
+	rtl, numberFirst = bidiOrder(us, ln.dir, before)
 	// One space where two met, from either side of a stretch turned
 	// round.
 	space := func(u *unit) bool {
@@ -294,13 +295,14 @@ func (b *builder) bidiUnits(ln *line, before bidiClass) (rtl, numberFirst bool) 
 // order read, are to be mirrored where they are read from right to left.
 // That depends on the file: some give a bracket set from right to left
 // as the character it stands for, others as the glyph it is drawn with,
-// which is the other bracket. The brackets are mirrored when that makes
-// more of them pairs, opening before closing; where it makes no
-// difference, when the line was drawn from right to left glyph by glyph,
-// as browsers draw it, which give the glyph.
+// which is the other bracket. The brackets are mirrored when that leaves
+// fewer of them without a partner, opening before closing; where it
+// makes no difference, as for a bracket whose partner is on another
+// line, when the line was drawn from right to left glyph by glyph, as
+// browsers draw it, which give the glyph.
 func (b *builder) mirrors(us []unit, ln *line) bool {
-	score := func(mirrored bool) int {
-		depth, pairs := 0, 0
+	alone := func(mirrored bool) int {
+		open, n := 0, 0
 		for i := range us {
 			u := &us[i]
 			if u.put != 0 || u.level%2 == 0 || u.hi-u.lo > 3 {
@@ -312,21 +314,19 @@ func (b *builder) mirrors(us []unit, ln *line) bool {
 			}
 			switch r {
 			case '(', '[', '{', '<', '«', '‹':
-				depth++
+				open++
 			case ')', ']', '}', '>', '»', '›':
-				if depth > 0 {
-					depth--
-					pairs++
+				if open > 0 {
+					open--
 				} else {
-					pairs--
+					n++
 				}
 			}
 		}
-		return pairs
+		return n + open
 	}
-	plain, mirrored := score(false), score(true)
-	if plain != mirrored {
-		return mirrored > plain
+	if plain, mirrored := alone(false), alone(true); plain != mirrored {
+		return mirrored < plain
 	}
 	for k := ln.lo; k < ln.hi; k++ {
 		if b.c.Runs[b.pieces[b.lidx[k]].run].Back {
@@ -351,11 +351,15 @@ func (b *builder) mirrors(us []unit, ln *line) bool {
 // the line before. before is that letter's type (bidiL, bidiR or
 // bidiAL), 0 for none: then the line's direction stands in for it, as
 // at the start of a paragraph.
-func bidiOrder(us []unit, before bidiClass) (rtl, numberFirst bool) {
+//
+// dir is the direction the line is read in, bidiL or bidiR, 0 for the
+// line's own.
+func bidiOrder(us []unit, dir, before bidiClass) (rtl, numberFirst bool) {
 	// The direction of the line: that of its letters at both ends, where
 	// they agree, else that of most of its words, right to left when as
 	// many are written each way. (The algorithm takes the first letter of
 	// a paragraph in the order of reading, which is the thing not known.)
+	// Or that of the paragraph, where its other lines have told it.
 	var left, right bidiClass
 	nl, nr := 0, 0
 	var prev bidiClass
@@ -384,6 +388,9 @@ func bidiOrder(us []unit, before bidiClass) (rtl, numberFirst bool) {
 		prev = c
 	}
 	rtl = left == bidiR && right == bidiR || left != right && nr > 0 && nr >= nl
+	if dir != 0 {
+		rtl = dir == bidiR
+	}
 	base := bidiL
 	var level uint8
 	if rtl {
@@ -476,7 +483,7 @@ func bidiOrder(us []unit, before bidiClass) (rtl, numberFirst bool) {
 	}
 	// N1, N2: neutrals between two of one direction (numbers counting as
 	// right to left) take it; others take the line's.
-	dir := func(c bidiClass) bidiClass {
+	side := func(c bidiClass) bidiClass {
 		switch c {
 		case bidiEN, bidiAN, bidiR:
 			return bidiR
@@ -496,10 +503,10 @@ func bidiOrder(us []unit, before bidiClass) (rtl, numberFirst bool) {
 		}
 		before, after := base, base
 		if i > 0 {
-			before = dir(cls(i - 1))
+			before = side(cls(i - 1))
 		}
 		if j < len(us) {
-			after = dir(cls(j))
+			after = side(cls(j))
 		}
 		d := base
 		if before == after {

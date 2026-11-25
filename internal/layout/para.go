@@ -5,6 +5,7 @@ import (
 	"unicode/utf8"
 
 	gofastcore "github.com/AOShei/go-fast-core"
+	"github.com/AOShei/go-fast-pdf/internal/font"
 )
 
 // Thresholds of the paragraph step. Lengths are shares of the font size
@@ -171,8 +172,10 @@ func (b *builder) paragraphs(first int, display gofastcore.Display) {
 			before = &lines[up.pred]
 		}
 		// Lines read from right to left start at the right and end at
-		// the left: they are looked at as in a mirror.
-		mirrored := up.rtl && ln.rtl
+		// the left: they are looked at as in a mirror. So is a line that
+		// reads from left to right by itself but ends at the left.
+		endsLeft := up.rtl && !ln.rtl && b.endsAtLeft(ln)
+		mirrored := up.rtl && (ln.rtl || endsLeft)
 		upEnd, lnStart, lnEnd := up.u1, ln.u0, ln.u1
 		if mirrored {
 			upEnd, lnStart, lnEnd = -up.u0, -ln.u1, -ln.u0
@@ -203,12 +206,22 @@ func (b *builder) paragraphs(first int, display gofastcore.Display) {
 			last = next
 		}
 		upC, lnC := rowTab(up), rowTab(ln)
+		// The Latin words of text written from right to left are often in
+		// another font, for want of those letters in the first. They do
+		// not set a line apart whose other letters are in the font above,
+		// nor one that ends at the left.
+		sameFont := endsLeft || up.rtl && ln.bidi && b.rtlInFont(ln, up.main)
 		var upM, lnM line
-		if mirrored {
+		if mirrored || sameFont {
 			upM, lnM = *upC, *lnC
+			upC, lnC = &upM, &lnM
+		}
+		if sameFont {
+			lnM.first, lnM.main = up.last, up.main
+		}
+		if mirrored {
 			upM.u0, upM.u1 = -up.u1, -up.u0
 			lnM.u0, lnM.u1 = lnStart, lnEnd
-			upC, lnC = &upM, &lnM
 		}
 		// Lines of two items of a tagged list, or of an item and what is
 		// not in one, are two paragraphs.
@@ -234,6 +247,7 @@ func (b *builder) paragraphs(first int, display gofastcore.Display) {
 		bl := blk{display: display, key: lines[li].key, size: lines[li].size, line: int32(first) + li}
 		bl.x0, bl.y0, bl.x1, bl.y1 = lines[li].x0, lines[li].y0, lines[li].x1, lines[li].y1
 		b.out = b.out[:0]
+		b.paragraphDirection(lines, li)
 		var prev *line
 		for at := li; at >= 0; at = b.claims[at] {
 			ln := &lines[at]
@@ -252,6 +266,122 @@ func (b *builder) paragraphs(first int, display gofastcore.Display) {
 			b.blocks = append(b.blocks, bl)
 		}
 	}
+}
+
+// endsAtLeft reports whether a line that reads from left to right by
+// itself has a mark that ends a sentence, or a part of one, at its left
+// end, next to a letter written from left to right: the last Latin words
+// of a sentence written from right to left, which end there.
+func (b *builder) endsAtLeft(ln *line) bool {
+	// The text furthest left: the pieces may not be in that order.
+	var left []byte
+	u0 := 0.0
+	for k := ln.lo; k < ln.hi; k++ {
+		p := &b.pieces[b.lidx[k]]
+		if left != nil && p.u0 >= u0 {
+			continue
+		}
+		r := &b.c.Runs[p.run]
+		if t := trimSpace(b.c.Text[r.Off : r.Off+r.Len]); len(t) > 0 {
+			left, u0 = t, p.u0
+		}
+	}
+	r, n := utf8.DecodeRune(left)
+	if !sentenceMark(r) {
+		return false
+	}
+	if n < len(left) {
+		r, _ := utf8.DecodeRune(left[n:])
+		return classOf(r) == bidiL
+	}
+	// The mark is drawn by itself.
+	return ln.bidi || lastLetter(b.text[ln.tlo:ln.thi]) == bidiL
+}
+
+// rtlInFont reports whether the letters of a line that are written from
+// right to left are all in font f.
+func (b *builder) rtlInFont(ln *line, f *font.Font) bool {
+	some := false
+	for k := ln.lo; k < ln.hi; k++ {
+		r := &b.c.Runs[b.pieces[b.lidx[k]].run]
+		if r.RTL && r.Font != f {
+			return false
+		}
+		some = some || r.RTL
+	}
+	return some
+}
+
+// paragraphDirection writes again the lines of the paragraph that starts
+// with line li that read in the other direction than most of its text,
+// in the direction of the paragraph. The Unicode bidirectional algorithm
+// gives a paragraph one direction; a line by itself, of Latin words for
+// the most part or of nothing else, can seem to have the other. claims
+// has the line that follows each.
+func (b *builder) paragraphDirection(lines []line, li int32) {
+	nr, nl := int32(0), int32(0)
+	for at := li; at >= 0; at = b.claims[at] {
+		if ln := &lines[at]; ln.rtl {
+			nr += ln.thi - ln.tlo
+		} else {
+			nl += ln.thi - ln.tlo
+		}
+	}
+	if nr == 0 || nl == 0 || nr == nl {
+		return
+	}
+	dir := bidiL
+	if nr > nl {
+		dir = bidiR
+	}
+	// A line is turned that starts where a line next to it does, from the
+	// side that the paragraph is read from.
+	flush := func(ln *line, at int32) bool {
+		if at < 0 {
+			return false
+		}
+		d := ln.u0 - lines[at].u0
+		if dir == bidiR {
+			d = ln.u1 - lines[at].u1
+		}
+		return abs(d) <= edgeSlack*max(ln.size, lines[at].size)
+	}
+	for at := li; at >= 0; at = b.claims[at] {
+		ln := &lines[at]
+		if ln.rtl != (dir == bidiR) && (flush(ln, ln.pred) || flush(ln, b.claims[at])) && b.mayTurn(ln) {
+			ln.dir = dir
+			b.bidiText(ln, 0, true)
+		}
+	}
+}
+
+// mayTurn reports whether a line may be read in the other direction than
+// its own, as one of a paragraph of that direction. Not one that ends
+// with the mark that ends a sentence, or a part of one: the other way
+// round it would begin with it, so it was not set in that direction. And
+// not one without letters written from right to left that reads the same
+// either way, beginning and ending with a letter, or that is a row of
+// cells.
+func (b *builder) mayTurn(ln *line) bool {
+	t := trimSpace(b.text[ln.tlo:ln.thi])
+	if len(t) == 0 {
+		return false
+	}
+	first, _ := utf8.DecodeRune(t)
+	last, _ := utf8.DecodeLastRune(t)
+	if sentenceMark(last) && (ln.rtl || !b.endsAtLeft(ln)) {
+		return false
+	}
+	return ln.bidi || !ln.tab && (classOf(first) != bidiL || classOf(last) != bidiL)
+}
+
+// sentenceMark reports whether r ends a sentence, or a part of one.
+func sentenceMark(r rune) bool {
+	switch r {
+	case '.', ',', ':', ';', '!', '?', 0x060C, 0x061B, 0x061F: // and the Arabic comma, semicolon and question mark
+		return true
+	}
+	return false
 }
 
 // numberAfterLine writes again the text of line ln of a paragraph, a

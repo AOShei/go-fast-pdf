@@ -360,11 +360,12 @@ file can be read from many goroutines, and the result is the same for any number
   it is not found. In a file without tags, list items are found by their markers; a list set without
   markers is paragraphs
 - **Scripts written from right to left** - a line's direction is that of the letters at its ends or of
-  most of its words, so a line of a paragraph read from right to left that is mostly Latin can be read
-  the other way. Columns are read from right to left where most of their text reads so. Glyphs that a font leaves
-  without a character are read by their outlines only for the fonts built in (Noto Sans, Naskh and
-  Kufi Arabic, Regular and Bold, of one version each, which Firefox embeds), and the page has the
-  warning `pdf.glyph_text_by_outline`; in other fonts they are not read
+  most of its words, and in a paragraph that of most of the paragraph's text, so a paragraph of Hebrew or
+  Arabic that is mostly Latin words can be read from left to right. Columns are read from right to left
+  where most of their text reads so. Glyphs that a font leaves without a character are read by their
+  outlines only for the fonts built in (Noto Sans, Naskh and Kufi Arabic, Regular and Bold, of one
+  version each, which Firefox embeds), and the page has the warning `pdf.glyph_text_by_outline`; in
+  other fonts they are not read
 - **Fonts without any mapping** - the encodings and glyph names of embedded Type 1, CFF and TrueType
   programs are read, and the legacy Chinese, Japanese and Korean encodings are built in. What no table
   says cannot be read: Type 3 fonts, TrueType subsets without cmap and post tables, CID-keyed CFF fonts

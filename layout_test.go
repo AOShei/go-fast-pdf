@@ -69,6 +69,12 @@ func TestParagraphs(t *testing.T) {
 		{"single lines of different length, as in a list",
 			draw(10, stack(72, 700, 12, "Bread", "Two bottles of milk", "Eggs", "A newspaper for the weekend")...),
 			[]string{"Bread", "Two bottles of milk", "Eggs", "A newspaper for the weekend"}},
+		{"entries of a table of contents",
+			draw(10, stack(72, 700, 12, "Preface .................. iv", "Introduction .............. 1", "The history of the library and", "of its people ............. 3", "Annex A ................. A-1")...),
+			[]string{"Preface .................. iv", "Introduction .............. 1", "The history of the library and of its people ............. 3", "Annex A ................. A-1"}},
+		{"a sentence with an ellipsis and a number at the end of a line",
+			draw(10, stack(72, 700, 12, "The committee met and met ... 3", "times before it could agree on", "most of it.")...),
+			[]string{"The committee met and met ... 3 times before it could agree on most of it."}},
 		// The room at the end of a line is held against the width of the
 		// next line's first word, which is measured in characters: a per
 		// mille sign is three bytes and an O with a stroke two, and neither

@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- **An entry of a table of contents is a paragraph of its own.** Entries with dot leaders ran on into each
+  other, in any language: "Preface .... iv Introduction .... 1". A line that ends in more than three points
+  and a page label (a number, "A-3", "1a", a Roman numeral) now ends its paragraph; an entry of several
+  lines stays one, and entries with a tab stay rows of one paragraph, as they were. Such a line is not taken
+  for a heading either, nor counted as text of its page where headings are. In the 2,631 files of the
+  corpora that are not held out, 5,266 of the 7,740 entries without a tab had been joined to what follows;
+  60 of these, drawn at random in two lots, are right on their pages, and 3 of them all are before a line in
+  small letters. Against the tags 58 files are better and 8 worse; in the half that was read, the tags that
+  disagree are of one P over several entries. Entries taken for headings fall from 159 to 7. An entry with a
+  section number is now a list item: "2.3.1" is its marker, no longer in its text. 213 of the 3,192 files
+  change; one score of the public corpus moves, by +0.0001. Not covered: entries without leaders, or with
+  several page numbers. Three fixtures (`testdata/gen-contents.sh`: English, French, Arabic) check it.
 - **A typeface that a file embeds twice is one typeface.** A line in another font than the line above it
   is taken for a heading, and what follows it. The fonts were compared as objects of the file, and many
   files embed a typeface several times, a subset for each part they were put together from: a sentence

@@ -371,6 +371,30 @@ func TestImagesAndWorkers(t *testing.T) {
 	}
 }
 
+// -exclude-off-page leaves out the text outside the page, which is in
+// the document without it.
+func TestExcludeOffPage(t *testing.T) {
+	b := pdftest.New()
+	pdftest.Doc(pdftest.DocOptions{Base: b}, pdftest.PageSpec{
+		Content:   "BT /F1 12 Tf 72 720 Td (on the page) Tj ET BT /F1 12 Tf 72 -200 Td (below the page) Tj ET",
+		Resources: "/Font << /F1 4 0 R >>",
+	})
+	path := write(t, "offpage.pdf", b.Bytes())
+	for _, off := range []bool{false, true} {
+		args := []string{"-format", "text", path}
+		if off {
+			args = append([]string{"-exclude-off-page"}, args...)
+		}
+		stdout, stderr, status := command(t, args...)
+		if status != 0 {
+			t.Fatalf("status %d, %s", status, stderr)
+		}
+		if !strings.Contains(stdout, "on the page") || strings.Contains(stdout, "below the page") != !off {
+			t.Errorf("-exclude-off-page %v:\n%s", off, stdout)
+		}
+	}
+}
+
 func TestOutputFile(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "out.json")
 	stdout, stderr, status := command(t, "-o", out, filepath.Join(fixtures, "english.pdf"))

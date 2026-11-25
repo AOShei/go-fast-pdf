@@ -57,6 +57,13 @@ type Extractor struct {
 	// documents, less on pages of text. Tables of tagged files, and those
 	// found by how their text lines up, are found as before.
 	NoRuledTables bool
+	// NoOffPageText leaves out the text that is wholly outside the
+	// visible box of its page, which a viewer and a printer do not show:
+	// the notes of a printer beside the trim marks, text moved off a page
+	// and not deleted. It is in the document by default, as everything
+	// that a file holds is, with a box that tells where it is. A run of
+	// text that is partly on the page stays whole.
+	NoOffPageText bool
 }
 
 var _ gofastcore.Extractor = (*Extractor)(nil)
@@ -311,6 +318,7 @@ func (e *Extractor) page(f *file.File, p *file.Page, opts *gofastcore.Options, w
 			lopts := layout.Options{
 				Worker: layWorker, Images: opts.Images != gofastcore.ImagesNone, Lines: w.lines,
 				Spans: opts.Spans, Links: pa.linksOf(), Heading: headingOf, Item: itemOf, Rank: rankOf,
+				OnPage: e.NoOffPageText,
 			}
 			tables.options(tags, &lopts)
 			lay = layout.Build(layout.Page{M: m, Width: width, Height: height}, c, lopts)

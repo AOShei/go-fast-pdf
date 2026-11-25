@@ -85,6 +85,9 @@ type Options struct {
 	// NoTables leaves out the tables found by how their text lines up
 	// (aligned.go).
 	NoTables bool
+	// OnPage leaves out the text that is wholly outside the page: no
+	// part of the box of its run is inside the displayed box.
+	OnPage bool
 }
 
 // Result is the page as blocks.
@@ -607,8 +610,12 @@ func (b *builder) runText(run int32) []byte {
 // order drawn.
 func (b *builder) group() {
 	mixed := false
+	w, h := b.page.Width, b.page.Height
 	for i := range b.pieces {
 		if b.pieces[i].dup {
+			continue
+		}
+		if p := &b.pieces[i]; b.opts.OnPage && (p.x1 <= 0 || p.x0 >= w || p.y1 <= 0 || p.y0 >= h) {
 			continue
 		}
 		b.order = append(b.order, int32(i))

@@ -539,6 +539,11 @@
 // and bidirectional controls included. Judging text by what it may do
 // to a reader or a program is outside this package.
 //
+// Text outside the page is in the document like any other, with the box
+// that says where it is, and without a reason. Extractor.NoOffPageText
+// leaves out the text that is wholly outside the visible box of its
+// page: a rule of position that the caller chooses, off by default.
+//
 // # Warnings
 //
 // The codes of the shared model are used where they apply. Those that

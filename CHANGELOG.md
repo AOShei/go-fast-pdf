@@ -1,6 +1,18 @@
 # Changelog
 
-## Unreleased
+## v0.4.0 (2026-11-25)
+
+Paragraphs and reading order. The API is that of v0.3; what changes is the text's division into
+paragraphs, headings and list items, and the order of text with Hebrew or Arabic in it.
+
+The largest change is that a sentence is no longer cut where it passes between two copies of one typeface.
+On 50 French and English documents from the web (3,661 pages: forms, reports, contracts, manuals, journals),
+collected for this after the changes were made and used to change nothing, 13.8 percent of the sentences
+that plainly run on from one line to the next were cut in v0.3.1, and 2.2 percent are now; by the tags of
+the 23 that have them, lines of one paragraph taken apart fall from 8,684 to 1,997 and lines of two put
+together from 1,192 to 1,019, 18 files better and 1 worse. In those documents 10,797 such sentences are
+joined that were cut, and 18 cut that were joined. 55 headings, nearly all in two files, are no longer
+found: the headings that a page can have are bounded by its blocks of text, which are fewer.
 
 - **An entry of a table of contents is a paragraph of its own.** Entries with dot leaders ran on into each
   other, in any language: "Preface .... iv Introduction .... 1". A line that ends in more than three points
@@ -79,6 +91,15 @@
   width of a line's first word was its share of the line's bytes, and a digit is one byte where an
   Arabic or Hebrew letter is two. Two Firefox fixtures check it; over the 3,192 files of the corpora
   nothing changes.
+- go-fast-core v0.1.9, whose changes since v0.1.5 are not used here: the output is byte-identical.
+
+### Checked before the release
+
+On the code that is tagged: the 3,186 files of the corpora read in processes of their own, three times, with
+no crash, hang or memory failure, at most 2.4 s and 658 MiB for a file; instructions per operation of the
+benchmarks within 0.8 percent of v0.3.1's, a median change of 0.0 (`bench/v0.4.0.txt`); fuzzing of its 25
+targets for an hour each on machines of four processors, 100 processor hours and 3.16 billion inputs, with
+nothing found.
 
 ## v0.3.1 (2026-11-24)
 

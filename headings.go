@@ -187,6 +187,11 @@ func headings(part *gofastcore.Part, styles []layout.Style, s *sizes, titles []t
 		if named {
 			continue
 		}
+		// An entry of a table of contents is neither a heading nor text
+		// that a page has headings over.
+		if layout.EndsEntry(b.Text) {
+			continue
+		}
 		text++
 		if !ok || st.Size <= 0 || !headingText(b.Text) {
 			continue

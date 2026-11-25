@@ -1,6 +1,7 @@
 package layout
 
 import (
+	"strings"
 	"unicode"
 	"unicode/utf8"
 
@@ -224,8 +225,10 @@ func (b *builder) paragraphs(first int, display gofastcore.Display) {
 			lnM.u0, lnM.u1 = lnStart, lnEnd
 		}
 		// Lines of two items of a tagged list, or of an item and what is
-		// not in one, are two paragraphs.
-		if !ln.item && ln.li == up.li && continues(upC, lnC, before, leading, right) {
+		// not in one, are two paragraphs. So are an entry of a table of
+		// contents and what follows it; rows stay together as rows.
+		if !ln.item && ln.li == up.li && continues(upC, lnC, before, leading, right) &&
+			(upC.tab || !EndsEntry(b.text[up.tlo:up.thi])) {
 			ln.pred, ln.start = p, false
 		}
 	}
@@ -549,6 +552,110 @@ func sameFace(f, g *font.Font) bool {
 	}
 	name := untagged(f.BaseFont)
 	return name != "" && name == untagged(g.BaseFont)
+}
+
+// EndsEntry reports whether text ends as an entry of a table of contents
+// does: in a leader, with more points than an ellipsis has, and a page
+// label. A label is a short word that ends in a digit or in a digit and a
+// letter, or a Roman numeral.
+func EndsEntry[T string | []byte](t T) bool {
+	const longest = 8 // of a label, in characters: "Annex-12"
+	i := len(t)
+	for i > 0 && t[i-1] == ' ' {
+		i--
+	}
+	if i < len("....1") {
+		return false
+	}
+	// Two characters tell nearly every line that does not end in a label.
+	roman := false
+	switch c, d := t[i-1], t[i-2]; {
+	case isDigit(c):
+	case isRoman(c):
+		roman = !isDigit(d)
+		if roman && !isRoman(d) && d != ' ' && d != '.' && d < utf8.RuneSelf {
+			return false
+		}
+	case c < utf8.RuneSelf:
+		if c |= 0x20; c < 'a' || c > 'z' || !isDigit(d) {
+			return false
+		}
+	default: // a digit of another script
+		if r, _ := lastRune(t, i); !unicode.IsDigit(r) {
+			return false
+		}
+	}
+	n, end := 0, i
+	for i > 0 {
+		r, at := lastRune(t, i)
+		if leaderPoints(r) > 0 || unicode.IsSpace(r) {
+			break
+		}
+		if n++; n > longest || roman && (r >= utf8.RuneSelf || !isRoman(byte(r))) {
+			return false
+		}
+		i = at
+	}
+	if roman && !isNumeral(string(t[i:end])) {
+		return false // a word of those letters: "il", "civil"
+	}
+	points := 0
+	for i > 0 && points <= 3 {
+		r, at := lastRune(t, i)
+		p := leaderPoints(r)
+		if p == 0 && !unicode.IsSpace(r) {
+			return false
+		}
+		points += p
+		i = at
+	}
+	return points > 3
+}
+
+// lastRune returns the last character of the first i bytes of t, and
+// where it starts.
+func lastRune[T string | []byte](t T, i int) (r rune, at int) {
+	if c := t[i-1]; c < utf8.RuneSelf {
+		return rune(c), i - 1
+	}
+	r, n := utf8.DecodeLastRuneInString(string(t[max(0, i-utf8.UTFMax):i]))
+	return r, i - n
+}
+
+func isDigit(c byte) bool { return c >= '0' && c <= '9' }
+
+// isRoman reports whether c is a letter of a Roman numeral, of those that
+// number the first pages of a book.
+func isRoman(c byte) bool {
+	switch c | 0x20 {
+	case 'i', 'v', 'x', 'l', 'c':
+		return true
+	}
+	return false
+}
+
+// isNumeral reports whether s, of the letters of isRoman, is a Roman
+// numeral.
+func isNumeral(s string) bool {
+	for _, part := range [...]string{"c", "c", "c", "xc", "xl", "l", "x", "x", "x", "ix", "iv", "v", "i", "i", "i"} {
+		if len(s) >= len(part) && strings.EqualFold(s[:len(part)], part) {
+			s = s[len(part):]
+		}
+	}
+	return s == ""
+}
+
+// leaderPoints returns how many points of a leader r is.
+func leaderPoints(r rune) int {
+	switch r {
+	case '.', 0xB7, 0x2024: // and the middle dot, the one dot leader
+		return 1
+	case 0x2025: // the two dot leader
+		return 2
+	case 0x2026: // the horizontal ellipsis
+		return 3
+	}
+	return 0
 }
 
 func abs(v float64) float64 {

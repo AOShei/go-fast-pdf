@@ -63,6 +63,10 @@ type line struct {
 	// before is the type of the letter before the line in its paragraph
 	// that its text was read with (bidiText), 0 for none.
 	before bidiClass
+	// dir is the direction of its paragraph that the line was read in
+	// where it is not the line's own (paragraphDirection), bidiL or
+	// bidiR; 0 for its own.
+	dir bidiClass
 	// The fonts of the first and last piece, and of the piece with the
 	// most text.
 	first, last, main *font.Font
@@ -437,7 +441,7 @@ const (
 
 // lineText writes the text of a line to b.text.
 func (b *builder) lineText(ln *line) {
-	ln.bidi, ln.rtl, ln.numberFirst, ln.before = false, false, false, 0
+	ln.bidi, ln.rtl, ln.numberFirst, ln.before, ln.dir = false, false, false, 0, 0
 	if b.rightToLeftLine(ln) {
 		b.bidiText(ln, 0, false)
 		return

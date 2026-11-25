@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+- **A line reads in the direction of its paragraph, and a bracket whose partner is on another line as it
+  is set.** Three changes to text with Hebrew or Arabic in it:
+  - A closing bracket whose partner was on the line before always read as an opening one, "(" for ")".
+    Such a bracket now reads as its line was drawn.
+  - A line's direction was decided by that line alone, so the last line of a Hebrew paragraph, of Latin
+    words for the most part, read ".Austen או Tolstoy" for "Tolstoy או Austen.", and a line of an English
+    one, of Hebrew and a comma, the other way round. The line is now read in the direction of most of its
+    paragraph, if it starts where a line next to it does and would not begin with its own full stop. A
+    line of Latin words with the mark that ends a sentence at its left end is taken for one that ends
+    there, and continues the paragraph above it.
+  - A line mostly of Latin words, in another font for want of those letters in the first, was taken for
+    one that starts a paragraph. It no longer is where its Hebrew or Arabic letters are all in the font of
+    the line above. A heading of Latin words in another font with a Hebrew or Arabic word in the font of
+    the text above it looks the same, and can be joined to that text.
+
+  On 40 pages of Hebrew and Arabic set narrow by LibreOffice and Firefox, 29 read with the source's
+  paragraphs, word for word, where 5 did, and on 20 of English with Hebrew and Arabic in it 11 where 8
+  did; 10 of the other 11 of the 40 have a letter that Firefox gives as another one. Of 180 pages made to
+  mislead these rules, with a heading or a line of Latin words set close between two paragraphs, 5 have
+  it joined to one of them no longer, and 4 have it joined that had not. Eight fixtures
+  (`testdata/gen-rtl-narrow.sh`) check it. Over the 3,192 files of the corpora nothing changes.
 - **The first word of a line is measured in characters on every line.** A paragraph ends where the line
   above has room for the next line's first word, and the width of that word was its share of the line's
   bytes: too wide where it has characters of two or three bytes (a quotation mark, a bullet, a letter

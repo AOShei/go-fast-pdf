@@ -35,6 +35,15 @@ func TestRightToLeftFixtures(t *testing.T) {
 		{"rtl-ar-firefox", "rtl-ar", firefoxYeh, true},
 		{"rtl-ar-naskh-firefox", "rtl-ar", firefoxYeh, true},
 		{"rtl-mixed-libreoffice", "rtl-mixed", nil, false},
+		// Set narrow (testdata/gen-rtl-narrow.sh): lines that by
+		// themselves read in the other direction than their paragraph,
+		// lines mostly in the font of the Latin words, and brackets
+		// whose partner is on another line.
+		{"rtl-he-narrow-firefox", "rtl-he", nil, false},
+		{"rtl-he-narrow-libreoffice", "rtl-he", nil, false},
+		{"rtl-ar-narrow-libreoffice", "rtl-ar", nil, false},
+		{"rtl-ar-narrow-firefox", "rtl-ar", firefoxYeh, true},
+		{"rtl-mixed-narrow-libreoffice", "rtl-mixed", nil, false},
 	} {
 		t.Run(c.fixture, func(t *testing.T) {
 			src, err := os.ReadFile("testdata/src/" + c.source + ".txt")
@@ -57,6 +66,17 @@ func TestRightToLeftFixtures(t *testing.T) {
 			}
 			if strings.Join(got, "\n\n") != strings.Join(want, "\n\n") {
 				t.Errorf("got:\n%s\nwant:\n%s", strings.Join(got, "\n\n"), strings.Join(want, "\n\n"))
+			}
+			// With spans, the words of a line are found in the text it
+			// was written again with (mustExtract holds the result to
+			// the contract).
+			spans := mustExtract(t, data, &gofastcore.Options{Spans: true})
+			var with []string
+			for i := range spans.Parts {
+				with = append(with, texts(&spans.Parts[i])...)
+			}
+			if strings.Join(got, "\n\n") != strings.Join(with, "\n\n") {
+				t.Errorf("the text with spans differs:\n%s\nwithout:\n%s", strings.Join(with, "\n\n"), strings.Join(got, "\n\n"))
 			}
 			for i := range doc.Parts {
 				ws := doc.Parts[i].Warnings
@@ -188,5 +208,40 @@ func TestRightToLeftActualText(t *testing.T) {
 	}
 	if g := strings.Join(strings.Fields(strings.Join(got, " ")), " "); g != want {
 		t.Errorf("got:\n%s\nwant:\n%s", g, want)
+	}
+}
+
+// Two paragraphs of Hebrew with one between them that is of neither
+// (testdata/gen-rtl-narrow.sh). A heading that has another font than the
+// paragraph above, of Latin words for the most part or of Hebrew in bold,
+// stays apart from it, and reads as it is set, though its lines by
+// themselves read in two directions; and a sentence of English set from
+// left to right keeps its full stop at its end, though it is taken for
+// the end of the paragraph above, with which it shares its right edge.
+func TestRightToLeftBetween(t *testing.T) {
+	src, err := os.ReadFile("testdata/src/rtl-he.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	paras := strings.Split(strings.TrimSpace(strings.ReplaceAll(string(src), "\r\n", "\n")), "\n\n")
+	for _, c := range []struct {
+		fixture string
+		want    []string
+	}{
+		{"rtl-he-between-heading-libreoffice", []string{paras[1], "PDF Tolstoy Austen Library Books הספרייה", paras[2]}},
+		{"rtl-he-between-bold-firefox", []string{paras[1], "הספרייה העירונית Tolstoy הספרייה", paras[2]}},
+		{"rtl-he-between-latin-firefox", []string{paras[1] + " Contact the library for details.", paras[2]}},
+	} {
+		data, err := os.ReadFile("testdata/fixtures/" + c.fixture + ".pdf")
+		if err != nil {
+			t.Fatal(err)
+		}
+		doc := mustExtract(t, data, nil)
+		if len(doc.Parts) != 1 {
+			t.Fatalf("%s: %d parts", c.fixture, len(doc.Parts))
+		}
+		if got := texts(&doc.Parts[0]); strings.Join(got, "\n\n") != strings.Join(c.want, "\n\n") {
+			t.Errorf("%s: got:\n%s\nwant:\n%s", c.fixture, strings.Join(got, "\n\n"), strings.Join(c.want, "\n\n"))
+		}
 	}
 }

@@ -304,7 +304,7 @@ func (b *builder) rtlInFont(ln *line, f *font.Font) bool {
 	some := false
 	for k := ln.lo; k < ln.hi; k++ {
 		r := &b.c.Runs[b.pieces[b.lidx[k]].run]
-		if r.RTL && r.Font != f {
+		if r.RTL && !sameFace(r.Font, f) {
 			return false
 		}
 		some = some || r.RTL
@@ -496,9 +496,9 @@ func continues(up, ln, before *line, leading, right float64) bool {
 	if d := (ln.v - up.v) / size; d > leading+leadingSlack {
 		return false
 	}
-	// A change of font from one line to the next, where they meet and
+	// A change of typeface from one line to the next, where they meet and
 	// for most of both, is a heading and what follows it.
-	if up.last != ln.first && up.main != ln.main {
+	if !sameFace(up.last, ln.first) && !sameFace(up.main, ln.main) {
 		return false
 	}
 	// A line with entries side by side is a row. Rows follow each other
@@ -534,6 +534,21 @@ func continues(up, ln, before *line, leading, right float64) bool {
 	// lower: the line was ended on purpose, so a paragraph ends there.
 	// right is how far the lines of this column reach.
 	return right-up.u1 <= ln.firstWord+ln.space+0.5*size
+}
+
+// sameFace reports whether two fonts are of one typeface: the same font,
+// or two with one name but for the tag of a subset. A file can embed a
+// typeface several times, a subset for each part it was put together
+// from, and the text passes from one to another inside a sentence.
+func sameFace(f, g *font.Font) bool {
+	if f == g {
+		return true
+	}
+	if f == nil || g == nil || f.Bold != g.Bold || f.Italic != g.Italic {
+		return false
+	}
+	name := untagged(f.BaseFont)
+	return name != "" && name == untagged(g.BaseFont)
 }
 
 func abs(v float64) float64 {

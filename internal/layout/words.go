@@ -70,22 +70,26 @@ func (b *builder) blockLines(dst []int32, bi int32) []int32 {
 	return dst
 }
 
-// fontName returns the name of a font without the tag of a subset, six
-// capital letters and a plus sign.
+// fontName returns the name of a font without the tag of a subset.
 func fontName(name string) string {
-	if len(name) > 7 && name[6] == '+' {
-		tag := true
-		for i := 0; i < 6; i++ {
-			tag = tag && name[i] >= 'A' && name[i] <= 'Z'
-		}
-		if tag {
-			name = name[7:]
-		}
-	}
 	// A font's name is in the lines alone, which are not the part's: the
 	// control characters removed from it are not the part's to count.
-	name, _ = cleanName(name)
+	name, _ = cleanName(untagged(name))
 	return name
+}
+
+// untagged returns a font's name without the tag of a subset, six
+// capital letters and a plus sign.
+func untagged(name string) string {
+	if len(name) <= 7 || name[6] != '+' {
+		return name
+	}
+	for i := 0; i < 6; i++ {
+		if name[i] < 'A' || name[i] > 'Z' {
+			return name
+		}
+	}
+	return name[7:]
 }
 
 // isLineSpace reports whether a byte of a run's text is a space in the

@@ -1,12 +1,30 @@
 # Changelog
 
+## Unreleased
+
+- **A hyphen at the end of a line is left out where the document shows that it is the line break's.** A word
+  broken at a line end was joined with its hyphen, "décla-ration", since the page does not say whether the
+  hyphen is the word's ("well-known") or the line break's: a search for the word did not find it. The document
+  often says: where it has the two parts as one word in another place, and nowhere with a hyphen inside a
+  line, the hyphen is left out. Otherwise it stays, as before. The words are those of the page, of the four
+  pages after it and of the pages before it; a page read by itself (`Page.Part`) has its own. Words of fewer
+  than four letters are not looked at.
+  On 50 French and English documents from the web, 3,483 of the 4,841 hyphens at line ends are left out, in
+  21 documents, and nothing else in their text changes; 70 of them, drawn at random from the half of the
+  documents that is read, are all hyphens of the line break. In the 2,631 files of the corpora that are not
+  held out, 32,706 are left out, in 465 files; of 9,893 in the half that is read, the ones that could be a
+  compound ("pre-empt", "mid-band", "sub-part") are words that their document writes without the hyphen
+  elsewhere. 481 of the 3,192 files change. A document without a hyphen at a line end pays nothing; on the
+  two manuals of the benchmarks, which have them, the instructions rise by 3.3 and 3.9 percent.
+
 ## v0.4.0 (2026-11-25)
 
 Paragraphs and reading order. The API is that of v0.3; what changes is the text's division into
 paragraphs, headings and list items, and the order of text with Hebrew or Arabic in it.
 
 The largest change is that a sentence is no longer cut where it passes between two copies of one typeface.
-On 50 French and English documents from the web (3,661 pages: forms, reports, contracts, manuals, journals),
+On 50 French and English documents from the web (3,644 pages; the notes of the release said 3,661, which
+counted 17 parts that are not pages: forms, reports, contracts, manuals, journals),
 collected for this after the changes were made and used to change nothing, 13.8 percent of the sentences
 that plainly run on from one line to the next were cut in v0.3.1, and 2.2 percent are now; by the tags of
 the 23 that have them, lines of one paragraph taken apart fall from 8,684 to 1,997 and lines of two put

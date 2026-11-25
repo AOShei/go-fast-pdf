@@ -214,7 +214,8 @@ Settings that only PDF has are fields of `gofastpdf.Extractor`. The
 - **Text** - fonts with and without ToUnicode maps, composite fonts, the standard encodings, the Adobe
   Glyph List; ligatures and Arabic presentation forms are written as their letters
 - **Paragraphs and reading order** - lines are joined into paragraphs, and an entry of a table of contents
-  that has a leader is one of its own; columns, tables drawn by rows, and pages drawn out of order are put
+  that has a leader is one of its own; a word broken at the end of a line is whole again where the document
+  has it whole elsewhere, and keeps its hyphen where nothing says; columns, tables drawn by rows, and pages drawn out of order are put
   in reading order; in a tagged PDF the order of the structure tree decides where the white space of the
   page leaves it open; text written from right to left (Hebrew, Arabic) reads in the order it is written,
   with numbers and Latin words in it from left to right, and its columns from right to left

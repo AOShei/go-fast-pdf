@@ -711,8 +711,9 @@ func (p *Page) Number() int { return p.p.Number }
 // shows it too, where Document and Parts give the data once for the
 // document. The limits on decoded bytes and on text apply to the page
 // by itself. And it is compared with no other page: it has no running
-// headers or footers, no paragraph of it continues the page before, and
-// its headings are found by the type of this page alone.
+// headers or footers, no paragraph of it continues the page before, its
+// headings are found by the type of this page alone, and a hyphen at the
+// end of a line is the line break's only if this page has the word whole.
 func (p *Page) Part() (gofastcore.Part, error) {
 	out, err := p.read(want{})
 	return out.part, err
@@ -733,6 +734,11 @@ func (p *Page) read(w want) (pageOut, error) {
 	// Its headings, by the type of this page alone.
 	var s sizes
 	s.add(&out.part, out.styles)
+	if hyphened(out.styles) {
+		words := wordSet{on: true}
+		words.add(&out.part, out.styles)
+		words.join(&out.part, out.styles)
+	}
 	lists(&out.part, out.styles, out.items)
 	headings(&out.part, out.styles, &s, titlesByPage(f.describe().outline)[out.part.Number])
 	nameAnchors(&out.part, f.namedDests().named(out.part.Number))

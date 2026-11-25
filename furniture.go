@@ -187,6 +187,9 @@ type furnitureWindow struct {
 	// the outline by the page they point at.
 	sizes  sizes
 	titles map[int][]title
+	// words are the words of the pages so far, for the hyphens at the
+	// ends of lines.
+	words wordSet
 	// dests gives the named destinations of a page, for its anchors.
 	dests *destinations
 
@@ -223,6 +226,17 @@ func (w *furnitureWindow) push(out *pageOut, emit func(*pageOut) bool) bool {
 	}
 	w.sizes.add(&out.part, out.styles)
 	w.pending = append(w.pending, *out)
+	switch {
+	case w.words.on:
+		w.words.add(&out.part, out.styles)
+	case hyphened(out.styles):
+		// The first page with a hyphen at the end of a line: the words
+		// of the pages that wait, and of every page from here on.
+		w.words.on = true
+		for i := range w.pending {
+			w.words.add(&w.pending[i].part, w.pending[i].styles)
+		}
+	}
 	if alone {
 		w.pmarks, w.firstLater = append(w.pmarks, nil), true
 	} else {
@@ -271,6 +285,10 @@ func (w *furnitureWindow) next(emit func(*pageOut) bool) bool {
 			}
 		}
 	}
+
+	// The hyphens at the ends of its lines, by the words of the pages so
+	// far and of those that wait.
+	w.words.join(part, out.styles)
 
 	// List items, from the page alone, after its headers and footers.
 	lists(part, out.styles, out.items)

@@ -144,6 +144,12 @@ type Style struct {
 	// then the text of the runs at its start that are the item's label.
 	Item  int64
 	Label string
+	// Hyphens are the places in the block's text, as byte offsets in
+	// order, of the hyphens that end a line inside the block between two
+	// letters. The lines are joined there without a space and with the
+	// hyphen, which belongs to the word or to the line break; the page
+	// does not say which.
+	Hyphens []int32
 }
 
 // Line is one line of a text block.
@@ -208,6 +214,7 @@ type builder struct {
 	hist   []int32
 	alt    []int32
 	out    []byte
+	hyph   []int32 // the hyphens at line ends in out
 	stats  Stats
 	// The words of a block and their atoms, for its spans.
 	atomBuf   []atom
@@ -443,6 +450,9 @@ func (b *builder) styleOf(i int32) Style {
 	}
 	if b.opts.Item != nil {
 		s.Item, s.Label = b.itemOf(i)
+	}
+	if bl := &b.blocks[i]; bl.grid == nil && bl.table == 0 {
+		s.Hyphens = bl.hyph
 	}
 	return s
 }

@@ -49,6 +49,9 @@ type blk struct {
 	// is; members are the blocks of its cells, in order of cell.
 	cell, table int32
 	members     []int32
+	// hyph are the places in text of the hyphens that end a line inside
+	// the block, a letter on each side: see Style.Hyphens.
+	hyph []int32
 	// grid is the table that a block of kind table found by alignment
 	// is, and tlines its lines, in b.lines.
 	grid   *gofastcore.Table
@@ -249,7 +252,7 @@ func (b *builder) paragraphs(first int, display gofastcore.Display) {
 		}
 		bl := blk{display: display, key: lines[li].key, size: lines[li].size, line: int32(first) + li}
 		bl.x0, bl.y0, bl.x1, bl.y1 = lines[li].x0, lines[li].y0, lines[li].x1, lines[li].y1
-		b.out = b.out[:0]
+		b.out, b.hyph = b.out[:0], b.hyph[:0]
 		b.paragraphDirection(lines, li)
 		var prev *line
 		for at := li; at >= 0; at = b.claims[at] {
@@ -265,7 +268,11 @@ func (b *builder) paragraphs(first int, display gofastcore.Display) {
 				ln.next = int32(first) + b.claims[at]
 			}
 		}
+		lead := len(b.out) - len(trimSpace(b.out)) // with what is cut from its end; see below
 		if bl.text = b.clean(b.out); bl.text != "" {
+			if len(b.hyph) > 0 {
+				bl.hyph = hyphensIn(bl.text, b.hyph, lead)
+			}
 			b.blocks = append(b.blocks, bl)
 		}
 	}
@@ -693,11 +700,59 @@ func (b *builder) joinLine(prev, ln *line) {
 	case endsWithHyphen(out) && startsWithLetter(t):
 		// A hyphen at the end of a line may belong to the word or to
 		// the line break. It stays, and the word is not broken by a
-		// space: "well-" and "known" are "well-known".
+		// space: "well-" and "known" are "well-known". Where it is is
+		// noted: the document may show which of the two it is.
+		if n > 0 && out[n-1] == '-' {
+			b.hyph = append(b.hyph, int32(n-1))
+		} else {
+			b.hyph = append(b.hyph, int32(n-3))
+		}
 	default:
 		out = append(out, ' ')
 	}
 	b.out = append(out, t...)
+}
+
+// hyphensIn returns the places in text, the cleaned text of a block, of
+// the hyphens noted at the ends of its lines. at are their places in the
+// text before it was cleaned, which had lead more bytes at its start.
+// Cleaning moves nothing else, but for the rare control character that
+// is written as a longer one: a place that no longer has its hyphen
+// between two letters is left out, as are all places after a character
+// that cleaning has replaced.
+func hyphensIn(text string, at []int32, lead int) []int32 {
+	if strings.Contains(text, "\uFFFD") {
+		return nil
+	}
+	var out []int32
+	for _, a := range at {
+		i := int(a) - lead
+		if i <= 0 || i >= len(text) {
+			continue
+		}
+		n := HyphenLen(text[i:])
+		if n == 0 || i+n >= len(text) {
+			continue
+		}
+		before, _ := utf8.DecodeLastRuneInString(text[:i])
+		after, _ := utf8.DecodeRuneInString(text[i+n:])
+		if unicode.IsLetter(before) && unicode.IsLetter(after) {
+			out = append(out, int32(i))
+		}
+	}
+	return out
+}
+
+// HyphenLen returns the length of the hyphen that text starts with, the
+// hyphen-minus or U+2010, 0 for none.
+func HyphenLen(text string) int {
+	switch {
+	case text != "" && text[0] == '-':
+		return 1
+	case strings.HasPrefix(text, "\u2010"):
+		return 3
+	}
+	return 0
 }
 
 // endsWithHyphen reports whether text ends with a letter or digit

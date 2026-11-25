@@ -227,7 +227,7 @@ func (b *builder) paragraphs(first int, display gofastcore.Display) {
 		// Lines of two items of a tagged list, or of an item and what is
 		// not in one, are two paragraphs. So are an entry of a table of
 		// contents and what follows it; rows stay together as rows.
-		if !ln.item && ln.li == up.li && continues(upC, lnC, before, leading, right) &&
+		if !ln.item && ln.li == up.li && b.continues(upC, lnC, before, leading, right) &&
 			(upC.tab || !EndsEntry(b.text[up.tlo:up.thi])) {
 			ln.pred, ln.start = p, false
 		}
@@ -490,7 +490,7 @@ func (b *builder) usualLeading(lines []line) float64 {
 // paragraph. before is the line that up continues, or nil when up is
 // the first line of its paragraph; right is the right edge of the
 // column the two lines are in.
-func continues(up, ln, before *line, leading, right float64) bool {
+func (b *builder) continues(up, ln, before *line, leading, right float64) bool {
 	size := max(up.size, ln.size)
 	if size <= 0 || min(up.size, ln.size) < (1-sameSize)*size {
 		return false
@@ -536,7 +536,8 @@ func continues(up, ln, before *line, leading, right float64) bool {
 	// Room at the end of the upper line for the first word of the
 	// lower: the line was ended on purpose, so a paragraph ends there.
 	// right is how far the lines of this column reach.
-	return right-up.u1 <= ln.firstWord+ln.space+0.5*size
+	room := right - up.u1
+	return room <= ln.space+0.5*size || room <= b.firstWord(ln)+ln.space+0.5*size
 }
 
 // sameFace reports whether two fonts are of one typeface: the same font,

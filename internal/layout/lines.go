@@ -1,7 +1,9 @@
 package layout
 
 import (
+	"encoding/binary"
 	"math"
+	"math/bits"
 	"sort"
 	"unicode"
 	"unicode/utf8"
@@ -70,8 +72,6 @@ type line struct {
 	// The fonts of the first and last piece, and of the piece with the
 	// most text.
 	first, last, main *font.Font
-	// firstWord is the estimated width of the first word.
-	firstWord float64
 
 	pred  int32 // the line it continues, -1 for the first of a paragraph
 	start bool  // set when the line starts a paragraph
@@ -578,10 +578,16 @@ func (b *builder) bidiText(ln *line, before bidiClass, again bool) {
 // endLine notes where the text of a line, written from start, is.
 func (b *builder) endLine(ln *line, start int) {
 	ln.tlo, ln.thi = int32(start), int32(len(b.text))
+}
 
-	// The width of the first word, taken as its share of the line's
-	// characters.
-	t := b.text[start:]
+// firstWord estimates the width of the first word of a line, as its share
+// of the line's characters. Not of its bytes: a letter of two, or a mark
+// of three, is no wider for it.
+func (b *builder) firstWord(ln *line) float64 {
+	t := b.text[ln.tlo:ln.thi]
+	if len(t) == 0 {
+		return 0
+	}
 	i := 0
 	for i < len(t) && (t[i] == ' ' || t[i] == '\t') {
 		i++
@@ -590,11 +596,35 @@ func (b *builder) endLine(ln *line, start int) {
 	for j < len(t) && t[j] != ' ' && t[j] != '\t' {
 		j++
 	}
-	if len(t) > 0 {
-		// By characters, not bytes: a letter of two bytes, or a mark of
-		// three, is no wider for it.
-		word := utf8.RuneCount(t[i:j])
-		ln.firstWord = (ln.u1 - ln.u0) * float64(word) / float64(i+word+utf8.RuneCount(t[j:]))
+	word, all := j-i, runeCount(t)
+	if all < len(t) {
+		word = runeCount(t[i:j])
+	}
+	return (ln.u1 - ln.u0) * float64(word) / float64(all)
+}
+
+// runeCount returns how many characters UTF-8 text has: the bytes that do
+// not continue one, counted eight at a time.
+func runeCount(t []byte) int {
+	n := len(t)
+	if len(t) < 8 {
+		for _, c := range t {
+			if c&0xC0 == 0x80 {
+				n--
+			}
+		}
+		return n
+	}
+	// The bytes after the last eight: the end of the last eight, moved down.
+	rest := len(t) & 7
+	x := binary.LittleEndian.Uint64(t[len(t)-8:]) >> (64 - 8*uint(rest))
+	for {
+		// 10xxxxxx: the high bit, and not the one under it.
+		n -= bits.OnesCount64(x >> 7 &^ (x >> 6) & 0x0101010101010101)
+		if len(t) < 8 {
+			return n
+		}
+		x, t = binary.LittleEndian.Uint64(t), t[8:]
 	}
 }
 

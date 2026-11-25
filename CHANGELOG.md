@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- **A typeface that a file embeds twice is one typeface.** A line in another font than the line above it
+  is taken for a heading, and what follows it. The fonts were compared as objects of the file, and many
+  files embed a typeface several times, a subset for each part they were put together from: a sentence
+  that passed from one to another was cut there. Two fonts are now one typeface when their names are the
+  same but for the tag of a subset and both or neither are bold, and slanted. Over the 3,192 files of the
+  corpora 97 change. Held against the tags of 415 tagged files 30 are better and 3 worse: lines of one
+  paragraph taken apart fall from 11,999 to 11,232, lines of two put together rise from 14,010 to 14,042.
+  One join was drawn at random from each of 35 of the files and looked at on its page: 26 are right, 5
+  wrong and 4 cannot be judged. The wrong ones are short lines one under another, of an address or of the
+  labels of a drawing, that had been apart only because their typeface is there more than once; so are,
+  in Arabic files, some lines of a table of contents. Seven scores of the public corpus move, three up
+  and four down; the largest, -0.125, is of a small page of such labels (`pdfjs/issue15092.pdf`). On 31
+  tagged Hebrew and Arabic files from the web, not part of the corpora, 11 are better and 4 worse.
 - **A line reads in the direction of its paragraph, and a bracket whose partner is on another line as it
   is set.** Three changes to text with Hebrew or Arabic in it:
   - A closing bracket whose partner was on the line before always read as an opening one, "(" for ")".

@@ -109,6 +109,37 @@ func TestParagraphs(t *testing.T) {
 			t.Errorf("blocks %q", got)
 		}
 	})
+	// A line in another font than the line above it is a heading when the
+	// fonts are of two typefaces, and not when a typeface is embedded twice.
+	widths := strings.Repeat(" 600", 95)
+	subset := func(name, descriptor string) string {
+		return fmt.Sprintf("<< /Type /Font /Subtype /TrueType /BaseFont /%s /Encoding /WinAnsiEncoding /FirstChar 32 /LastChar 126 /Widths [%s] /FontDescriptor << /Type /FontDescriptor /FontName /%s %s >> >>",
+			name, widths, name, descriptor)
+	}
+	regular := subset("ABCDEF+Courier", "/Flags 32")
+	for _, tc := range []struct {
+		name, first, second string
+		want                []string
+	}{
+		{"two subsets of one typeface", regular, subset("GHIJKL+Courier", "/Flags 32"), []string{a}},
+		{"a typeface embedded as a subset and whole", regular, subset("Courier", "/Flags 32"), []string{a}},
+		{"one typeface, twice under one name", regular, regular, []string{a}},
+		{"two typefaces with one tag", regular, subset("ABCDEF+Prestige", "/Flags 32"), []string{paraA[0], joined(paraA[1:])}},
+		{"a name that starts with no tag", subset("Abcdef+Courier", "/Flags 32"), subset("Ghijkl+Courier", "/Flags 32"), []string{paraA[0], joined(paraA[1:])}},
+		{"one name, the first bold by its flags", subset("ABCDEF+Courier", "/Flags 262176"), subset("GHIJKL+Courier", "/Flags 32"), []string{paraA[0], joined(paraA[1:])}},
+		{"one name, the first slanted by its angle", subset("ABCDEF+Courier", "/Flags 32 /ItalicAngle -12"), subset("GHIJKL+Courier", "/Flags 32"), []string{paraA[0], joined(paraA[1:])}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := synthDoc{Font: fontCourier, Pages: []synthPage{{
+				Fonts: "/F2 " + tc.first + " /F3 " + tc.second,
+				Content: "BT /F2 10 Tf 1 0 0 1 72 700 Tm (" + paraA[0] + ") Tj /F3 10 Tf\n" +
+					"1 0 0 1 72 688 Tm (" + paraA[1] + ") Tj 1 0 0 1 72 676 Tm (" + paraA[2] + ") Tj ET",
+			}}}
+			if got := texts(&mustExtract(t, d.bytes(), nil).Parts[0]); !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("blocks %q, want %q", got, tc.want)
+			}
+		})
+	}
 }
 
 // TestTextConventions: how lines become the text of a block.

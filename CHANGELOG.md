@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **The first word of a line is measured in characters on every line.** A paragraph ends where the line
+  above has room for the next line's first word, and the width of that word was its share of the line's
+  bytes: too wide where it has characters of two or three bytes (a quotation mark, a bullet, a letter
+  before Latin text), too narrow where the rest of the line has them. It is now its share of the line's
+  characters, as it already was on lines with letters written from right to left. Over the 3,192 files
+  of the corpora 159 change, 10 of them in the tuning set: held against the page images, 28 of the 29
+  paragraphs that change there with text a reader can judge are now as the page shows them, and one, on
+  a page of random letters, is not. Two scores of the public corpus move, by 0.0001, one up and one down.
 - **Arabic given as ActualText reads in whole words, whatever order its glyphs are drawn in.** A run of
   `/ActualText` began where the first glyph drawn began. LibreOffice, with fonts such as Noto Sans
   Arabic, draws the dots of a letter before its body, so the letter began at its dots, the gap to the

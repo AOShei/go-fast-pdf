@@ -69,6 +69,16 @@ func TestParagraphs(t *testing.T) {
 		{"single lines of different length, as in a list",
 			draw(10, stack(72, 700, 12, "Bread", "Two bottles of milk", "Eggs", "A newspaper for the weekend")...),
 			[]string{"Bread", "Two bottles of milk", "Eggs", "A newspaper for the weekend"}},
+		// The room at the end of a line is held against the width of the
+		// next line's first word, which is measured in characters: a per
+		// mille sign is three bytes and an O with a stroke two, and neither
+		// is wider for it. Here the room is of eight characters.
+		{"room for a first word of five signs of three bytes",
+			draw(10, stack(72, 700, 12, "The committee met on a Tuesday", "to speak of the budget", "\xbd\xbd\xbd\xbd\xbd and then of the rest")...),
+			[]string{"The committee met on a Tuesday to speak of the budget", "‰‰‰‰‰ and then of the rest"}},
+		{"no room for a first word, before letters of two bytes",
+			draw(10, stack(72, 700, 12, "The committee met on a Tuesday", "to speak of the budget", "tomorrow \xe9\xe9\xe9\xe9\xe9\xe9\xe9\xe9\xe9\xe9\xe9\xe9\xe9\xe9\xe9")...),
+			[]string{"The committee met on a Tuesday to speak of the budget tomorrow ØØØØØØØØØØØØØØØ"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := blockTexts(t, tc.content); !reflect.DeepEqual(got, tc.want) {

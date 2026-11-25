@@ -587,12 +587,10 @@ func (b *builder) endLine(ln *line, start int) {
 		j++
 	}
 	if len(t) > 0 {
-		ln.firstWord = (ln.u1 - ln.u0) * float64(j-i) / float64(len(t))
-		if ln.bidi {
-			// A digit is one byte and an Arabic or Hebrew letter two: by
-			// bytes, a number is taken for half as wide as it is.
-			ln.firstWord = (ln.u1 - ln.u0) * float64(utf8.RuneCount(t[i:j])) / float64(utf8.RuneCount(t))
-		}
+		// By characters, not bytes: a letter of two bytes, or a mark of
+		// three, is no wider for it.
+		word := utf8.RuneCount(t[i:j])
+		ln.firstWord = (ln.u1 - ln.u0) * float64(word) / float64(i+word+utf8.RuneCount(t[j:]))
 	}
 }
 

@@ -101,6 +101,16 @@ func TestParagraphs(t *testing.T) {
 		{"lines that start with the same mark, which is not a known marker",
 			draw(10, stack(72, 700, 12, "o the first of the entries of the list is", "o the second of the entries of the list goes here")...),
 			[]string{"o the first of the entries of the list is", "o the second of the entries of the list goes here"}},
+		// A first line with a term and, after a wide gap, what is said of
+		// it: the lines under the second of the two run on from it.
+		{"lines under the last entry of a first line with a term",
+			draw(10, []textLine{{72, 700, "Arsenic"}, {180, 700, "An element that is often set free in the"},
+				{180, 688, "mining of gold, in quantities that do harm"}, {180, 676, "to most living beings."}}...),
+			[]string{"Arsenic\tAn element that is often set free in the mining of gold, in quantities that do harm to most living beings."}},
+		{"a line under the term, not under the last entry",
+			draw(10, []textLine{{72, 700, "Arsenic"}, {180, 700, "An element that is often set free in the"},
+				{72, 688, "mining of gold, in quantities that do harm"}}...),
+			[]string{"Arsenic\tAn element that is often set free in the", "mining of gold, in quantities that do harm"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := blockTexts(t, tc.content); !reflect.DeepEqual(got, tc.want) {

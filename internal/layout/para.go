@@ -517,15 +517,23 @@ func (b *builder) continues(up, ln, before *line, lines []line, leading, right f
 		return false
 	}
 	// A line with entries side by side is a row. Rows follow each other
-	// but are not sentences that run on.
+	// but are not sentences that run on. The text of a row's last entry
+	// does run on, under where it starts: a term and what is said of it,
+	// a mark that is not known as a marker and its item.
+	slack := edgeSlack * size
+	hangs := false
 	if up.tab != ln.tab {
-		return false
+		at, ok := b.lastEntry(up)
+		if hangs = ok && !ln.tab && before == nil && abs(ln.u0-at) <= slack; !hangs {
+			return false
+		}
 	}
 
-	slack := edgeSlack * size
 	left := ln.u0 - up.u0
 	centred := abs((ln.u0+ln.u1)/2-(up.u0+up.u1)/2) <= slack && abs(left) > slack
 	switch {
+	case hangs:
+		// Under the last entry of the row above.
 	case abs(left) <= slack:
 		// Set flush left.
 	case centred:
@@ -542,7 +550,7 @@ func (b *builder) continues(up, ln, before *line, lines []line, leading, right f
 	default:
 		return false
 	}
-	if up.tab {
+	if up.tab && !hangs {
 		return true
 	}
 	// Room at the end of the upper line for the first word of the
@@ -587,6 +595,26 @@ func (b *builder) runsOn(up, ln *line) bool {
 	}
 	r, _ := utf8.DecodeRune(trimSpace(b.text[ln.tlo:ln.thi]))
 	return unicode.IsLower(r)
+}
+
+// lastEntry returns where along the line the last of its entries set
+// side by side starts, for a line written from left to right that has
+// one wide gap between two of its pieces.
+func (b *builder) lastEntry(ln *line) (at float64, ok bool) {
+	if !ln.tab || ln.rtl || ln.bidi {
+		return 0, false
+	}
+	for k := ln.lo + 1; k < ln.hi; k++ {
+		p := &b.pieces[b.lidx[k]]
+		if p.sep != ' ' || p.em <= 0 || float64(p.gap)/p.em < tabGap {
+			continue
+		}
+		if ok {
+			return 0, false // three entries: a row of a table
+		}
+		at, ok = p.u0, true
+	}
+	return at, ok
 }
 
 // sameFace reports whether two fonts are of one typeface: the same font,
@@ -731,8 +759,9 @@ func (b *builder) joinLine(prev, ln *line) {
 	out := b.out
 	switch n := len(out); {
 	case n == 0:
-	case prev != nil && (prev.tab && !prev.gap || ln.tab && !ln.gap):
-		// Rows stay rows.
+	case prev != nil && prev.tab && !prev.gap && ln.tab && !ln.gap:
+		// Rows stay rows. A line without entries under a row runs on
+		// from the row's last entry.
 		out = append(out, '\n')
 	case endsWithSoftHyphen(out) && startsWithLetter(t):
 		// A soft hyphen between the letters of a word is there only

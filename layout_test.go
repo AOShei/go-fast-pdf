@@ -85,6 +85,22 @@ func TestParagraphs(t *testing.T) {
 		{"no room for a first word, before letters of two bytes",
 			draw(10, stack(72, 700, 12, "The committee met on a Tuesday", "to speak of the budget", "tomorrow \xe9\xe9\xe9\xe9\xe9\xe9\xe9\xe9\xe9\xe9\xe9\xe9\xe9\xe9\xe9")...),
 			[]string{"The committee met on a Tuesday to speak of the budget tomorrow ØØØØØØØØØØØØØØØ"}},
+		// Text set ragged leaves room at the end of a line that the next
+		// word would fit in. A line that breaks off in a sentence which
+		// the next line takes up with a small letter has not ended its
+		// paragraph, when it fills most of the column.
+		{"room at the end of a line, in a sentence that runs on",
+			draw(10, stack(72, 700, 12, "The committee of the library met on a Tuesday to", "speak of the budget and then of what", "is left of it for the year after next.")...),
+			[]string{"The committee of the library met on a Tuesday to speak of the budget and then of what is left of it for the year after next."}},
+		{"room at the end of a line that ends its sentence",
+			draw(10, stack(72, 700, 12, "The committee of the library met on a Tuesday to", "speak of the budget and then of the rest.", "is left of it for the year after next.")...),
+			[]string{"The committee of the library met on a Tuesday to speak of the budget and then of the rest.", "is left of it for the year after next."}},
+		{"room at the end of a short line",
+			draw(10, stack(72, 700, 12, "The committee of the library met on a Tuesday to", "speak of the budget", "is left of it for the year after next.")...),
+			[]string{"The committee of the library met on a Tuesday to speak of the budget", "is left of it for the year after next."}},
+		{"lines that start with the same mark, which is not a known marker",
+			draw(10, stack(72, 700, 12, "o the first of the entries of the list is", "o the second of the entries of the list goes here")...),
+			[]string{"o the first of the entries of the list is", "o the second of the entries of the list goes here"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := blockTexts(t, tc.content); !reflect.DeepEqual(got, tc.want) {

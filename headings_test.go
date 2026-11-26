@@ -95,6 +95,24 @@ func TestHeadingsByType(t *testing.T) {
 		}
 	})
 
+	t.Run("not a row of two cells", func(t *testing.T) {
+		// Two heads of columns, set bold and far apart, are one line with
+		// a tab: a row of cells. A number and its title, set as far
+		// apart, are a heading.
+		content := para(720, "A paragraph over the columns") +
+			set("F2", 10, 72, 660, "Activities") + set("F2", 10, 300, 660, "Outcomes") +
+			para(630, "A paragraph under them") +
+			set("F1", 16, 72, 560, "1.4") + set("F1", 16, 160, 560, "Critical Judgements") +
+			para(530, "The section") +
+			set("F1", 16, 72, 460, "ESI=1") + set("F1", 16, 200, 460, "Exposed Rocky Shores") +
+			para(430, "Its text")
+		d := mustExtract(t, synthDoc{Font: fontCourier, Pages: []synthPage{{Content: content, Fonts: boldFont}}}.bytes(), nil)
+		want := []string{`1 L2 "1.4\tCritical Judgements" inferred`, `1 L2 "ESI=1\tExposed Rocky Shores" inferred`}
+		if got := headingsOf(d); strings.Join(got, "\n") != strings.Join(want, "\n") {
+			t.Errorf("headings:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+		}
+	})
+
 	t.Run("not hidden text, not when the body is bold", func(t *testing.T) {
 		hidden := "3 Tr " + set("F1", 20, 72, 700, "Hidden Large Title") + "0 Tr " + para(650, "Body")
 		d := mustExtract(t, synthDoc{Font: fontCourier, Pages: []synthPage{{Content: hidden}}}.bytes(), nil)

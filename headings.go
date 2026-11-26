@@ -258,8 +258,9 @@ func setHeading(part *gofastcore.Part, i, level int) {
 }
 
 // headingText reports whether text can be a heading: it has four letters
-// or more, at most one tab (between a number and a title; a row of a
-// table has more), and does not end as a sentence or a label does.
+// or more, no tab but one between its number and its title (a row of a
+// table has tabs between its cells, and a row of two cells has one), and
+// does not end as a sentence or a label does.
 func headingText(text string) bool {
 	letters := 0
 	for _, r := range text {
@@ -268,6 +269,9 @@ func headingText(text string) bool {
 		}
 	}
 	if letters < 4 || strings.Count(text, "\t") > 1 {
+		return false
+	}
+	if head, _, ok := strings.Cut(text, "\t"); ok && !numbers(head) {
 		return false
 	}
 	r, _ := utf8.DecodeLastRuneInString(strings.TrimSpace(text))
@@ -279,4 +283,28 @@ func headingText(text string) bool {
 func startsHeading(text string) bool {
 	r, _ := utf8.DecodeRuneInString(text)
 	return unicode.IsUpper(r) || unicode.IsDigit(r)
+}
+
+// numbers reports whether head, the text before the tab of a line, is
+// what numbers a heading: one or two words, the last of them a number
+// ("1.4", "Chapter 3"), a Roman number or a capital letter ("Annex B"),
+// or one word with a digit in it, a code ("ESI=1").
+func numbers(head string) bool {
+	f := strings.Fields(head)
+	if len(f) == 0 || len(f) > 2 {
+		return false
+	}
+	t := strings.Trim(f[len(f)-1], "().")
+	switch {
+	case t == "":
+		return false
+	case strings.Trim(t, "0123456789.") == "":
+		return true
+	case strings.Trim(t, "IVXLC") == "" || strings.Trim(t, "ivxlc") == "":
+		return true
+	case len(f) == 1 && strings.ContainsAny(t, "0123456789"):
+		return true
+	}
+	r, size := utf8.DecodeRuneInString(t)
+	return size == len(t) && unicode.IsUpper(r)
 }

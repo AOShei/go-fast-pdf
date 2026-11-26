@@ -310,6 +310,13 @@ func checkContract(doc *gofastcore.Document, opts *gofastcore.Options) error {
 				// Running headers and footers: text of the page that the
 				// layout found in its margins and on the pages around it.
 				text = true
+			case gofastcore.KindFootnote:
+				// A small paragraph under the text that starts with the
+				// mark of a note: the mark is its marker.
+				text = true
+				if b.Marker == "" || b.Text == "" || b.Display != 0 {
+					return fmt.Errorf("%s: a footnote with marker %q, text %q and display %q", where, b.Marker, b.Text, b.Display)
+				}
 			case gofastcore.KindCode:
 				// A script of the page's actions: stored, with no display
 				// reason; the attribute says what it is.

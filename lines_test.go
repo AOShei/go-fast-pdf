@@ -67,7 +67,7 @@ func TestLinesBelongToTheirBlocks(t *testing.T) {
 				last := -1
 				for _, l := range got {
 					lines++
-					if k := part.Blocks[min(max(l.Block, 0), len(part.Blocks)-1)].Kind; l.Block < last || l.Block >= len(part.Blocks) || k != gofastcore.KindParagraph && k != gofastcore.KindHeading && k != gofastcore.KindListItem && k != gofastcore.KindTable && !k.Furniture() {
+					if k := part.Blocks[min(max(l.Block, 0), len(part.Blocks)-1)].Kind; l.Block < last || l.Block >= len(part.Blocks) || k != gofastcore.KindParagraph && k != gofastcore.KindHeading && k != gofastcore.KindListItem && k != gofastcore.KindFootnote && k != gofastcore.KindTable && !k.Furniture() {
 						t.Fatalf("%s: a line of block %d after one of block %d, of %d blocks", where, l.Block, last, len(part.Blocks))
 					}
 					last = l.Block
@@ -98,7 +98,7 @@ func TestLinesBelongToTheirBlocks(t *testing.T) {
 				}
 				for i := range part.Blocks {
 					// The marker of an item or a heading is on its first line.
-					if b := &part.Blocks[i]; (b.Kind == gofastcore.KindParagraph || b.Kind == gofastcore.KindListItem) && perBlock[i] != lettersOf(b.Marker+b.Text) ||
+					if b := &part.Blocks[i]; (b.Kind == gofastcore.KindParagraph || b.Kind == gofastcore.KindListItem || b.Kind == gofastcore.KindFootnote) && perBlock[i] != lettersOf(b.Marker+b.Text) ||
 						b.Table != nil && sortedLetters(perBlock[i]) != sortedLetters(lettersOf(cellsText(b.Table))) {
 						t.Errorf("%s: block %d is %.60q and its lines have the letters %.60q", where, i, b.Text, perBlock[i])
 					}

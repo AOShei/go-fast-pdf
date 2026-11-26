@@ -739,6 +739,7 @@ func (p *Page) read(w want) (pageOut, error) {
 		words.add(&out.part, out.styles)
 		words.join(&out.part, out.styles)
 	}
+	notes(&out.part, out.styles, &s)
 	lists(&out.part, out.styles, out.items)
 	headings(&out.part, out.styles, &s, titlesByPage(f.describe().outline)[out.part.Number])
 	nameAnchors(&out.part, f.namedDests().named(out.part.Number))

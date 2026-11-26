@@ -136,6 +136,16 @@
 // with a tab after the marker, which is a row of a table. A numbered
 // line set as a heading is a heading and keeps its number as Marker.
 //
+// A footnote is a block of kind footnote, inferred: a paragraph that
+// starts with the mark of a note (a number of up to three digits before
+// a letter that is not small or a quote, or up to three of the signs
+// * † ‡ § before a letter), that is set smaller than the text of the
+// document, and that has, in its column, text of the document above it
+// and none below it. The mark is in Block.Marker, out of the text, and
+// the renderers put it back in front. A note without a mark, as one that
+// goes on from the page before, and a note set as large as the text
+// stay paragraphs.
+//
 // In a tagged PDF, a paragraph whose text is all in one item of a list
 // of the structure tree (LI, in L) is a list_item with OriginNative.
 // The layout starts a paragraph at each item and never joins the lines
@@ -178,7 +188,11 @@
 // side of it. The renderers of the shared model leave them out unless
 // RenderOptions.Furniture asks for them. A paragraph that a page break
 // splits is marked Continued on the page where it goes on, and the
-// renderers run its two pieces into one. Both are decided as the pages
+// renderers run its two pieces into one. The footnotes under the first
+// piece do not end it: the block continues the paragraph, the nearest
+// block of its kind before it, and a renderer that joins a block only
+// to the one written just before it leaves the two pieces apart there.
+// Both are decided as the pages
 // are put in order, by Extract, File.Parts and File.Document; a page read
 // by itself with File.Page is compared with nothing and has neither.
 //

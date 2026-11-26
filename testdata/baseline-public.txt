@@ -1,14 +1,14 @@
 group                     files   read  mean F1    order   not read
-all                        1650  97.8%   0.9238   0.8611   locked 21, error 15
-flag=damaged                219  84.0%   0.8999   0.8562   locked 20, error 15
+all                        1650  97.8%   0.9238   0.8610   locked 21, error 15
+flag=damaged                219  84.0%   0.8999   0.8557   locked 20, error 15
 flag=encrypted               26 100.0%   0.9569   0.8851   
-flag=linearized             285 100.0%   0.9793   0.9087   
+flag=linearized             285 100.0%   0.9793   0.9086   
 flag=none                  1065  99.9%   0.8897   0.8302   locked 1
-flag=tagged                 156 100.0%   0.9900   0.9176   
+flag=tagged                 156 100.0%   0.9900   0.9174   
 producer=browser             26 100.0%   0.9430   0.9087   
 producer=dtp                 57 100.0%   0.9390   0.8316   
 producer=library             44  97.7%   0.9403   0.8597   locked 1
-producer=office             117 100.0%   0.9858   0.9282   
+producer=office             117 100.0%   0.9858   0.9280   
 producer=other              108  98.1%   0.9172   0.8537   locked 2
 producer=print-driver       248 100.0%   0.9740   0.9058   
 producer=scanner             13 100.0%   0.9963   0.9798   

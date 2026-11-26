@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- **The lines under the text of a first line with a term run on from it.** A first line with a term, a
+  wide gap and then text ("Arsenic", the gap, "An element that is ...") is a line with two entries side
+  by side, as is one with a mark that is not a known marker before its text. The lines under the text
+  were cut off from it, for a line with entries and one without are not one paragraph. A line without
+  entries that starts where the last of the two entries of the first line starts now continues that
+  line, and is joined to it with a space as the lines of a paragraph are. A line that starts anywhere
+  else, a first line with three entries and lines written from right to left are read as before.
+  With the tags of 322 files taken away and their paragraphs compared with what the tags say, each file
+  counting once, and against the library without the change before this one: the paragraphs that are
+  right go from 79.8 to 80.4 and from 77.9 to 78.1 percent in the two halves of the corpora (the second
+  is held out), and stay at 74.1 and go from 81.2 to 81.3 percent in those of the French and English
+  documents from the web, which have few such lines. 23 files do better and 1 worse, by one paragraph.
+  The short blocks of the tags found inside a longer block of ours go from 19.8 to 19.9 and from 20.0
+  to 20.1 percent in the corpora, and stay as they are in the documents from the web. With both
+  changes the four figures are 76.2, 84.0, 81.2 and 78.8 percent. Over the 86 files of the accounting,
+  this change alone: 88.1 to 88.2 percent in the documents from the web, 81.0 to 81.2 in the corpora;
+  the headings are as before. The JSON of 318 of the 3,192 files changes, of 684 with both changes; the
+  instructions are as before.
+
 - **A line that breaks off in a sentence does not end its paragraph.** A line that leaves room at its end
   for the first word of the next line was taken for the last line of a paragraph: the line was ended on
   purpose. Text set ragged is not always broken at the last word that fits. Lines are left short to make

@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- **Tables drawn with rules across them and none between their columns are found by their rules.** A
+  rule over the table, one under its header and one at its end, or a rule between every two rows, make no
+  grid, and such a table was looked for by the alignment of its text alone: among the text beside it on a
+  page of several columns, with its columns taken from its first row, and never when its cells hold
+  sentences of several lines. Level rules of one width, one under the other, now say where the table is.
+  Its columns are the white space that runs down all its rows. Where it has three rules or more and its
+  rows can be told from them, a row is what stands between two rules and the lines of a cell are its
+  text; a body of rows of text under a header is split into them. Otherwise its rows of text are weighed
+  as before, by themselves.
+  With the tags of 203 files taken away and their tables compared with what the tags say, each file
+  counting once, the rows that are right cell for cell go from 53 to 55 percent and from 47 to 52 percent
+  in the two halves of the 19 French and English documents from the web, and from 58 to 60 and from 50 to
+  51 percent in the two halves of the corpora (the second of each is held out). Over the 86 files of the
+  accounting, row by row: 36.4 to 45.4 percent in the documents from the web, 63.0 to 66.0 in the
+  corpora. Paragraphs are as before. 150 of the 3,192 files change; the instructions rise by 0.1 percent.
+
 - **A space set wide with word spacing is a gap, and the cells it separates are found.** Some programs,
   Word among them, move to the next cell of a row with a space made wide by word spacing, and draw the
   cell where the space ends. The space was taken for part of the text before it: the text had no gap,

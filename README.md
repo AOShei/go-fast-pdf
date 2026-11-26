@@ -228,8 +228,8 @@ Settings that only PDF has are fields of `gofastpdf.Extractor`. The
   size and weight, with levels
 - **Tables of tagged PDFs** - table blocks with the grid the structure tree gives: header rows, merged
   cells, and tables over several pages continued
-- **Tables in files without tags** - found by the rules they are drawn with, or by how their text lines
-  up in columns: cells of several lines, cells over several columns and header rows set in bold; columns
+- **Tables in files without tags** - found by the rules they are drawn with, a grid or only rules
+  across the table, or by how their text lines up in columns: cells of several lines, cells over several columns and header rows set in bold; columns
   of prose, boxes around paragraphs, lists, tables of contents and code are not taken for tables.
   Looking for ruled tables costs about 5 percent; `Extractor.NoRuledTables` turns it off
 - **Descriptions of figures** - an image of a tagged PDF has the alternative text its figure gives

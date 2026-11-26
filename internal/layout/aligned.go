@@ -124,14 +124,10 @@ func (b *builder) findTables(first int) (taken []line, blocks []int32) {
 		return nil, nil
 	}
 	var used []bool
-	for i := 0; i < len(rows); {
-		if len(rows[i].segs) < 2 {
-			i++
-			continue
-		}
-		j, g := tableRegion(rows, i)
-		add := func(rows []trow, g []gutter, split bool) int {
-			bl, period, ok := b.makeTable(rows, g, split)
+	banded := false
+	add := func(rows []trow, g []gutter, split bool) int {
+		{
+			bl, period, ok := b.makeTable(rows, g, split, banded)
 			if !ok {
 				return period
 			}
@@ -147,6 +143,61 @@ func (b *builder) findTables(first int) (taken []line, blocks []int32) {
 			}
 			return 0
 		}
+	}
+	// The tables that level rules mark, in text set upright (banded.go);
+	// then those among the rows that are left.
+	if lines[0].class == 0 {
+		banded = true
+		for _, t := range b.bands(rows) {
+			free := true
+			for _, r := range t.rows {
+				for _, s := range r.segs {
+					free = free && (len(used) == 0 || !used[int(s.line)-first])
+				}
+			}
+			if !free {
+				continue
+			}
+			// As a grid, with its rows between the rules, where it has
+			// rules between its rows; else by its rows of text.
+			if len(t.grid.hs) > 2 && len(t.grid.vs) > 0 {
+				if bl, mine, ok := b.ruledTable(first, t.grid); ok {
+					if len(used) < len(lines) {
+						used = append(used, make([]bool, len(lines)-len(used))...)
+					}
+					b.blocks = append(b.blocks, bl)
+					blocks = append(blocks, int32(len(b.blocks)-1))
+					for _, li := range mine {
+						used[int(li)-first] = true
+					}
+					continue
+				}
+			}
+			add(t.rows, t.g, false)
+		}
+		banded = false
+		if len(blocks) > 0 {
+			keep := rows[:0]
+			for _, r := range rows {
+				segs := r.segs[:0]
+				for _, s := range r.segs {
+					if !used[int(s.line)-first] {
+						segs = append(segs, s)
+					}
+				}
+				if r.segs = segs; len(segs) > 0 {
+					keep = append(keep, r)
+				}
+			}
+			rows = keep
+		}
+	}
+	for i := 0; i < len(rows); {
+		if len(rows[i].segs) < 2 {
+			i++
+			continue
+		}
+		j, g := tableRegion(rows, i)
 		if period := add(rows[i:j], g, true); period > 0 {
 			// Tables set side by side: each is weighed by itself, and a
 			// line with text in two of them is two lines.
@@ -398,9 +449,13 @@ func crosses(r trow, g []gutter) bool {
 //
 // With split, a region that is tables set side by side is none, and the
 // number of columns of each is returned (sideBySide).
-func (b *builder) makeTable(rows []trow, g []gutter, split bool) (blk, int, bool) {
+func (b *builder) makeTable(rows []trow, g []gutter, split, banded bool) (blk, int, bool) {
+	minRows := tableMinRows
+	if banded {
+		minRows = bandMinRows
+	}
 	cols := len(g) + 1
-	if len(g) == 0 || len(rows) < tableMinRows {
+	if len(g) == 0 || len(rows) < minRows {
 		return blk{}, 0, false
 	}
 	colOf := func(u float64) int {
@@ -470,7 +525,7 @@ func (b *builder) makeTable(rows []trow, g []gutter, split bool) (blk, int, bool
 		up.v = r.v
 	}
 	grid = out
-	if len(grid) < tableMinRows {
+	if len(grid) < minRows {
 		return blk{}, 0, false
 	}
 

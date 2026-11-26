@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+- **A line that breaks off in a sentence does not end its paragraph.** A line that leaves room at its end
+  for the first word of the next line was taken for the last line of a paragraph: the line was ended on
+  purpose. Text set ragged is not always broken at the last word that fits. Lines are left short to make
+  them more even or to keep words together, and such a paragraph was cut in two in the middle of a
+  sentence. A line that fills seven tenths of its column, ends in a letter or a comma and is followed
+  by a line that starts with a small letter now runs on into it. Two lines that start with the same
+  single character and a space stay apart: the entries of a list whose mark is not a known marker.
+  Writing without capitals is read as before.
+  With the tags of 322 files taken away and their paragraphs compared with what the tags say, each file
+  counting once, the paragraphs that are right go from 74.1 to 76.2 and from 81.2 to 83.9 percent in
+  the two halves of the 21 French and English documents from the web, and from 79.8 to 80.6 and from
+  77.9 to 78.6 percent in the two halves of the corpora (the second of each is held out). Of the files
+  of the four halves, 72 do better and 3 worse (by 4 paragraphs in two, 1 in one). The short blocks of
+  the tags (15 to 99 letters) that are found inside a longer block of ours, which is what joining too
+  much would show in, stay at 8.1 and 10.8 percent in the documents from the web, and go from 19.8 to
+  19.9 and from 20.0 to 20.2 percent in the corpora; most of those that were looked at are an entry of
+  a table of contents or a sentence made whole. Over the 86 files of the accounting, the paragraphs
+  that are right go from 88.1 to 91.2 percent in the documents from the web (those cut in two from 7.2
+  to 4.1) and from 81.0 to 81.3 in the corpora; of the headings of the tags 66.9 percent are found,
+  from 67.3, and 77.9, from 78.1. The JSON of 485 of the 3,192 files changes; the instructions are as
+  before. In three files of the public corpus, made of words without meaning in three ragged columns,
+  the order agrees a little less with that of `pdftotext` (by 1.5 to 3.1 points) now that their lines
+  are paragraphs.
+
 - **A line with a tab is a heading only when what stands before the tab numbers it.** A line set in bold
   or large type with one wide gap in it was taken for a heading with its number ("1.4", a tab, the
   title). Most such lines are two cells of a row: the heads of two columns ("Activities", "Outcomes"), a

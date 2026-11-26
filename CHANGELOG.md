@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- **A line with a tab is a heading only when what stands before the tab numbers it.** A line set in bold
+  or large type with one wide gap in it was taken for a heading with its number ("1.4", a tab, the
+  title). Most such lines are two cells of a row: the heads of two columns ("Activities", "Outcomes"), a
+  label and its figure. The text before the tab must now be what numbers a heading: one or two words
+  ending in a number, a Roman number or a capital letter ("Chapter 3", "Annex B"), or one word with a
+  digit in it ("ESI=1").
+  With the tags of 163 files taken away and their headings compared with what the tags say: 142 fewer
+  lines are marked as headings, of which 85 are not headings by the tags and 9 are (the others matched
+  one in part). Each file counting once, the headings of the tags that are found stay at 61 and 88
+  percent in the two halves of the French and English documents from the web, and go from 75.3 to 74.6
+  and from 73.2 to 72.8 percent in the two halves of the corpora (the second of each is held out); a
+  file with few headings loses one. Over the 86 files of the accounting, of the lines marked as headings
+  in the documents from the web 50.6 percent are headings, from 49.2, and in the corpora 50.7, from
+  50.1. The JSON of 296 of the 3,192 files changes, the text of 4; the instructions are as before.
+
 - **Tables drawn with shades are found by the boxes of their cells.** Many tables of reports have no
   rules between their rows, or none at all: each cell is drawn as a box filled with a shade, the cells of
   a row side by side, often every other row. Such a table was looked for by the alignment of its text

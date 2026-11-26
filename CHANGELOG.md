@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **go-fast-core v0.1.11.** Its renderers join a continued block to the block it continues past the
+  footnotes between them, and write the footnotes after it. The rendered text and Markdown of a
+  paragraph that goes on to the next page over footnotes is one paragraph, as the JSON already said.
+
 - **Footnotes are blocks of kind footnote, and a paragraph goes on to the next page past them.** A note
   at the foot of a page was a paragraph like any other, and it was the last of its page: a paragraph
   above it that goes on to the next page was not marked Continued there, and where the note itself ended
@@ -13,9 +17,8 @@
   note without a mark, as one that goes on from the page before, and a note set as large as the text
   stay paragraphs. The paragraph above the notes is the last of its page, and the block that goes on
   from it on the next page is Continued: it continues the nearest paragraph before it, as the shared
-  model says. The renderers of go-fast-core v0.1.9 join a continued block only to the block written
-  just before it, so the text and the Markdown keep the two pieces apart with the notes between them;
-  the JSON has the mark.
+  model says. The renderers of go-fast-core, from v0.1.11, hold the footnotes until the paragraph has
+  ended: the text and the Markdown have the paragraph whole and the notes after it.
   With the tags of 322 files taken away, each file counting once, against the library without this
   change: the paragraphs that are right go from 81.2 to 81.4 and from 78.9 to 79.1 percent in the two
   halves of the corpora (the second is held out), read as the shared model says, a continued block

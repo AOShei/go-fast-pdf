@@ -101,4 +101,12 @@ func TestParagraphAcrossPagesPastFootnote(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("%q, want %q", got, want)
 	}
+	// The renderers write the paragraph whole, and the note after it.
+	const whole = "that goes on to the next page, where it ends after some more words of it.\n\n1 A note that ends without a full stop\n\n"
+	if text := doc.Text(); !strings.Contains(text, whole) {
+		t.Errorf("text %q", text)
+	}
+	if md := doc.Markdown(); !strings.Contains(md, "that goes on to the\nnext page, where it ends after some more words of it.\n\n[^1]: A note that ends without a full stop") {
+		t.Errorf("markdown %q", md)
+	}
 }

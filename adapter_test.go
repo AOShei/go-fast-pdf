@@ -189,35 +189,55 @@ func checkContract(doc *gofastcore.Document, opts *gofastcore.Options) error {
 		return fmt.Errorf("source format %q", doc.Source.Format)
 	}
 	// The rendered text holds the words of the blocks, all of them and
-	// in their order, and the Markdown is there when the text is. The
+	// in the order the renderers write them, and the Markdown is there
+	// when the text is. The
 	// renderers leave running headers and footers out, and stored data,
 	// in the stored part or on a page (a page's scripts), unless asked
 	// for it.
-	var words, withStored []string
-	for _, b := range doc.AllBlocks() {
-		if b.Kind.Furniture() {
-			continue
-		}
-		var w []string
-		// The renderers put a marker back in front of its block, and a
-		// dash in front of a list item without one.
-		w = append(w, strings.Fields(b.Marker)...)
-		if b.Kind == gofastcore.KindListItem && b.Marker == "" && !b.Continued {
-			w = append(w, "-")
-		}
-		w = append(w, strings.Fields(b.Text)...)
-		if b.Table != nil { // a table row by row, cell by cell
-			for _, row := range b.Table.Rows {
-				for _, cell := range row {
-					w = append(w, strings.Fields(cell)...)
+	// The renderers hold the footnotes that follow a block until the
+	// next block they write: one that continues the block before the
+	// footnotes is written first, and the footnotes after it.
+	rendered := func(stored bool) (out []string) {
+		var held []string // the words of the footnotes that wait
+		before, cols := gofastcore.KindInvalid, 0
+		for _, b := range doc.AllBlocks() {
+			if b.Kind.Furniture() || !stored && b.Attrs[gofastcore.AttrStored] != "" {
+				continue
+			}
+			var w []string
+			// The renderers put a marker back in front of its block, and a
+			// dash in front of a list item without one.
+			w = append(w, strings.Fields(b.Marker)...)
+			if b.Kind == gofastcore.KindListItem && b.Marker == "" && !b.Continued {
+				w = append(w, "-")
+			}
+			w = append(w, strings.Fields(b.Text)...)
+			if b.Table != nil { // a table row by row, cell by cell
+				for _, row := range b.Table.Rows {
+					for _, cell := range row {
+						w = append(w, strings.Fields(cell)...)
+					}
 				}
 			}
+			if len(w) == 0 {
+				continue // not written
+			}
+			if b.Kind == gofastcore.KindFootnote && before != gofastcore.KindInvalid {
+				held = append(held, w...)
+				continue
+			}
+			joins := b.Continued && b.Kind == before && (b.Table == nil || len(b.Table.Rows) > 0 && len(b.Table.Rows[0]) == cols)
+			if !joins {
+				out, held = append(out, held...), held[:0]
+			}
+			out = append(out, w...)
+			if before = b.Kind; b.Table != nil && len(b.Table.Rows) > 0 {
+				cols = len(b.Table.Rows[0])
+			}
 		}
-		withStored = append(withStored, w...)
-		if b.Attrs[gofastcore.AttrStored] == "" {
-			words = append(words, w...)
-		}
+		return append(out, held...)
 	}
+	words, withStored := rendered(false), rendered(true)
 	text := doc.Text()
 	if got := strings.Fields(text); !reflect.DeepEqual(got, words) && len(got)+len(words) > 0 {
 		return fmt.Errorf("the rendered text has %d words and the blocks have %d, or they differ", len(got), len(words))

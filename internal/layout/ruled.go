@@ -41,6 +41,9 @@ import (
 // Tables by their rules are looked for before tables by alignment, among
 // the same lines: text without a display reason, in no cell of a tagged
 // table.
+//
+// The cells of a table drawn with shades and few rules or none are found
+// the same way, by the edges of their grounds (shaded.go).
 
 const (
 	// ruleSnap is how close, in points, the rules at one place are.
@@ -63,7 +66,7 @@ type arule struct{ at, lo, hi float64 }
 // findRuledTables finds the tables drawn with rules among the lines
 // b.lines[first:], as findTables does those found by alignment.
 func (b *builder) findRuledTables(first int) (taken []line, blocks []int32) {
-	if len(b.c.Rules) < 4 || len(b.lines) == first {
+	if len(b.c.Rules) < 4 && len(b.c.Fills) < 2 || len(b.lines) == first {
 		return nil, nil
 	}
 	if !b.gridsDone {
@@ -89,6 +92,29 @@ func (b *builder) findRuledTables(first int) (taken []line, blocks []int32) {
 		}
 		if clash {
 			continue // a grid inside another's
+		}
+		for _, li := range mine {
+			used[int(li)-first] = true
+		}
+		b.blocks = append(b.blocks, bl)
+		blocks = append(blocks, int32(len(b.blocks)-1))
+	}
+	// Then the grids that the grounds of cells make with the rules, for
+	// the text that no table drawn with rules has (shaded.go).
+	for _, g := range b.shadedGrids() {
+		bl, mine, ok := b.ruledTable(first, g)
+		if !ok {
+			continue
+		}
+		if used == nil {
+			used = make([]bool, len(lines))
+		}
+		clash := false
+		for _, li := range mine {
+			clash = clash || used[int(li)-first]
+		}
+		if clash {
+			continue
 		}
 		for _, li := range mine {
 			used[int(li)-first] = true

@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- **A rule drawn in pieces is one rule where a rule across it passes through the gap.** Some programs
+  draw the border of each cell by itself, and where the rule between two rows crosses an upright border
+  they draw that crossing as a piece of its own, a few points long. A piece shorter than six points is not
+  kept as a rule, so the upright border was left in pieces that each met one level rule and no other:
+  no grid, and the table was looked for by the alignment of its text, with a cell of several lines taken
+  for several rows. Two pieces of one rule less than six points apart are now one where a rule of the
+  other direction passes through the gap between them; a gap that nothing crosses stays a gap.
+  With the tags of 203 files taken away and their tables compared with what the tags say, each file
+  counting once, the rows that are right cell for cell go from 55 to 58 percent in the first half of the
+  19 French and English documents from the web and stay at 52 in the second, and stay at 60 and go from
+  51 to 52 percent in the two halves of the corpora (the second of each is held out). No file of the four
+  halves does worse. Over the 86 files of the accounting, row by row: 45.4 to 46.7 percent in the documents
+  from the web, 66.0 to 66.1 in the corpora; paragraphs are as before. 17 of the 3,192 files change.
+
 - **Tables drawn with rules across them and none between their columns are found by their rules.** A
   rule over the table, one under its header and one at its end, or a rule between every two rows, make no
   grid, and such a table was looked for by the alignment of its text alone: among the text beside it on a

@@ -370,3 +370,61 @@ func TestNoRuledTables(t *testing.T) {
 		}
 	}
 }
+
+// TestRuledPiecesAcrossRules: the upright rules of a table are drawn
+// cell by cell, each from a little under the level rule over its row to
+// the rule under it, and the short piece that goes through the level
+// rule is too short to be a rule. The pieces are one rule where a level
+// rule passes through the gap between them, and the table is a grid: a
+// cell of two lines is one cell.
+func TestRuledPiecesAcrossRules(t *testing.T) {
+	xs, ys := []int{72, 200, 300, 400}, []int{700, 680, 648, 628}
+	var sb strings.Builder
+	sb.WriteString("0.5 w\n")
+	for i, y := range ys {
+		// No two of the same length: they are not the rules of a table
+		// that has level rules alone (banded.go).
+		fmt.Fprintf(&sb, "%d %d m %d %d l S\n", xs[0], y, xs[len(xs)-1]-6*i, y)
+	}
+	for _, x := range xs[1 : len(xs)-1] {
+		for r := 0; r+1 < len(ys); r++ {
+			// The piece beside the row, and the short one through the rule
+			// under it.
+			fmt.Fprintf(&sb, "%d %d m %d %d l S\n", x, ys[r]-5, x, ys[r+1])
+			fmt.Fprintf(&sb, "%d %d m %d %d l S\n", x, ys[r+1], x, ys[r+1]-5)
+		}
+	}
+	rows := []row{
+		{false, []string{"Station", "Depth", "Count"}},
+		{false, []string{"North Bay", "12.5", "140"}},
+		{false, []string{"South Cove", "8.0", "97"}},
+	}
+	content := sb.String() + ruledCells(xs, ys, rows) + set("F1", 10, xs[0]+4, ys[1]-24, "upper reach")
+	doc := mustExtract(t, ruledDoc(content).bytes(), nil)
+	got := tablesOf(doc.Parts[0])
+	for _, want := range []string{"| Station | Depth | Count |", "| North Bay upper reach | 12.5 | 140 |", "| South Cove | 8.0 | 97 |"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("no row %q in:\n%s", want, got)
+		}
+	}
+
+	// A gap as long as a piece that is kept as a rule is a gap: two
+	// tables with a line of text between them stay two.
+	t.Run("nothing across", func(t *testing.T) {
+		hs, vs := []int{700, 680, 660}, []int{72, 200, 400}
+		lower := []int{654, 634, 614}
+		content := ruledGrid(vs, hs) + ruledCells(vs, hs, []row{{false, []string{"Station", "Depth"}}, {false, []string{"North Bay", "12.5"}}}) +
+			set("F1", 10, 72, 664, "Birds seen at the stations on the same days.") +
+			ruledGrid(vs, lower) + ruledCells(vs, lower, []row{{false, []string{"Species", "Count"}}, {false, []string{"Heron", "14"}}})
+		doc := mustExtract(t, ruledDoc(content).bytes(), nil)
+		n := 0
+		for _, b := range doc.Parts[0].Blocks {
+			if b.Kind == gofastcore.KindTable {
+				n++
+			}
+		}
+		if n != 2 {
+			t.Errorf("%d tables, want 2:\n%s", n, tablesOf(doc.Parts[0]))
+		}
+	})
+}

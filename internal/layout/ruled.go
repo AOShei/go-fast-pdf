@@ -116,7 +116,10 @@ func (b *builder) displayRules() (hs, vs []arule) {
 			vs = append(vs, arule{(x0 + x1) / 2, y0, y1})
 		}
 	}
-	return joinRules(hs), joinRules(vs)
+	hs, vs = joinRules(hs), joinRules(vs)
+	// Each direction is bridged across the other as it was joined.
+	bridged := bridgeRules(vs, hs)
+	return bridgeRules(hs, vs), bridged
 }
 
 // joinRules joins the rules at one place that overlap or nearly touch:
@@ -135,6 +138,47 @@ func joinRules(rs []arule) []arule {
 			if p := &out[n-1]; r.at-p.at <= ruleSnap/2 && r.lo <= p.hi+ruleSnap {
 				p.lo, p.hi = min(p.lo, r.lo), max(p.hi, r.hi)
 				continue
+			}
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+// ruleBridge is the longest gap, in points, between two pieces of one
+// rule that a rule across them closes: a piece shorter than this is not
+// kept as a rule (extract.MaxRuleWidth), so a gap as long can be one.
+const ruleBridge = 2 * extract.MaxRuleWidth
+
+// bridgeRules joins the pieces of a rule that stop short of each other
+// where a rule of the other direction, across, passes through the gap.
+// Some programs draw the border of each cell by itself, and the border
+// between two rows in a piece of its own where the rule between the rows
+// crosses it; that piece is too short to be kept as a rule, and without
+// it the rule is in pieces that each meet one rule across and no other,
+// which makes no grid. A gap that nothing crosses stays one: two rules
+// in a line are not one rule.
+//
+// Both lists are in the order of their places (joinRules), and the
+// result is.
+func bridgeRules(rs, across []arule) []arule {
+	out := rs[:0:0]
+	for _, r := range rs {
+		if n := len(out); n > 0 {
+			p := &out[n-1]
+			if gap := r.lo - p.hi; r.at-p.at <= ruleSnap/2 && gap > 0 && gap < ruleBridge {
+				k := sort.Search(len(across), func(k int) bool { return across[k].at >= p.hi-ruleSnap })
+				met := false
+				for ; k < len(across) && across[k].at <= r.lo+ruleSnap; k++ {
+					if x := &across[k]; x.lo-ruleSnap <= r.at && r.at <= x.hi+ruleSnap {
+						met = true
+						break
+					}
+				}
+				if met {
+					p.hi = max(p.hi, r.hi)
+					continue
+				}
 			}
 		}
 		out = append(out, r)

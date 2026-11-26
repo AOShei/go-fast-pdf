@@ -31,6 +31,10 @@ const (
 	// indentMax is the widest indent of a first line, or of the lines
 	// after it.
 	indentMax = 6.0
+	// runOnFill is the share of the column that a line must fill for
+	// the sentence it breaks off in to join it to the next line: shorter
+	// lines are the entries of a list or of a column of a table.
+	runOnFill = 0.7
 	// lookBack bounds the lines above a line that are looked at for the
 	// one it continues.
 	lookBack = 64
@@ -230,7 +234,7 @@ func (b *builder) paragraphs(first int, display gofastcore.Display) {
 		// Lines of two items of a tagged list, or of an item and what is
 		// not in one, are two paragraphs. So are an entry of a table of
 		// contents and what follows it; rows stay together as rows.
-		if !ln.item && ln.li == up.li && b.continues(upC, lnC, before, leading, right) &&
+		if !ln.item && ln.li == up.li && b.continues(upC, lnC, before, lines, leading, right) &&
 			(upC.tab || !EndsEntry(b.text[up.tlo:up.thi])) {
 			ln.pred, ln.start = p, false
 		}
@@ -495,9 +499,10 @@ func (b *builder) usualLeading(lines []line) float64 {
 
 // continues reports whether ln, which lies under up, continues its
 // paragraph. before is the line that up continues, or nil when up is
-// the first line of its paragraph; right is the right edge of the
-// column the two lines are in.
-func (b *builder) continues(up, ln, before *line, leading, right float64) bool {
+// the first line of its paragraph; lines are the lines that the pred of
+// a line counts in; right is the right edge of the column the two lines
+// are in.
+func (b *builder) continues(up, ln, before *line, lines []line, leading, right float64) bool {
 	size := max(up.size, ln.size)
 	if size <= 0 || min(up.size, ln.size) < (1-sameSize)*size {
 		return false
@@ -544,7 +549,44 @@ func (b *builder) continues(up, ln, before *line, leading, right float64) bool {
 	// lower: the line was ended on purpose, so a paragraph ends there.
 	// right is how far the lines of this column reach.
 	room := right - up.u1
-	return room <= ln.space+0.5*size || room <= b.firstWord(ln)+ln.space+0.5*size
+	if room <= ln.space+0.5*size || room <= b.firstWord(ln)+ln.space+0.5*size {
+		return true
+	}
+	// Text set ragged is not always broken at the last word that fits:
+	// a line is left short so that the lines are more even, or so that
+	// words stay together. A sentence that visibly runs on says so.
+	if up.u1-up.u0 < runOnFill*(right-up.u0) || !b.runsOn(up, ln) {
+		return false
+	}
+	head := up
+	for k := 0; k < lookBack && head.pred >= 0; k++ {
+		head = &lines[head.pred]
+	}
+	return !b.sameMark(head, ln)
+}
+
+// sameMark reports whether two lines start with the same single
+// character and a space: a mark before each entry of a list, of the
+// kinds that are not known as markers.
+func (b *builder) sameMark(head, ln *line) bool {
+	t, u := trimSpace(b.text[head.tlo:head.thi]), trimSpace(b.text[ln.tlo:ln.thi])
+	_, n := utf8.DecodeRune(t)
+	return n > 0 && len(t) > n && len(u) > n && t[n] == ' ' && string(t[:n+1]) == string(u[:n+1])
+}
+
+// runsOn reports whether the text of up breaks off in a sentence that
+// the text of ln takes up: up ends in a letter or a comma, and ln starts
+// with a small letter. Writing without capitals never says so.
+func (b *builder) runsOn(up, ln *line) bool {
+	t := trimSpace(b.text[up.tlo:up.thi])
+	if len(t) == 0 {
+		return false
+	}
+	if r, _ := lastRune(t, len(t)); r != ',' && !unicode.IsLetter(r) {
+		return false
+	}
+	r, _ := utf8.DecodeRune(trimSpace(b.text[ln.tlo:ln.thi]))
+	return unicode.IsLower(r)
 }
 
 // sameFace reports whether two fonts are of one typeface: the same font,

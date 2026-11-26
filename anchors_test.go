@@ -50,7 +50,7 @@ func anchorsDoc() synthDoc {
 func TestNamedDestinationAnchors(t *testing.T) {
 	d := anchorsDoc()
 	want := [][]string{
-		{"intro: Introduction", "near: Body text and some more words of the body"},
+		{"intro: Introduction", "near: Body text and some more words of the body that go on for a second line of the same paragraph and end on a third line here."},
 		{"second: Second page text that runs on.", "old: Another part of the page."},
 	}
 	spans := &gofastcore.Options{Spans: true}

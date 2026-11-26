@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- **A space set wide with word spacing is a gap, and the cells it separates are found.** Some programs,
+  Word among them, move to the next cell of a row with a space made wide by word spacing, and draw the
+  cell where the space ends. The space was taken for part of the text before it: the text had no gap,
+  the row was one piece ("Other 0.03299"), its box reached far past its letters, and the table was not
+  found. Spaces at the end of a string that reach further than the font size are now the gap to what
+  follows, and no part of the box. The same holds inside a string where the array takes the spacing back
+  after its other spaces, which is how such a program makes one space of a line a tab; the spaces of a
+  justified line, all as wide, are left as they are.
+  With the tags of 203 files taken away and their tables compared with what the tags say, each file
+  counting once: in the files of the corpora, the rows that are right cell for cell go from 49 to 58
+  percent in the half that is read, and from 42 to 50 percent in the half that is held out. The 19 French
+  and English documents from the web do not change: none is made that way. Paragraphs are as before (81.1
+  and 81.0 percent right in the corpora, 88.0 in the documents from the web). 476 of the 3,192 files
+  change. The instructions rise by 1 to 1.5 percent on the two manuals of the benchmarks, and by less
+  than 1 percent elsewhere.
+
 - **`Extractor.NoOffPageText`, and `--exclude-off-page` of the command, leave out the text outside the
   page.** Off by default: the document has everything the file holds, as before, and nothing changes for
   a caller that does not set it. With it, text that is wholly outside the visible box of its page (the

@@ -1,8 +1,10 @@
 package extract
 
 import (
+	"bytes"
 	"github.com/AOShei/go-fast-pdf/internal/content"
 	"github.com/AOShei/go-fast-pdf/internal/font"
+	"math"
 	"slices"
 	"sort"
 	"unicode/utf8"
@@ -36,6 +38,12 @@ type Run struct {
 	// SpaceWidth is the width of the font's space at this size.
 	SpaceWidth float64
 	Font       *font.Font
+	// Trail is how far the spaces at the end of the run's last string
+	// reach along the line, when that is more than the font size: a
+	// space set that wide, with word spacing, is how some programs move
+	// to the next cell of a row, and no part of the text before it. X1,
+	// Y1 is after it.
+	Trail float64
 
 	// What the visibility of the run depends on, as it was when the
 	// run was drawn. No judgement is made here.
@@ -244,6 +252,8 @@ type lineEnd struct {
 	// The string itself: its font and its text in interp.text.
 	font           *font.Font
 	textLo, textHi int32
+	// trail is Run.Trail of the string.
+	trail float64
 }
 
 // extent returns how far a line of the given size reaches across the
@@ -375,7 +385,50 @@ func (in *interp) show(o content.Operand) {
 			return
 		}
 	}
+	// Word spacing that makes a space wider than the font size, in an
+	// array that takes the spacing back after some of its spaces
+	// (tabSpaces): the spaces it leaves wide are the way to the next cell
+	// of a row, as a tab is, and what follows each a string of its own
+	// (Run.Trail). The spaces of a justified line are all as wide, and
+	// are left alone. Word spacing applies to the code 32 of a font of one
+	// byte a code.
+	if in.tabSpaces && g.tw > 0 && g.th > 0 && !f.Vertical && len(raw) > 1 && f.CodeLen(raw) == 1 {
+		m := in.tm.mul(g.ctm)
+		scale := g.th * hypot(m[0], m[1])
+		if em := g.size * scale; em > 0 && g.tw*scale+f.SpaceWidth*em > em {
+			for len(raw) > 0 && !in.full {
+				n := bytes.IndexByte(raw, ' ') + 1
+				for n > 0 && n < len(raw) && raw[n] == ' ' {
+					n++
+				}
+				if n == 0 {
+					n = len(raw)
+				}
+				in.showCodes(f, raw[:n])
+				raw = raw[n:]
+			}
+			return
+		}
+	}
 	in.showCodes(f, raw)
+}
+
+// kernBack takes a move against the direction of writing, of shift in
+// text space, off the wide spaces that the string shown last ended with:
+// some programs set the word spacing for one space of a line and take it
+// back after each of the others.
+func (in *interp) kernBack(shift float64) {
+	p := &in.prev
+	n := len(in.runs)
+	if p.trail == 0 || n == 0 || in.runs[n-1].Trail != p.trail {
+		return
+	}
+	m := in.tm.mul(in.gs.ctm)
+	p.trail -= shift * hypot(m[0], m[1])
+	if p.trail <= p.size {
+		p.trail = 0
+	}
+	in.runs[n-1].Trail = p.trail
 }
 
 // showCodes shows the character codes of raw in the font f.
@@ -489,6 +542,21 @@ func (in *interp) showCodes(f *font.Font, raw []byte) {
 	}
 	x1, y1 := x0+tx*ge.a+ty*ge.c, y0+tx*ge.b+ty*ge.d
 	p := &in.prev
+	// The spaces the string ends with, when they are set wide.
+	trail := 0.0
+	if !f.Vertical && !replaced && !rtl && g.tw > 0 {
+		n := 0
+		for k := len(in.text); k > start && in.text[k-1] == ' '; k-- {
+			n++
+		}
+		if n > 0 {
+			t := float64(n)*ge.space + (float64(n)*g.tw+float64(n-1)*g.tc)*g.th*math.Hypot(ge.a, ge.b)
+			if along := (x1-x0)*ge.dx + (y1-y0)*ge.dy; t > ge.size && t <= along {
+				trail = t
+			}
+		}
+	}
+	prevTrail := p.trail
 	// Marks drawn by themselves on the glyph before them: part of it,
 	// however far up or down they are put (marks.go).
 	if !replaced && start < len(in.text) && in.text[start] >= 0xCC && in.joinMarks(start, clustersFrom, clip, x0, y0, sh) {
@@ -521,6 +589,7 @@ func (in *interp) showCodes(f *font.Font, raw []byte) {
 	jointX, jointY := p.ex, p.ey
 	p.font, p.textLo, p.textHi = f, int32(start), int32(len(in.text))
 	p.sx, p.sy, p.ex, p.ey = x0, y0, x1, y1
+	p.trail = trail
 	if p.serial != ge.serial || !p.valid {
 		p.valid, p.serial = true, ge.serial
 		p.dx, p.dy, p.nx, p.ny = ge.dx, ge.dy, ge.nx, ge.ny
@@ -563,7 +632,7 @@ func (in *interp) showCodes(f *font.Font, raw []byte) {
 		in.endLine()
 	}
 	in.rtlLine = in.rtlLine || rtl
-	if n := len(in.runs); n > 0 && sep != '\n' && !replaced && !back && !(sep == ' ' && along > ge.size) && in.runs[n-1].Clip == clip && in.continues(&in.runs[n-1], f) {
+	if n := len(in.runs); n > 0 && sep != '\n' && !replaced && !back && !(sep == ' ' && along > ge.size) && prevTrail == 0 && in.runs[n-1].Clip == clip && in.continues(&in.runs[n-1], f) {
 		last := &in.runs[n-1]
 		if sep == ' ' && start > 0 && in.text[start-1] != ' ' && len(in.text) > start && in.text[start] != ' ' {
 			in.text = append(in.text, 0)
@@ -611,6 +680,7 @@ func (in *interp) showCodes(f *font.Font, raw []byte) {
 		last.RTL = last.RTL || rtl
 		last.X1, last.Y1 = x1, y1
 		last.LX, last.LY = x0, y0
+		last.Trail = trail
 		last.Glyphs += int32(sh.Glyphs)
 		last.Unmapped += int32(sh.Unmapped)
 		last.Assumed += int32(sh.Assumed)
@@ -633,7 +703,7 @@ func (in *interp) showCodes(f *font.Font, raw []byte) {
 		Mode: g.mode, Clip: clip, FillAlpha: g.fillAlpha, StrokeAlpha: g.strokeAlpha,
 		OptionalOff: in.offDepth > 0,
 		Sep:         sep, ActualText: replaced, Glyphs: int32(sh.Glyphs), Unmapped: int32(sh.Unmapped), Assumed: int32(sh.Assumed),
-		MCID: in.mcid, RTL: rtl,
+		MCID: in.mcid, RTL: rtl, Trail: trail,
 	})
 	in.checkTextLimit()
 }

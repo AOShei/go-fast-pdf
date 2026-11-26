@@ -312,3 +312,60 @@ paragraph no_ink "211"
 		}
 	})
 }
+
+// Some programs move to the next cell of a row with a space set wide by
+// word spacing, and draw the cell where the space ends: no gap is left
+// between the strings. The space is the gap; the row is cells, and the
+// rows a table.
+func TestAlignedTableWideSpaces(t *testing.T) {
+	xs := []int{72, 200, 300}
+	rows := [][]string{
+		{"Station", "Depth", "Count"},
+		{"North", "12.5", "140"},
+		{"Southern", "8.0", "97"},
+		{"East", "15.2", "211"},
+		{"Westerly", "4.4", "36"},
+	}
+	var sb strings.Builder
+	sb.WriteString(para(740, "Text before the table"))
+	for i, r := range rows {
+		fmt.Fprintf(&sb, "BT /F1 10 Tf %d %d Td ", xs[0], 680-14*i)
+		for k, c := range r {
+			if k+1 < len(r) {
+				// The cell, a space, and word spacing up to the next column.
+				fmt.Fprintf(&sb, "%d Tw (%s ) Tj ", xs[k+1]-xs[k]-6*len(c)-6, c)
+			} else {
+				fmt.Fprintf(&sb, "(%s) Tj ", c)
+			}
+		}
+		sb.WriteString("ET\n")
+	}
+	sb.WriteString("BT 0 Tw ET\n" + para(560, "Text after the table"))
+	got := tableBlocks(t, synthDoc{Font: fontCourier, Pages: []synthPage{{Content: sb.String()}}})
+	for _, want := range []string{"table inferred", "Station | Depth | Count", "Southern | 8.0 | 97", "Westerly | 4.4 | 36"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("%q is not in:\n%s", want, got)
+		}
+	}
+}
+
+// A program can set the word spacing for one space of a line, the one
+// that is a tab, and take it back after each of the others with a move
+// in the array. The space left wide is a tab; the others are spaces.
+func TestTabByWordSpacing(t *testing.T) {
+	content := "BT /F1 10 Tf 60 Tw 72 700 Td [(HWM High )6000(Water )6000(Mark)] TJ ET\n" +
+		"BT /F1 10 Tf 66 Tw 72 686 Td [(IA Individual )6600(Assistance)] TJ ET\n" +
+		// A justified line: its spaces are all as wide, and stay spaces.
+		"BT /F1 10 Tf 30 Tw 72 640 Td (words set far apart) Tj ET\n"
+	doc := mustExtract(t, synthDoc{Font: fontCourier, Pages: []synthPage{{Content: content}}}.bytes(), nil)
+	var sb strings.Builder
+	for _, b := range doc.Parts[0].Blocks {
+		sb.WriteString(b.Text + "\n")
+	}
+	got := sb.String()
+	for _, want := range []string{"HWM\tHigh Water Mark", "IA\tIndividual Assistance", "words set far apart"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("%q is not in:\n%q", want, got)
+		}
+	}
+}

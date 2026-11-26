@@ -311,6 +311,9 @@ type interp struct {
 	rules    []Rule
 	ruleSegs int
 	ruleOps  int
+	// tabSpaces is set while the strings of an array are shown that takes
+	// the word spacing back after some of its spaces (TJ).
+	tabSpaces bool
 	// followPaths is Options.Rules until a page is found to be a drawing.
 	followPaths bool
 }
@@ -806,6 +809,21 @@ func (in *interp) operator(scan *content.Scanner, op []byte, args []content.Oper
 		}
 	case "TJ":
 		if a := last(args, 1); a != nil && a[0].Kind == content.Array {
+			// An array that moves back by the word spacing takes it off
+			// a space: the program set the spacing for one space of the
+			// line, a tab, and not for the others (show).
+			in.tabSpaces = false
+			if g.tw > 0 && g.size > 0 {
+				back := g.tw / g.size * 1000
+				for _, e := range scan.Elems(a[0]) {
+					if e.IsNumber() {
+						if v := finite(e.Float()); v > 0.98*back && v < 1.02*back {
+							in.tabSpaces = true
+							break
+						}
+					}
+				}
+			}
 			for _, e := range scan.Elems(a[0]) {
 				if e.IsNumber() {
 					// Thousandths of the font size, against the
@@ -815,11 +833,15 @@ func (in *interp) operator(scan *content.Scanner, op []byte, args []content.Oper
 						in.advance(0, shift)
 					} else {
 						in.advance(shift*g.th, 0)
+						if shift < 0 {
+							in.kernBack(-shift * g.th)
+						}
 					}
 				} else {
 					in.show(e)
 				}
 			}
+			in.tabSpaces = false
 		}
 	case "'":
 		in.moveLine(0, -g.tl)

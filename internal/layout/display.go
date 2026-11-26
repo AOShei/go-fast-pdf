@@ -85,6 +85,11 @@ func (b *builder) prepare() {
 			p.sx, p.sy = b.toDisplay(r.RX, r.RY)
 			ex, ey = b.toDisplay(r.LX, r.LY)
 		}
+		if r.Trail > 0 && !r.RTL && !r.Back {
+			// Spaces set wide at the end of the run are the way to the
+			// next piece of the line, and not part of this one.
+			ex, ey = ex-p.dx*r.Trail*b.scale, ey-p.dy*r.Trail*b.scale
+		}
 		p.ex, p.ey = ex, ey
 		p.size, p.em = r.Size*b.scale, r.Em()*b.scale
 

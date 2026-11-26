@@ -384,7 +384,7 @@ func linesAgainstPart(lines []gofastpdf.Line, part *gofastcore.Part) string {
 	perBlock := map[int]string{}
 	last := -1
 	for _, l := range lines {
-		if k := part.Blocks[min(max(l.Block, 0), len(part.Blocks)-1)].Kind; l.Block < last || l.Block >= len(part.Blocks) || k != gofastcore.KindParagraph && k != gofastcore.KindHeading && k != gofastcore.KindListItem && k != gofastcore.KindTable && !k.Furniture() {
+		if k := part.Blocks[min(max(l.Block, 0), len(part.Blocks)-1)].Kind; l.Block < last || l.Block >= len(part.Blocks) || k != gofastcore.KindParagraph && k != gofastcore.KindHeading && k != gofastcore.KindListItem && k != gofastcore.KindFootnote && k != gofastcore.KindTable && !k.Furniture() {
 			return fmt.Sprintf("a line of block %d after one of block %d, of %d blocks", l.Block, last, len(part.Blocks))
 		}
 		last = l.Block
@@ -410,7 +410,7 @@ func linesAgainstPart(lines []gofastpdf.Line, part *gofastcore.Part) string {
 		if _, field := b.Attrs[gofastcore.AttrField]; field {
 			continue // the value of a form field is not set in lines of the page
 		}
-		if (b.Kind == gofastcore.KindParagraph || b.Kind == gofastcore.KindHeading || b.Kind == gofastcore.KindListItem || b.Kind.Furniture()) && perBlock[i] != letters(b.Marker+b.Text) ||
+		if (b.Kind == gofastcore.KindParagraph || b.Kind == gofastcore.KindHeading || b.Kind == gofastcore.KindListItem || b.Kind == gofastcore.KindFootnote || b.Kind.Furniture()) && perBlock[i] != letters(b.Marker+b.Text) ||
 			b.Table != nil && sortedLetters(perBlock[i]) != sortedLetters(letters(cellsText(b.Table))) {
 			return fmt.Sprintf("block %d is %.30q and its lines have the letters %.30q", i, b.Text, perBlock[i])
 		}

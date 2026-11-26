@@ -30,7 +30,8 @@ import (
 // A paragraph that a page break splits is marked Continued on the page
 // where it goes on: when the last paragraph of a page ends without the
 // mark that ends a sentence and the first paragraph of the next page
-// starts with a small letter.
+// starts with a small letter. A footnote is not a paragraph (notes.go): the
+// paragraph above the notes of a page is its last.
 //
 // Both need the pages around a page, so they are decided where the pages
 // are put in order: up to furnitureReach pages wait there to be compared,
@@ -289,6 +290,9 @@ func (w *furnitureWindow) next(emit func(*pageOut) bool) bool {
 	// The hyphens at the ends of its lines, by the words of the pages so
 	// far and of those that wait.
 	w.words.join(part, out.styles)
+
+	// Footnotes, before the list items: a note is not an item.
+	notes(part, out.styles, &w.sizes)
 
 	// List items, from the page alone, after its headers and footers.
 	lists(part, out.styles, out.items)

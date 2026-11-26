@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+- **Footnotes are blocks of kind footnote, and a paragraph goes on to the next page past them.** A note
+  at the foot of a page was a paragraph like any other, and it was the last of its page: a paragraph
+  above it that goes on to the next page was not marked Continued there, and where the note itself ended
+  without a full stop the next page was run on to the note. A paragraph is now a footnote when three
+  things hold together: it starts with the mark of a note (a number of up to three digits before a
+  letter that is not small or a quote, or up to three of the signs * † ‡ § before a letter), it is set
+  smaller than the text of the document, and in its column it has text of the document above it and
+  none below it. Its mark is its Marker, out of its text, and the renderers put it back in front. A
+  note without a mark, as one that goes on from the page before, and a note set as large as the text
+  stay paragraphs. The paragraph above the notes is the last of its page, and the block that goes on
+  from it on the next page is Continued: it continues the nearest paragraph before it, as the shared
+  model says. The renderers of go-fast-core v0.1.9 join a continued block only to the block written
+  just before it, so the text and the Markdown keep the two pieces apart with the notes between them;
+  the JSON has the mark.
+  With the tags of 322 files taken away, each file counting once, against the library without this
+  change: the paragraphs that are right go from 81.2 to 81.4 and from 78.9 to 79.1 percent in the two
+  halves of the corpora (the second is held out), read as the shared model says, a continued block
+  with the paragraph before it. The French and English documents from the web stay at 84.0 in the
+  held-out half and go from 76.2 to 75.8 in the other, by two paragraphs of one file that are now one
+  over a page break where the tags have each page's piece as a paragraph. 20 files do better and 8
+  worse; in the held-out half of the corpora the 36 paragraphs that are no longer right are all such
+  joins over a page break (38 more of them). Of the 948 footnotes the tags of these files name, 776
+  are found. Of the 1,461 blocks marked that are long enough to compare, 1,058 are footnotes of the
+  tags, 176 are paragraphs of the tags and 227 are not in the tags; of 54 of the last two read in the
+  first halves, 8 were not notes (a footer with a page number, an address, short numbered lines) and
+  the others were notes that the tags call paragraphs. The JSON of 412 of the 3,192 files changes and
+  the text of 221; the instructions are as before.
+
 - **The lines under the text of a first line with a term run on from it.** A first line with a term, a
   wide gap and then text ("Arsenic", the gap, "An element that is ...") is a line with two entries side
   by side, as is one with a mark that is not a known marker before its text. The lines under the text

@@ -224,6 +224,9 @@ Settings that only PDF has are fields of `gofastpdf.Extractor`. The
   with numbers and Latin words in it from left to right, and its columns from right to left
 - **Running headers and footers** - titles, dates and page numbers that the pages repeat in their margins
   are tagged, and the renderers leave them out; a paragraph split by a page break is joined again
+- **Footnotes** - a small paragraph under the text of a page that starts with the mark of a note is a
+  footnote block, with its mark as its marker; a paragraph that goes on to the next page is continued
+  past the notes under it
 - **Headings** - from the structure tree of a tagged PDF or the outline where they name them, otherwise by
   size and weight, with levels
 - **Tables of tagged PDFs** - table blocks with the grid the structure tree gives: header rows, merged

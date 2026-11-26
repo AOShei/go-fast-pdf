@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+- **Tables drawn with shades are found by the boxes of their cells.** Many tables of reports have no
+  rules between their rows, or none at all: each cell is drawn as a box filled with a shade, the cells of
+  a row side by side, often every other row. Such a table was looked for by the alignment of its text
+  alone, and a cell of several lines was several rows. A filled box that stands edge to edge with
+  another of the same height beside it is now the ground of a cell, and its edges are rules: they make a
+  grid with the rules of the page, and the grid is a table as one drawn with rules is. A row of such
+  cells under another with the same edges belongs to the same table when the text between them keeps to
+  the columns, so the rows that are not shaded are rows too. A box by itself, boxes of unequal height
+  (the bars of a chart) and boxes one over the other (the lines of a shaded paragraph) say nothing; what
+  a box is filled with is not looked at. Shades are tried after the rules, for the text that no table
+  drawn with rules has, and a box inside a grid of rules is left alone.
+  With the tags of 203 files taken away and their tables compared with what the tags say, each file
+  counting once, the rows that are right cell for cell go from 58 to 61 and from 52 to 57 percent in the
+  two halves of the 19 French and English documents from the web, and stay at 60 and go from 51.7 to 52.4
+  percent in the two halves of the corpora (the second of each is held out). Of the files of the four
+  halves, six do better and two a little worse (by 1 and 4 points, both from the web, held out). Over
+  the 86 files of the accounting, row by row: 46.7 to 56.3 percent in the documents from the web, 66.1 as
+  before in the corpora; paragraphs are as before, and of the lines marked as headings in the documents
+  from the web 49 percent are headings, from 46. 11 of the 3,192 files change; the instructions are as
+  before. `Extractor.NoRuledTables` turns this off with the rules.
+
 - **A rule drawn in pieces is one rule where a rule across it passes through the gap.** Some programs
   draw the border of each cell by itself, and where the rule between two rows crosses an upright border
   they draw that crossing as a piece of its own, a few points long. A piece shorter than six points is not

@@ -73,6 +73,10 @@ type Content struct {
 	// Rules are the thin lines and bars painted along the page's axes,
 	// when Options.Rules is set (rules.go).
 	Rules []Rule
+	// Fills are the boxes along the page's axes that are painted with a
+	// fill and are too thick to be rules, when Options.Rules is set: the
+	// grounds of the cells of a table drawn with shades, among others.
+	Fills []Rule
 	// Joins are the places where a run goes on with a string that stands
 	// apart from the one before it, by a space or more, in the order of
 	// the text, when Options.Rules is set.
@@ -309,6 +313,7 @@ type interp struct {
 	// and the segments along an axis converted on the page.
 	rp       rulePath
 	rules    []Rule
+	fills    []Rule
 	ruleSegs int
 	ruleOps  int
 	// tabSpaces is set while the strings of an array are shown that takes
@@ -418,7 +423,7 @@ func (in *interp) finish() {
 			}
 			in.unmapped++
 		}
-		in.opts.Use(&Content{Runs: in.runs, Text: in.text, Gaps: in.gaps, Joins: in.joins, Images: in.images, Breaks: in.breaks, Rules: in.rules, Clusters: in.clusters})
+		in.opts.Use(&Content{Runs: in.runs, Text: in.text, Gaps: in.gaps, Joins: in.joins, Images: in.images, Breaks: in.breaks, Rules: in.rules, Fills: in.fills, Clusters: in.clusters})
 	} else {
 		out := assemble(in.str[:0], in.runs, in.text)
 		in.str = out
@@ -494,6 +499,9 @@ func (in *interp) trim() {
 	if cap(in.rules) > 4096 || cap(in.rp.segs) > 4096 || cap(in.rp.rects) > 4096 || cap(in.rp.polys) > 4096 {
 		in.rules, in.rp = nil, rulePath{}
 	}
+	if cap(in.fills) > 4096 {
+		in.fills = nil
+	}
 	if cap(in.breaks) > keep/16 {
 		in.breaks = nil
 	}
@@ -552,6 +560,7 @@ func (in *interp) reset(f *file.File, p *file.Page, opts Options, res *Result) {
 	in.breaks, in.marks, in.stopped = in.breaks[:0], in.marks[:0], false
 	in.rp.reset()
 	in.rules, in.ruleSegs, in.ruleOps, in.followPaths = in.rules[:0], 0, 0, opts.Rules
+	in.fills = in.fills[:0]
 }
 
 func (in *interp) resourcesAt(level int) *resources {

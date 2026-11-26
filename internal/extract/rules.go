@@ -24,6 +24,8 @@ const (
 	// the candidates of one path.
 	maxRules     = 1 << 16
 	maxPathRules = 1 << 14
+	// maxFills bounds the filled boxes recorded for one page.
+	maxFills = 1 << 12
 	// maxRuleSegs bounds the segments along an axis that are converted
 	// on one page, and maxRuleOps the path operators looked at: past
 	// either the page is a drawing of many lines, a map or a hatching,
@@ -34,6 +36,11 @@ const (
 
 // Rule is the box of a rule on the page, in the page's coordinates.
 type Rule [4]float64
+
+// A filled box is recorded as a Rule too, in Content.Fills: a rectangle
+// or a polygon along the axes, painted with a fill, that is no rule
+// because it is too thick to be one. What it is filled with is not
+// looked at.
 
 // rulePath is the path being built, as far as rules go.
 type rulePath struct {
@@ -310,6 +317,13 @@ func (in *interp) addRule(r [4]float64, width float64) {
 		box[0], box[2] = box[0]-w, box[2]+w
 	}
 	dx, dy := box[2]-box[0], box[3]-box[1]
+	if width == 0 && min(dx, dy) >= 2*MaxRuleWidth {
+		// A box that is filled: the ground of a cell, perhaps (Content.Fills).
+		if len(in.fills) < maxFills {
+			in.fills = append(in.fills, box)
+		}
+		return
+	}
 	if !(dx >= 0 && dy >= 0) || min(dx, dy) > MaxRuleWidth || max(dx, dy) < 2*MaxRuleWidth {
 		return
 	}

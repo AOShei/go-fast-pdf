@@ -225,6 +225,10 @@ type builder struct {
 	// The grids of the page's rules, found once (ruled.go).
 	grids     []grid
 	gridsDone bool
+	// The grids that the grounds of cells make with the rules, found
+	// once (shaded.go).
+	shaded     []grid
+	shadedDone bool
 	// What the search for tables by alignment works in (aligned.go).
 	tOrder []int32
 	tV     []float64
@@ -521,6 +525,7 @@ func btoi(v bool) int {
 func (b *builder) reset(page Page, c *extract.Content, opts Options) {
 	b.page, b.c, b.opts = page, c, opts
 	b.grids, b.gridsDone = nil, false
+	b.shaded, b.shadedDone = nil, false
 	m := page.M
 	b.scale = hypot(m[0], m[1])
 	if b.scale == 0 {

@@ -15,7 +15,7 @@ share.
   exhaust them.
 - It starts no program, fetches nothing, runs nothing that a file contains, and does no OCR.
 
-> **Status.** v0.4.0 (2026-11-25), on go-fast-core v0.1.9. The API is not that of v0.1:
+> **Status.** v0.5.0 (2026-11-26), on go-fast-core v0.1.11. The API is not that of v0.1:
 > [MIGRATION.md](MIGRATION.md) says what became what; [CHANGELOG.md](CHANGELOG.md) says what changed.
 
 ## Speed
@@ -23,26 +23,26 @@ share.
 <!-- comparison:begin (written by go run ./bench/compare -readme README.md) -->
 | | Pages per second | Time against go-fast-pdf | Most memory | Words as pdftotext's (F1) |
 |---|---:|---:|---:|---:|
-| go-fast-pdf | 10,184 | 1 | 32 MB | 0.984 |
-| go-fast-pdf, all processors | 19,200 | 0.53 times | 69 MB | 0.984 |
-| gofastpdf (the command) | 8,236 | 1.24 times | 24 MB | 0.984 |
-| pdftotext (poppler) | 2,009 | 5.07 times | 20 MB | the reference |
-| PyMuPDF | 2,238 | 4.55 times | 62 MB | 0.986 |
-| pypdfium2 (PDFium) | 2,230 | 4.57 times | 30 MB | 0.974 |
-| pypdf | 350 | 29.1 times | 72 MB | 0.970 |
-| pdfplumber | 57 | 179 times | 53 MB | 0.964 |
-| pdf_oxide (Rust) | 309 | 33.0 times | 30 MB | 0.974 |
-| pdf-extract (Rust) | 2,053 | 4.96 times | 24 MB | 0.970 |
-| lopdf (Rust) | 6,637 | 1.53 times | 25 MB | 0.900 |
+| go-fast-pdf | 9,187 | 1 | 33 MB | 0.986 |
+| go-fast-pdf, all processors | 19,225 | 0.48 times | 67 MB | 0.986 |
+| gofastpdf (the command) | 7,495 | 1.23 times | 22 MB | 0.986 |
+| pdftotext (poppler) | 1,988 | 4.62 times | 21 MB | the reference |
+| PyMuPDF | 2,239 | 4.10 times | 63 MB | 0.986 |
+| pypdfium2 (PDFium) | 2,199 | 4.18 times | 32 MB | 0.974 |
+| pypdf | 349 | 26.4 times | 74 MB | 0.970 |
+| pdfplumber | 56 | 163 times | 55 MB | 0.964 |
+| pdf_oxide (Rust) | 320 | 28.7 times | 31 MB | 0.974 |
+| pdf-extract (Rust) | 2,030 | 4.53 times | 25 MB | 0.970 |
+| lopdf (Rust) | 6,358 | 1.44 times | 27 MB | 0.900 |
 
 8 documents, 530 pages, 9.7 MB: the long documents of the public corpus's tuning set and one small one.
-Each program reads each document 5 times and its best time counts; the table is the sum over the documents, as a batch of them would take, and on one document the order can differ. Measured on AMD Ryzen 9 9900X 12-Core Processor (24 threads, linux/amd64) with go1.27.3-X:nodwarf5, 2026-11-22.
+Each program reads each document 5 times and its best time counts; the table is the sum over the documents, as a batch of them would take, and on one document the order can differ. Measured on AMD Ryzen 9 9900X 12-Core Processor (24 threads, linux/amd64) with go1.27.3-X:nodwarf5, 2026-11-26.
 The last column is how far each program's words agree with pdftotext's, not how correct they are: 1 is the same words.
 The method, the versions, the time for each document, and how far each pair of programs agree, each as the reference in turn, are in [bench/comparison.md](bench/comparison.md).
 <!-- comparison:end -->
 
-Reading the 1,650 files of the public test corpus, damaged ones included, takes 1.2 seconds on one
-thread. `go run ./bench/compare` makes the table again on your machine.
+Reading the 1,650 files of the public test corpus, damaged ones included, takes the command 1.5 seconds
+on one thread. `go run ./bench/compare` makes the table again on your machine.
 
 A good part of the time is Go's garbage collector. The library leaves its settings alone, since they
 are the whole program's; a program with memory to spare can set GOGC above 100 (the environment
@@ -368,11 +368,13 @@ file can be read from many goroutines, and the result is the same for any number
 
 ## Limitations
 
-- **Structure** - a table without tags is found only where its columns stand apart with white space or
-  rules; one whose columns are set close together with neither is paragraphs, a row a line with its
-  cells apart by tabs. Headings are found by the outline and by type; a heading set like the text around
-  it is not found. In a file without tags, list items are found by their markers; a list set without
-  markers is paragraphs
+- **Structure** - a table without tags is found only where its columns stand apart with white space,
+  rules or the shaded boxes of its cells; one whose columns are set close together with none of these is
+  paragraphs, a row a line with its cells apart by tabs. Headings are found by the outline and by type; a
+  heading set like the text around it is not found. In a file without tags, list items are found by their
+  markers; a list set without markers is paragraphs. A footnote is found by its mark, its smaller type
+  and its place under the text of the page; one without a mark, or set as large as the text, is a
+  paragraph
 - **Scripts written from right to left** - a line's direction is that of the letters at its ends or of
   most of its words, and in a paragraph that of most of the paragraph's text, so a paragraph of Hebrew or
   Arabic that is mostly Latin words can be read from left to right. Columns are read from right to left

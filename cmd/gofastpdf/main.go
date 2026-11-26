@@ -95,6 +95,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	pages := flags.String("pages", "", "the pages to read: 3, 2-5, 4- or -7 (default: all)")
 	images := flags.String("images", "meta", "images: meta (a block for each, with where it is and how large), data (their bytes too) or none")
 	workers := flags.Int("workers", 0, "pages read at a time (default: one per processor)")
+	offPage := flags.Bool("exclude-off-page", false, "leave out the text that is wholly outside the visible box of its page")
 	// The flags for the renderers, which every go-fast command has.
 	renderFlags := gofastcore.AddRenderFlags(flags)
 	flags.Lookup("stored").Usage += "; a PDF file has macro, document_variable, custom_xml, form_field and after_end"
@@ -202,13 +203,14 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		out = file
 	}
 	several := len(inputs) > 1 || len(flags.Args()) > 1
+	extractor := &gofastpdf.Extractor{NoOffPageText: *offPage}
 
 	for _, path := range inputs {
 		if ctx.Err() != nil {
 			failed(path, ctx.Err())
 			break
 		}
-		doc, err := gofastpdf.ExtractFile(ctx, path, opts)
+		doc, err := extractor.ExtractFile(ctx, path, opts)
 		if err != nil {
 			failed(path, err)
 			continue

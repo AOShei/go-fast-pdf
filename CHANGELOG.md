@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **`Extractor.NoOffPageText`, and `--exclude-off-page` of the command, leave out the text outside the
+  page.** Off by default: the document has everything the file holds, as before, and nothing changes for
+  a caller that does not set it. With it, text that is wholly outside the visible box of its page (the
+  crop box inside the media box) is not in the document: the notes of a printer beside the trim marks,
+  text moved off a page and not deleted. A run of text that is partly on the page stays whole. Images,
+  annotations and form fields are not looked at.
+
 - **A hyphen at the end of a line is left out where the document shows that it is the line break's.** A word
   broken at a line end was joined with its hyphen, "décla-ration", since the page does not say whether the
   hyphen is the word's ("well-known") or the line break's: a search for the word did not find it. The document

@@ -99,6 +99,9 @@ gofastpdf --exclude-display --format text document.pdf
 # Only text with the reasons named is left out
 gofastpdf --exclude-display=hidden --format text document.pdf
 
+# Text that is wholly outside the visible box of its page left out, of JSON too
+gofastpdf --exclude-off-page document.pdf
+
 # Text with the running headers and footers, the scripts and the stored part,
 # and a line before each page saying which it is
 gofastpdf --furniture --stored --part-markers --format text document.pdf
@@ -326,6 +329,12 @@ Nothing is left out: you decide, for instance with `RenderOptions.ExcludeDisplay
 laid out apart from the rest, so that the other paragraphs are what they would be without it. The stored
 part, the document information, the outline and the names of attached files are not shown on a page and
 have no reason: where they are says what they are.
+
+Text outside the page is in the document like any other, with the box that says where it is: the notes of
+a printer beside the trim marks, text moved off a page and not deleted. It has no reason, since no switch
+of the file says it is not shown. `Extractor.NoOffPageText` (`--exclude-off-page`) leaves out the text
+that is wholly outside the visible box of its page; a run of text that is partly on the page stays whole.
+That is a rule of position, which you choose, and not a judgement of this library: it is off by default.
 
 ## Untrusted files
 

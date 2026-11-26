@@ -181,6 +181,22 @@ func (b *builder) frame(first int) {
 	}
 }
 
+// separator says what lies between two pieces when next is drawn after
+// prev, and how far apart they are along the line (extract.Separator).
+// Spaces set wide at the end of prev are between the two: a space, as
+// wide as they reach.
+func (b *builder) separator(prev, next *piece) (sep byte, gap float64) {
+	r := &b.c.Runs[prev.run]
+	sep, gap = extract.Separator(r, &b.c.Runs[next.run])
+	if r.Trail > 0 && !r.RTL && !r.Back && sep != '\n' {
+		gap += r.Trail
+		if sep == 0 {
+			sep = ' '
+		}
+	}
+	return sep, gap
+}
+
 // chains makes a line of every stretch of pieces that the page draws
 // one after the other on one line. What separates two pieces is decided
 // as the interpreter decides it between two strings.
@@ -194,7 +210,7 @@ func (b *builder) chains(idx []int32) {
 		p := &b.pieces[i]
 		p.sep, p.gap = 0, 0
 		if prev != nil {
-			sep, gap := extract.Separator(&b.c.Runs[prev.run], &b.c.Runs[p.run])
+			sep, gap := b.separator(prev, p)
 			if sep == '\n' {
 				b.addLine(start, int32(len(b.lidx)))
 				start = int32(len(b.lidx))
@@ -398,7 +414,7 @@ func (b *builder) merge(a, c *line) {
 		p.sep, p.gap = 0, 0
 		if k > 0 {
 			q := &b.pieces[list[k-1]]
-			sep, gap := extract.Separator(&b.c.Runs[q.run], &b.c.Runs[p.run])
+			sep, gap := b.separator(q, p)
 			// Two pieces drawn at different times are two pieces of
 			// text, however close they stand: the cells of a row, a
 			// word in bold among others.

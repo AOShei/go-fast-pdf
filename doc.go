@@ -190,8 +190,8 @@
 // splits is marked Continued on the page where it goes on, and the
 // renderers run its two pieces into one. The footnotes under the first
 // piece do not end it: the block continues the paragraph, the nearest
-// block of its kind before it, and a renderer that joins a block only
-// to the one written just before it leaves the two pieces apart there.
+// block of its kind before it, and the renderers write the paragraph
+// whole and the footnotes after it.
 // Both are decided as the pages
 // are put in order, by Extract, File.Parts and File.Document; a page read
 // by itself with File.Page is compared with nothing and has neither.

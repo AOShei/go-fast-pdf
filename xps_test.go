@@ -849,6 +849,23 @@ func TestXPSImages(t *testing.T) {
 	wantBlocks(t, &doc.Parts[0], "paragraph: A picture follows.", "paragraph: And text after it.")
 }
 
+// TestXPSTextOfBlocks: what the file says an image shows, and what a
+// signature is to mean, are the text of blocks: without white space
+// around them, also where only a control character stood before it, and
+// no text at all when there is nothing else.
+func TestXPSTextOfBlocks(t *testing.T) {
+	img := func(y float64, alt string) string {
+		return fmt.Sprintf(`<Path Data="M 96,%g L 296,%g L 296,%g L 96,%g Z" AutomationProperties.HelpText="%s"><Path.Fill><ImageBrush ImageSource="/Resources/a.png" Viewbox="0,0,1,1" Viewport="0,0,1,1"/></Path.Fill></Path>`, y, y, y+100, y+100, alt)
+	}
+	pkg := xpstest.Document(xpstest.XPS, xpstest.Page(xpstest.XPS, 816, 1056, img(100, " ")+img(300, "&#9;  A chart  ")+img(500, "&#x1; after a control character ")))
+	pkg.Add("Resources/a.png", xpsPNG(t, 4, 4))
+	pkg.Add("Documents/1/_rels/FixedDoc.fdoc.rels", []byte(`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">`+
+		`<Relationship Id="R1" Type="`+xpstest.XPS+`/signature-definitions" Target="defs.xml"/></Relationships>`))
+	pkg.Add("Documents/1/defs.xml", []byte(`<SignatureDefinitions xmlns="`+xpstest.XPS+`/signature-definitions"><SignatureDefinition><Intent>&#x1;  Agreed.  </Intent></SignatureDefinition></SignatureDefinitions>`))
+	doc := xpsExtract(t, nil, pkg.Bytes())
+	wantBlocks(t, &doc.Parts[0], "image: ", "image: A chart", "image: after a control character", "note: Agreed.")
+}
+
 // TestXPSExternal: a page that names a resource outside the package is
 // read without it, and the document says that it points outside itself.
 func TestXPSExternal(t *testing.T) {

@@ -594,7 +594,8 @@ func xpsSeeds() []string {
 		g(300, 120, 20, "שלום ", `BidiLevel="1"`) + g(225, 120, 20, "abc", `BidiLevel="2"`) + g(220, 120, 20, "עולם", `BidiLevel="1"`),
 		`<Canvas RenderTransform="2,0,0,2,0,0" Opacity="0.5"><Canvas><Canvas.RenderTransform><MatrixTransform Matrix="0,1,-1,0,10,20"/></Canvas.RenderTransform>` +
 			g(38, 40, 8, "Turned", `IsSideways="true" StyleSimulations="BoldItalicSimulation"`) + `</Canvas></Canvas>`,
-		`<Glyphs FontUri="` + xpstest.FontName + `#0" FontRenderingEmSize="16" OriginX="96" OriginY="120" Indices="35;36;37,,1,2;900"/>` +
+		g(96, 200, 16, "An o\uFB03ce \uFB01le.", "") +
+			`<Glyphs FontUri="` + xpstest.FontName + `#0" FontRenderingEmSize="16" OriginX="96" OriginY="120" Indices="35;36;37,,1,2;900"/>` +
 			`<Path Data="M 0,0 L 10,0 10,10 Z" Fill="#FF000000"/><Glyphs Fill="#00000000" FontUri="/none.ttf" FontRenderingEmSize="1e2" OriginX="1" OriginY="2" UnicodeString="{}{x}"><Glyphs.Fill><SolidColorBrush Color="#FF000000"/></Glyphs.Fill></Glyphs>`, // A ruled grid with text in its cells, an image, resources and
 		// the visual of a brush.
 		xpsGrid([]float64{96, 296, 496}, []float64{200, 240, 300}) + g(104, 226, 14, "Region", "") + g(304, 226, 14, "Units", "") + g(104, 266, 14, "North", "") + g(304, 266, 14, "1 200", ""),

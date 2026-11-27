@@ -14,6 +14,7 @@
     left is given in reading order and stays so. Glyphs without text are read by the font's table of
     characters turned round.
   - Page sizes and boxes are in points, as for PDF. The metadata is the package's core properties.
+  - Ligatures and presentation forms are written as their letters, as for PDF.
   - Text of an element without a fill, or whose fill or opacity is fully transparent, is `no_ink`:
     the file's own declarations, and nothing else.
   - A page with damaged markup keeps what stands before the damage (`input.stream_damaged`). Text in a
@@ -38,7 +39,6 @@
     items and tables are `native` (a table the page does not bear out is text again), the order of
     the fragments is evidence of the reading order, and a fragment declared the header or footer of
     its page gives header and footer blocks.
-  - Ligatures and presentation forms are written as their letters, as for PDF.
   - Not read: print tickets and thumbnails. Not read yet: the text of signature definitions.
   - PDF files are read as before: their output is byte for byte that of v0.5.0 on the test files, and
     the instructions they take are within 0.6 percent of it on every benchmark.

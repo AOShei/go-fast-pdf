@@ -154,6 +154,19 @@ func (f *File) describeFixed() {
 	}
 }
 
+// charRefsWarning is the warning for n character references that name
+// no character, in the words the go-fast libraries share for it. It is a
+// warning of its own, beside any other of its code: the count takes in
+// every such reference that was read, also one whose value is in no
+// block.
+func charRefsWarning(n int) gofastcore.Warning {
+	message := fmt.Sprintf("%d character references name no character (&#0;, a surrogate or a number past U+10FFFF) and are read as U+FFFD", n)
+	if n == 1 {
+		message = "1 character reference names no character (&#0;, a surrogate or a number past U+10FFFF) and is read as U+FFFD"
+	}
+	return gofastcore.Warning{Code: gofastcore.WarnTextUnmappedGlyphs, Severity: gofastcore.SeverityWarning, Message: message}
+}
+
 // fixedText returns a string of an XPS document that is text to be read,
 // such as a title, as the strings of a PDF are given: without control
 // characters, which rm counts, and with ligatures and presentation forms
@@ -216,6 +229,9 @@ func (f *File) fixedWarnings(external bool) []gofastcore.Warning {
 	if _, total := pkg.Trailing(); total > 0 {
 		add(gofastcore.SeverityInfo, gofastcore.WarnInputTrailingData,
 			fmt.Sprintf("%d bytes follow the end of the archive", total))
+	}
+	if n := f.x.CharRefs(); n > 0 {
+		ws = append(ws, charRefsWarning(n))
 	}
 	if n := f.x.TargetsCut; n > 0 {
 		add(gofastcore.SeverityError, gofastcore.WarnLimitExceeded,
@@ -404,6 +420,9 @@ func (e *Extractor) fixedPage(f *File, i int, w want, ws *workState) (out pageOu
 			fmt.Sprintf("%d characters on the page are control characters and appear as U+FFFD", lay.Controls))
 	}
 	controls.add(lay.Removed)
+	if n := info.CharRefs; n > 0 && err == nil {
+		part.Warnings = append(part.Warnings, charRefsWarning(n))
+	}
 	for k := range part.Warnings {
 		part.Warnings[k].Message = cleanString(part.Warnings[k].Message)
 	}

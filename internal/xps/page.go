@@ -61,6 +61,10 @@ type PageInfo struct {
 	// number of bytes read of it: a document counts each once, with the
 	// first of its pages that uses it.
 	Fonts []FontUse
+	// CharRefs is the number of character references to no character
+	// XML allows (&#0;, a surrogate, a number past U+10FFFF) in the
+	// parts read for the page, each read as U+FFFD.
+	CharRefs int
 	// Spent is set when the limit on decompressed bytes was reached
 	// while the page was read.
 	Spent bool

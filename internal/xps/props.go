@@ -43,6 +43,7 @@ func (d *Document) Properties() (p Properties, ok bool) {
 		return p, false
 	}
 	defer closer.Close()
+	defer d.noteRefs(&s)
 	var buf []byte
 	for s.Next() != xmlscan.EOF {
 		if s.Kind() != xmlscan.Start || s.Depth() != 2 {

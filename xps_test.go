@@ -866,6 +866,44 @@ func TestXPSTextOfBlocks(t *testing.T) {
 	wantBlocks(t, &doc.Parts[0], "image: ", "image: A chart", "image: after a control character", "note: Agreed.")
 }
 
+// TestXPSCharacterReferences: a character reference that names no
+// character is read as U+FFFD, and the page or the document says how
+// many there were, in the words the go-fast libraries share.
+func TestXPSCharacterReferences(t *testing.T) {
+	g := xpstest.Glyphs
+	count := func(ws []gofastcore.Warning) string {
+		for _, w := range ws {
+			if w.Code == gofastcore.WarnTextUnmappedGlyphs && strings.Contains(w.Message, "character reference") {
+				return w.Message
+			}
+		}
+		return ""
+	}
+	pages := []string{
+		xpstest.Page(xpstest.XPS, 816, 1056, strings.Replace(g(96, 120, 16, "One XX here.", ""), "XX", "&#0;", 1)),
+		xpstest.Page(xpstest.XPS, 816, 1056, strings.Replace(g(96, 120, 16, "Three XX here.", `Name="aXX"`), "XX", "&#xD800;&#x110000;", 1)+strings.Replace(g(96, 160, 16, "And XX.", ""), "XX", "&#0;", 1)),
+		xpstest.Page(xpstest.XPS, 816, 1056, g(96, 120, 16, "None &#65; here.", "")),
+	}
+	pkg := xpsStructured(pages, nil, `<OutlineEntry Description="A title &#0; of the outline" OutlineTarget="#1"/>`, nil)
+	doc := xpsExtract(t, nil, pkg.Bytes())
+	const tail = " no character (&#0;, a surrogate or a number past U+10FFFF) and "
+	if got, want := count(doc.Parts[0].Warnings), "1 character reference names"+tail+"is read as U+FFFD"; got != want {
+		t.Errorf("page 1: %q", got)
+	}
+	if !strings.Contains(doc.Parts[0].Blocks[0].Text, "One \uFFFD here.") {
+		t.Errorf("page 1: %q", xpsBlocks(&doc.Parts[0]))
+	}
+	if got, want := count(doc.Parts[1].Warnings), "3 character references name"+tail+"are read as U+FFFD"; got != want {
+		t.Errorf("page 2: %q", got)
+	}
+	if got := count(doc.Parts[2].Warnings); got != "" {
+		t.Errorf("page 3: %q", got)
+	}
+	if got, want := count(doc.Warnings), "1 character reference names"+tail+"is read as U+FFFD"; got != want {
+		t.Errorf("document: %q", got)
+	}
+}
+
 // TestXPSExternal: a page that names a resource outside the package is
 // read without it, and the document says that it points outside itself.
 func TestXPSExternal(t *testing.T) {

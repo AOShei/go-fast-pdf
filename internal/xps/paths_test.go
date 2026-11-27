@@ -40,7 +40,7 @@ func read(t *testing.T, pkg *xpstest.Package) content {
 		c.rules = append(c.rules, x.Rules...)
 		c.fills = append(c.fills, x.Fills...)
 		c.images = append(c.images, x.Images...)
-	}}, &c.res, &w, &c.info)
+	}}, &c.res, &w, &c.info, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,7 +207,7 @@ func TestResources(t *testing.T) {
 		for _, r := range x.Runs {
 			modes, alphas, xs = append(modes, r.Mode), append(alphas, r.FillAlpha), append(xs, r.X0)
 		}
-	}}, &res, &w, &info)
+	}}, &res, &w, &info, false)
 	if fmt.Sprint(modes, alphas, xs) != "[0 0] [1 0] [144 72]" {
 		t.Errorf("modes %v, alphas %v, at %v", modes, alphas, xs)
 	}

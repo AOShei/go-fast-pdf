@@ -345,6 +345,21 @@ func TestXPSInvalidText(t *testing.T) {
 	}
 }
 
+// TestXPSLigatures: ligatures and presentation forms are written as
+// their letters, in the text of a page and in what the document says of
+// itself, as for PDF.
+func TestXPSLigatures(t *testing.T) {
+	page := xpstest.Page(xpstest.XPS, 816, 1056, xpstest.Glyphs(96, 120, 16, "An o\uFB03ce \uFB01le.", `Indices=";;;(1:1)5;;;;(1:1)6"`))
+	outline := `<OutlineEntry OutlineLevel="1" Description="The ` + "\uFB01" + `rst" OutlineTarget="#1"/>`
+	pkg := xpsStructured([]string{page}, nil, outline, nil)
+	pkg.Add("docProps/core.xml", []byte(`<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>O`+"\uFB03"+`cial</dc:title></cp:coreProperties>`))
+	doc := xpsExtract(t, nil, pkg.Bytes())
+	wantBlocks(t, &doc.Parts[0], "paragraph: An office file.")
+	if len(doc.Outline) != 1 || doc.Outline[0].Title != "The first" || doc.Metadata.Title != "Official" {
+		t.Errorf("outline %+v, title %q", doc.Outline, doc.Metadata.Title)
+	}
+}
+
 // TestXPSDepth: Canvas elements nested beyond the bound are not read,
 // and the page says so; what is around them is read.
 func TestXPSDepth(t *testing.T) {
@@ -806,4 +821,302 @@ func TestXPSExternal(t *testing.T) {
 	if !xpsWarned(doc.Warnings, gofastcore.WarnInputExternalReference) {
 		t.Errorf("warnings: %v", doc.Warnings)
 	}
+}
+
+// xpsStructured returns a package of the pages given whose fixed
+// document lists the names of targets as addressable, each on the page
+// (from 1) it is given with, and has the outline entries and the story
+// fragments given: fragments[i] is the inside of the StoryFragments part
+// of page i+1, "" for none.
+func xpsStructured(pages []string, targets map[string]int, outline string, fragments []string) *xpstest.Package {
+	pkg := xpstest.Document(xpstest.XPS, pages...)
+	var doc strings.Builder
+	fmt.Fprintf(&doc, `<FixedDocument xmlns="%s">`, xpstest.XPS)
+	for i := range pages {
+		fmt.Fprintf(&doc, `<PageContent Source="Pages/%d.fpage"><PageContent.LinkTargets>`, i+1)
+		for name, page := range targets {
+			if page == i+1 {
+				fmt.Fprintf(&doc, `<LinkTarget Name="%s"/>`, name)
+			}
+		}
+		doc.WriteString(`</PageContent.LinkTargets></PageContent>`)
+	}
+	doc.WriteString(`</FixedDocument>`)
+	pkg.Add("Documents/1/FixedDoc.fdoc", []byte(doc.String()))
+	rels := func(kind, target string) []byte {
+		return []byte(fmt.Sprintf(`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="R1" Type="%s/%s" Target="%s"/></Relationships>`, xpstest.XPS, kind, target))
+	}
+	if outline != "" {
+		pkg.Add("Documents/1/_rels/FixedDoc.fdoc.rels", rels("documentstructure", "Structure/DocStructure.struct"))
+		pkg.Add("Documents/1/Structure/DocStructure.struct", []byte(fmt.Sprintf(
+			`<DocumentStructure xmlns="%s/documentstructure"><DocumentStructure.Outline><DocumentOutline xml:lang="en-US">%s</DocumentOutline></DocumentStructure.Outline></DocumentStructure>`, xpstest.XPS, outline)))
+	}
+	for i, frag := range fragments {
+		if frag == "" {
+			continue
+		}
+		pkg.Add(fmt.Sprintf("Documents/1/Pages/_rels/%d.fpage.rels", i+1), rels("storyfragments", fmt.Sprintf("/Documents/1/Structure/Fragments/%d.frag", i+1)))
+		pkg.Add(fmt.Sprintf("Documents/1/Structure/Fragments/%d.frag", i+1), []byte(fmt.Sprintf(`<StoryFragments xmlns="%s/documentstructure">%s</StoryFragments>`, xpstest.XPS, frag)))
+	}
+	return pkg
+}
+
+// TestXPSOutline: the outline of the structure a document declares, its
+// entries pointing at pages by a name the document lists or by number.
+func TestXPSOutline(t *testing.T) {
+	g := xpstest.Glyphs
+	page := func(body string) string { return xpstest.Page(xpstest.XPS, 816, 1056, body) }
+	pages := []string{
+		page(g(96, 120, 16, "The first page.", "")),
+		page(g(96, 120, 24, "Chapter One", `Name="chap1"`) + g(96, 180, 16, "The text of the chapter goes on for a line or two here.", "")),
+		page(g(96, 120, 16, "The third page.", "")),
+	}
+	outline := `<OutlineEntry OutlineLevel="1" Description="The Book" OutlineTarget="../FixedDoc.fdoc#top"/>` +
+		`<OutlineEntry OutlineLevel="2" Description="Chapter One" OutlineTarget="../FixedDoc.fdoc#chap1"/>` +
+		`<OutlineEntry OutlineLevel="2" Description="By its number" OutlineTarget="../../../FixedDocSeq.fdseq#3"/>` +
+		`<OutlineEntry Description="No level, and a place that is not there" OutlineTarget="../FixedDoc.fdoc#nowhere"/>` +
+		`<OutlineEntry OutlineLevel="0" Description="A level of nothing" OutlineTarget="#99"/>`
+	doc := xpsExtract(t, nil, xpsStructured(pages, map[string]int{"top": 1, "chap1": 2}, outline, nil).Bytes())
+	var got []string
+	for _, o := range doc.Outline {
+		got = append(got, fmt.Sprintf("%d %q page %d", o.Level, o.Title, o.Part))
+	}
+	want := []string{`1 "The Book" page 1`, `2 "Chapter One" page 2`, `2 "By its number" page 3`, `1 "No level, and a place that is not there" page 0`, `1 "A level of nothing" page 0`}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("outline:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+	// The entry of the outline that points at page 2 makes the line that
+	// says the same its heading.
+	if b := &doc.Parts[1].Blocks[0]; b.Kind != gofastcore.KindHeading || b.Text != "Chapter One" {
+		t.Errorf("page 2: %q", xpsBlocks(&doc.Parts[1]))
+	}
+	// The outline through the handle, without a page being read.
+	data := xpsStructured(pages, map[string]int{"top": 1, "chap1": 2}, outline, nil).Bytes()
+	f, err := gofastpdf.OpenBytes(data, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if n := len(f.Outline()); n != 5 {
+		t.Errorf("%d entries through the handle", n)
+	}
+}
+
+// TestXPSLinks: with Options.Spans, the elements that name an address
+// give the words they cover a link, and the names a document lists as
+// addressable are anchors of the blocks that begin there.
+func TestXPSLinks(t *testing.T) {
+	g := xpstest.Glyphs
+	page := func(body string) string { return xpstest.Page(xpstest.XPS, 816, 1056, body) }
+	pages := []string{
+		page(g(96, 120, 16, "Outside", `FixedPage.NavigateUri="https://example.com/a?b=1"`) +
+			g(96, 180, 16, "By number", `FixedPage.NavigateUri="../../../FixedDocSeq.fdseq#2"`) +
+			g(96, 240, 16, "By name", `FixedPage.NavigateUri="../FixedDoc.fdoc#chap"`) +
+			g(96, 300, 16, "Nowhere", `FixedPage.NavigateUri="../FixedDoc.fdoc#gone"`) +
+			`<Canvas FixedPage.NavigateUri="mailto:a@example.com">` + g(96, 360, 16, "In a canvas", "") + `</Canvas>` +
+			// An area over text, painted with nothing: how Word writes a link.
+			g(96, 420, 16, "Under an area and beside it", "") +
+			`<Path Data="M 96,404 L 157,404 L 157,424 L 96,424 Z" Fill="#00000000" FixedPage.NavigateUri="https://example.org/"/>`),
+		page(g(96, 120, 16, "Above the place that is named.", "") + g(96, 300, 16, "The chapter that the link names begins here.", `Name="chap"`) +
+			g(96, 500, 16, "A name the document does not list.", `Name="private"`)),
+	}
+	doc := xpsExtract(t, &gofastcore.Options{Spans: true}, xpsStructured(pages, map[string]int{"chap": 2}, "", nil).Bytes())
+	var got []string
+	for i := range doc.Parts[0].Blocks {
+		b := &doc.Parts[0].Blocks[i]
+		for _, sp := range b.Spans {
+			if sp.Href != "" {
+				got = append(got, fmt.Sprintf("%q -> %s", b.Text[sp.Start:sp.End], sp.Href))
+			}
+		}
+	}
+	want := []string{`"Outside" -> https://example.com/a?b=1`, `"By number" -> #page=2`, `"By name" -> #page=2`, `"In a canvas" -> mailto:a@example.com`, `"Under an" -> https://example.org/`}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("links:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+	var anchors []string
+	for i := range doc.Parts[1].Blocks {
+		if b := &doc.Parts[1].Blocks[i]; b.Loc.Anchor != "" {
+			anchors = append(anchors, b.Loc.Anchor+": "+b.Text)
+		}
+	}
+	if strings.Join(anchors, "\n") != "chap: The chapter that the link names begins here." {
+		t.Errorf("anchors: %q", anchors)
+	}
+	// Without spans there are neither.
+	doc = xpsExtract(t, nil, xpsStructured(pages, map[string]int{"chap": 2}, "", nil).Bytes())
+	for i := range doc.Parts {
+		for k := range doc.Parts[i].Blocks {
+			if b := &doc.Parts[i].Blocks[k]; len(b.Spans) != 0 || b.Loc.Anchor != "" {
+				t.Errorf("without spans: %+v", b.Loc)
+			}
+		}
+	}
+}
+
+// TestXPSFragments: what the story fragments of a page declare of its
+// elements is followed as the structure tree of a tagged PDF is: its
+// paragraphs, lists and tables, their order, and the header and the
+// footer.
+func TestXPSFragments(t *testing.T) {
+	g := xpstest.Glyphs
+	n := func(name string) string { return `<NamedElement NameReference="` + name + `"/>` }
+	para := func(names ...string) string {
+		out := "<ParagraphStructure>"
+		for _, name := range names {
+			out += n(name)
+		}
+		return out + "</ParagraphStructure>"
+	}
+	story := func(kind, body string) string {
+		return `<StoryFragment StoryName="s" FragmentName="f" FragmentType="` + kind + `">` + body + `</StoryFragment>`
+	}
+	// Paragraphs: two lines set as one paragraph that are two, and two
+	// set apart that are one. The order of the fragments is evidence of
+	// the order of reading where the page leaves it open, as the order
+	// of a structure tree is, and no more: the second pair is declared
+	// first and stays where it stands.
+	body := g(96, 100, 16, "Set as one paragraph with the line below it,", `Name="a"`) +
+		g(96, 120, 16, "but declared to be a paragraph of its own.", `Name="b"`) +
+		g(96, 300, 16, "Set far from the line that follows", `Name="c"`) +
+		g(96, 380, 16, "and declared one paragraph with it.", `Name="d"`) +
+		g(96, 500, 16, "A line that nothing is declared of.", "")
+	frag := story("Content", "<SectionStructure>"+para("c", "d")+para("a")+para("b")+"</SectionStructure>")
+	page := xpstest.Page(xpstest.XPS, 816, 1056, body)
+	doc := xpsExtract(t, nil, xpsStructured([]string{page}, nil, "", []string{frag}).Bytes())
+	wantBlocks(t, &doc.Parts[0],
+		"paragraph: Set as one paragraph with the line below it,",
+		"paragraph: but declared to be a paragraph of its own.",
+		"paragraph: Set far from the line that follows and declared one paragraph with it.",
+		"paragraph: A line that nothing is declared of.")
+	// Without the fragments the page is read as it is set.
+	doc = xpsExtract(t, nil, xpsStructured([]string{page}, nil, "", nil).Bytes())
+	wantBlocks(t, &doc.Parts[0],
+		"paragraph: Set as one paragraph with the line below it, but declared to be a paragraph of its own.",
+		"paragraph: Set far from the line that follows",
+		"paragraph: and declared one paragraph with it.",
+		"paragraph: A line that nothing is declared of.")
+
+	// A list with markers, a table with a cell over two columns, and the
+	// header and the footer of the page.
+	body = g(96, 60, 12, "Declared the header", `Name="h"`) +
+		g(96, 150, 16, "A", `Name="m1"`) + g(130, 150, 16, "the first item, with a letter for its marker", `Name="i1"`) +
+		g(96, 180, 16, "B", `Name="m2"`) + g(130, 180, 16, "the second item", `Name="i2"`) +
+		g(96, 300, 14, "Both columns", `Name="c1"`) +
+		g(96, 330, 14, "Left", `Name="c2"`) + g(300, 330, 14, "Right", `Name="c3"`) +
+		g(96, 360, 14, "Below left", `Name="c4"`) + g(300, 360, 14, "Below right", `Name="c5"`) +
+		g(96, 1000, 12, "Declared the footer", `Name="f"`)
+	cell := func(attrs string, names ...string) string {
+		return "<TableCellStructure" + attrs + ">" + para(names...) + "</TableCellStructure>"
+	}
+	frag = story("Header", para("h")) +
+		story("Content",
+			`<ListStructure><ListItemStructure Marker="m1">`+para("m1", "i1")+`</ListItemStructure><ListItemStructure Marker="m2">`+para("m2", "i2")+`</ListItemStructure></ListStructure>`+
+				`<TableStructure><TableRowGroupStructure>`+
+				`<TableRowStructure>`+cell(` ColumnSpan="2"`, "c1")+`</TableRowStructure>`+
+				`<TableRowStructure>`+cell("", "c2")+cell("", "c3")+`</TableRowStructure>`+
+				`<TableRowStructure>`+cell("", "c4")+cell("", "c5")+`</TableRowStructure>`+
+				`</TableRowGroupStructure></TableStructure>`) +
+		story("Footer", para("f"))
+	page = xpstest.Page(xpstest.XPS, 816, 1056, body)
+	doc = xpsExtract(t, nil, xpsStructured([]string{page}, nil, "", []string{frag}).Bytes())
+	p := &doc.Parts[0]
+	var got []string
+	for i := range p.Blocks {
+		b := &p.Blocks[i]
+		line := fmt.Sprintf("%v %v", b.Kind, b.Origin)
+		switch {
+		case b.Table != nil:
+			for _, row := range b.Table.Rows {
+				line += " [" + strings.Join(row, " | ") + "]"
+			}
+			for _, m := range b.Table.Merges {
+				line += fmt.Sprintf(" merge %d,%d %dx%d", m.Row, m.Col, m.RowSpan, m.ColSpan)
+			}
+		case b.Kind == gofastcore.KindListItem:
+			line += fmt.Sprintf(" %q %q", b.Marker, b.Text)
+		default:
+			line += " " + b.Text
+		}
+		got = append(got, line)
+	}
+	want := []string{
+		"header native Declared the header",
+		`list_item native "A" "the first item, with a letter for its marker"`,
+		`list_item native "B" "the second item"`,
+		"table native [Both columns | ] [Left | Right] [Below left | Below right] merge 0,0 1x2",
+		"footer native Declared the footer",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("blocks:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+
+	// A table that the page does not bear out is its text again: here
+	// the cells of one declared row stand one under the other.
+	body = g(96, 300, 14, "Declared left", `Name="c1"`) + g(96, 340, 14, "Declared right, but set below", `Name="c2"`) +
+		g(96, 380, 14, "Declared in the second row", `Name="c3"`) + g(96, 320, 14, "but set between the two", `Name="c4"`)
+	frag = story("Content", `<TableStructure><TableRowStructure>`+cell("", "c1")+cell("", "c2")+`</TableRowStructure><TableRowStructure>`+cell("", "c3")+cell("", "c4")+`</TableRowStructure></TableStructure>`)
+	doc = xpsExtract(t, nil, xpsStructured([]string{xpstest.Page(xpstest.XPS, 816, 1056, body)}, nil, "", []string{frag}).Bytes())
+	for i := range doc.Parts[0].Blocks {
+		if doc.Parts[0].Blocks[i].Kind == gofastcore.KindTable {
+			t.Errorf("a table the page does not bear out: %q", xpsBlocks(&doc.Parts[0]))
+		}
+	}
+
+	// Fragments that break off: what stands before the damage is used,
+	// and the page says so.
+	page = xpstest.Page(xpstest.XPS, 816, 1056, g(96, 100, 16, "One line of the page,", `Name="a"`)+g(96, 120, 16, "and the next.", `Name="b"`))
+	pkg := xpsStructured([]string{page}, nil, "", []string{story("Content", para("a")+para("b"))})
+	whole := pkg.Get("Documents/1/Structure/Fragments/1.frag")
+	pkg.Add("Documents/1/Structure/Fragments/1.frag", whole[:len(whole)-60])
+	doc = xpsExtract(t, nil, pkg.Bytes())
+	if !xpsWarned(doc.Parts[0].Warnings, gofastcore.WarnInputStreamDamaged) || len(doc.Parts[0].Blocks) == 0 {
+		t.Errorf("damaged fragments: %v %q", doc.Parts[0].Warnings, xpsBlocks(&doc.Parts[0]))
+	}
+}
+
+// FuzzXPSStructure feeds the parts that say what a document declares of
+// itself to the whole library: the story fragments of a page, and the
+// outline. Whatever they say, the document keeps the contract of the
+// shared model and is the same for any number of workers.
+func FuzzXPSStructure(f *testing.F) {
+	n := func(name string) string { return `<NamedElement NameReference="` + name + `"/>` }
+	f.Add(`<StoryFragment FragmentType="Content"><SectionStructure><ParagraphStructure>`+n("c")+n("d")+`</ParagraphStructure><ParagraphStructure>`+n("a")+`</ParagraphStructure></SectionStructure></StoryFragment>`,
+		`<OutlineEntry OutlineLevel="2" Description="Chapter One" OutlineTarget="../FixedDoc.fdoc#c"/><OutlineEntry Description="By number" OutlineTarget="#2"/>`)
+	f.Add(`<StoryFragment FragmentType="Header"><ParagraphStructure>`+n("a")+`</ParagraphStructure></StoryFragment><StoryFragment FragmentType="Content">`+
+		`<ListStructure><ListItemStructure Marker="b"><ParagraphStructure>`+n("b")+n("c")+`</ParagraphStructure></ListItemStructure></ListStructure>`+
+		`<TableStructure><TableRowGroupStructure><TableRowStructure><TableCellStructure ColumnSpan="2" RowSpan="3"><ParagraphStructure>`+n("d")+`</ParagraphStructure></TableCellStructure>`+
+		`<TableCellStructure><TableStructure><TableRowStructure><TableCellStructure>`+n("e")+`</TableCellStructure></TableRowStructure></TableStructure></TableCellStructure></TableRowStructure></TableRowGroupStructure></TableStructure>`+
+		`<FigureStructure>`+n("f")+`</FigureStructure></StoryFragment><StoryFragment FragmentType="Footer">`+n("g")+`</StoryFragment>`, "")
+	g := xpstest.Glyphs
+	body := ""
+	for i, name := range []string{"a", "b", "c", "d", "e", "f", "g"} {
+		body += g(96+float64(i%3)*200, 100+float64(i/3)*40, 16, "The text of element "+name+".", `Name="`+name+`"`)
+	}
+	page := xpstest.Page(xpstest.XPS, 816, 1056, body)
+	font := xpstest.Font(nil)
+	f.Fuzz(func(t *testing.T, fragment, outline string) {
+		if outline == "" {
+			outline = " "
+		}
+		pkg := xpsStructured([]string{page, page}, map[string]int{"c": 1}, outline, []string{fragment, fragment})
+		pkg.Store = true
+		pkg.Add(xpstest.FontName, font)
+		data := pkg.Bytes()
+		spans := len(fragment)%2 == 1
+		one, err := extractBytes(data, extractOpts{Images: true, Spans: spans})
+		if errors.Is(err, errContract) {
+			t.Fatal(err)
+		}
+		if err != nil {
+			t.Fatalf("a part of the structure ended the document: %v", err)
+		}
+		many, err := extractBytes(data, extractOpts{Images: true, Workers: 4, Spans: spans})
+		if err != nil {
+			t.Fatalf("with 4 workers: %v", err)
+		}
+		if diff := sameDocument(one.Doc, many.Doc); diff != "" {
+			t.Fatalf("1 worker and 4 workers: %s", diff)
+		}
+	})
 }

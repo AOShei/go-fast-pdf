@@ -54,6 +54,9 @@ type line struct {
 	// li is the list item of a tagged PDF that the line's first run is
 	// in (Options.Item), 0 for none.
 	li int64
+	// para is the paragraph that the file declares the line's first run
+	// to be in (Options.Para), 0 for none.
+	para int32
 	// bidi is set for a line with letters of a script written from right
 	// to left, whose text is put together from its units (bidi.go); rtl
 	// when it reads from right to left.

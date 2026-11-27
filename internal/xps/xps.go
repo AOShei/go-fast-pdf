@@ -58,6 +58,11 @@ const (
 	maxFontBytes = 256 << 20
 	// maxMembers bounds the members of the archive.
 	maxMembers = 1 << 20
+	// maxTargets bounds the addressable names of a package that are kept.
+	maxTargets = 1 << 18
+	// MaxName is the longest name of an element that is kept: a name cut
+	// short names nothing.
+	MaxName = 512
 )
 
 // ErrNotXPS is the error of an input that is no XPS document: not a zip
@@ -85,12 +90,35 @@ type Document struct {
 	PagesCut int
 	// Core is the name of the core properties part, "" for none.
 	Core string
+	// Docs are the fixed documents of the sequence, in order.
+	Docs []Doc
+	// targets are the names that the documents list as addressable, each
+	// with the page it is on: by the document and the name.
+	targets map[target]int32
+	// TargetsCut is the number of such names past maxTargets, which are
+	// not kept.
+	TargetsCut int
 
 	mu        sync.Mutex
 	fonts     map[fontKey]*fontEntry
 	fontBytes int64
 	fallback  map[string]*font.Font
 	images    map[string]ImageInfo
+}
+
+// Doc is one fixed document of the sequence.
+type Doc struct {
+	// Part is the name of the FixedDocument part.
+	Part string
+	// Structure is the name of its DocumentStructure part, "" for none.
+	Structure string
+}
+
+// target is a name that a fixed document lists as addressable on one of
+// its pages (LinkTarget).
+type target struct {
+	doc  int
+	name string
 }
 
 // Page is one page of a document.
@@ -156,16 +184,21 @@ func Open(r io.ReaderAt, size int64, lim Limits) (*Document, error) {
 		return nil, err
 	}
 	for i, doc := range docs {
+		d.Docs = append(d.Docs, Doc{Part: doc})
 		if !pkg.Has(doc) {
 			continue // a document that is not there has no pages
 		}
-		room := maxPages - len(d.Pages)
-		pages, err := d.sources(&s, doc, "FixedDocument", "PageContent", room, &d.PagesCut)
-		if err != nil {
+		if err := d.document(&s, i); err != nil {
 			return nil, err
 		}
-		for _, p := range pages {
-			d.Pages = append(d.Pages, Page{Part: p, Doc: i})
+		// The structure the document declares: its outline.
+		if rels, err := pkg.RelsWith(doc, &s); err == nil {
+			for k := range rels {
+				if rel := &rels[k]; !rel.External && (rel.Type == nsXPS+"/documentstructure" || rel.Type == nsOpenXPS+"/documentstructure") && pkg.Has(rel.Target) {
+					d.Docs[i].Structure = rel.Target
+					break
+				}
+			}
 		}
 	}
 	if len(d.Pages) == 0 {
@@ -223,6 +256,65 @@ func (d *Document) sources(s *xmlscan.Scanner, name, root, item string, room int
 		return nil, partError(d.pkg.Label(name), err)
 	}
 	return out, nil
+}
+
+// document reads the FixedDocument part of document i: its pages, and
+// the names it lists as addressable on each.
+func (d *Document) document(s *xmlscan.Scanner, i int) error {
+	name := d.Docs[i].Part
+	closer, err := d.pkg.Scan(name, s, &scanOptions)
+	if err != nil {
+		return partError(d.pkg.Label(name), err)
+	}
+	defer closer.Close()
+	page := int32(-1) // the page whose PageContent is open
+	for {
+		k := s.Next()
+		if k == xmlscan.EOF {
+			break
+		}
+		if k != xmlscan.Start {
+			continue
+		}
+		if s.Depth() == 1 && !s.Is(spFixed, "FixedDocument") {
+			return fmt.Errorf("%w: %s is not a FixedDocument", gofastcore.ErrMalformed, d.pkg.Label(name))
+		}
+		switch {
+		case s.Is(spFixed, "PageContent"):
+			page = -1
+			src, ok := s.Attr(xmlscan.NoSpace, "Source")
+			if !ok || len(src) == 0 {
+				continue
+			}
+			if len(d.Pages) >= maxPages {
+				d.PagesCut++
+				continue
+			}
+			page = int32(len(d.Pages))
+			d.Pages = append(d.Pages, Page{Part: opc.Resolve(name, string(src)), Doc: i})
+		case s.Is(spFixed, "LinkTarget") && page >= 0:
+			v, ok := s.Attr(xmlscan.NoSpace, "Name")
+			if !ok || len(v) == 0 || len(v) > MaxName {
+				continue
+			}
+			if len(d.targets) >= maxTargets {
+				d.TargetsCut++
+				continue
+			}
+			if d.targets == nil {
+				d.targets = map[target]int32{}
+			}
+			// The first page that lists a name has it.
+			key := target{i, string(v)}
+			if _, ok := d.targets[key]; !ok {
+				d.targets[key] = page
+			}
+		}
+	}
+	if err := s.Err(); err != nil {
+		return partError(d.pkg.Label(name), err)
+	}
+	return nil
 }
 
 // Package returns the package of the document.

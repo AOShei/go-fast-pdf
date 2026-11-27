@@ -10,6 +10,7 @@ import (
 
 	gofastcore "github.com/AOShei/go-fast-core"
 	"github.com/AOShei/go-fast-core/cfb"
+	"github.com/AOShei/go-fast-pdf/internal/charset"
 	"github.com/AOShei/go-fast-pdf/internal/extract"
 	"github.com/AOShei/go-fast-pdf/internal/layout"
 	"github.com/AOShei/go-fast-pdf/internal/xps"
@@ -120,12 +121,19 @@ func (f *File) describeFixed() {
 			*d = described{}
 		}
 	}()
+	// The outline: the entries of the structure of each fixed document.
+	entries, cut, many, damaged := f.x.Outline(f.textLimit)
+	for _, e := range entries {
+		d.outline = append(d.outline, gofastcore.OutlineItem{Title: fixedText(e.Title, &f.controls), Level: e.Level, Part: e.Page})
+	}
+	d.outlineCut = cut
+	f.fixedOutlineMany, f.fixedStructureDamaged = many, damaged
 	p, ok := f.x.Properties()
 	if !ok {
 		return
 	}
 	md := &d.meta
-	val := func(s string) string { return cleanText(s, &f.controls) }
+	val := func(s string) string { return fixedText(s, &f.controls) }
 	md.Title, md.Subject, md.Language = val(p.Title), val(p.Subject), val(p.Language)
 	// One field, one entry: it is free text and is not split.
 	if a := val(p.Creator); a != "" {
@@ -144,6 +152,14 @@ func (f *File) describeFixed() {
 			md.Extra[e[0]] = v
 		}
 	}
+}
+
+// fixedText returns a string of an XPS document that is text to be read,
+// such as a title, as the strings of a PDF are given: without control
+// characters, which rm counts, and with ligatures and presentation forms
+// written as their letters.
+func fixedText(s string, rm *removed) string {
+	return charset.Letters(cleanText(s, rm))
 }
 
 // packageTime reads a date of the core properties: the W3C profile of
@@ -176,6 +192,20 @@ func (f *File) fixedWarnings(external bool) []gofastcore.Warning {
 	if n := pkg.BrokenPieces(); n > 0 {
 		add(gofastcore.SeverityWarning, gofastcore.WarnInputStreamDamaged,
 			fmt.Sprintf("%d parts of the package are stored in pieces that do not make a whole; they are not read", n))
+	}
+	// What reading the structure found, when it has been read.
+	f.describe()
+	if f.fixedStructureDamaged {
+		add(gofastcore.SeverityWarning, gofastcore.WarnInputStreamDamaged,
+			"the part that holds the outline of the document is damaged; the entries after the damage are not read")
+	}
+	if f.fixedOutlineMany {
+		add(gofastcore.SeverityError, gofastcore.WarnLimitExceeded,
+			fmt.Sprintf("the outline has more than %d entries; the rest are not read", xps.MaxOutline))
+	}
+	if n := f.x.TargetsCut; n > 0 {
+		add(gofastcore.SeverityError, gofastcore.WarnLimitExceeded,
+			fmt.Sprintf("the document lists %d addressable names more than are kept; links to them lead nowhere", n))
 	}
 	if n := f.x.PagesCut; n > 0 {
 		add(gofastcore.SeverityError, gofastcore.WarnLimitExceeded,
@@ -220,15 +250,55 @@ func (e *Extractor) fixedPage(f *File, i int, w want, ws *workState) (out pageOu
 	var res extract.Result
 	var controls removed
 	images := 0
+	var tags []tag
+	var tables *pageTables
 	err := f.x.ReadPage(i, extract.Options{Words: w.lines, Rules: !e.NoRuledTables, Stop: w.stop, Worker: &ws.ex,
 		Use: func(c *extract.Content) {
 			// The page as the interpreter of PDF hands one over: in
 			// points, from the bottom left.
 			page := layout.Page{M: [6]float64{1, 0, 0, -1, 0, info.Height}, Width: info.Width, Height: info.Height}
-			lay = layout.Build(page, c, layout.Options{
+			lopts := layout.Options{
 				Worker: &ws.lay, Images: opts.Images != gofastcore.ImagesNone, Lines: w.lines,
 				Spans: opts.Spans, OnPage: e.NoOffPageText,
-			})
+			}
+			// The links of the page, where they are as it is displayed.
+			for i := range info.Links {
+				l := &info.Links[i]
+				lopts.Links = append(lopts.Links, layout.Link{Href: cleanText(l.Href, &controls),
+					Boxes: []gofastcore.Rect{{X0: l.Box[0], Y0: info.Height - l.Box[3], X1: l.Box[2], Y1: info.Height - l.Box[1]}}})
+			}
+			// What the story fragments of the page declare of its
+			// elements, used as the structure tree of a tagged PDF is.
+			if m := info.Marks; m != nil {
+				tags, tables = fixedTags(m)
+				lopts.Item = func(mcid int32) (int64, bool) {
+					if mcid >= 0 && int(mcid) < len(tags) {
+						return tags[mcid].item, tags[mcid].label
+					}
+					return 0, false
+				}
+				lopts.Rank = func(mcid int32) int32 {
+					if mcid >= 0 && int(mcid) < len(tags) {
+						return tags[mcid].rank
+					}
+					return 0
+				}
+				// No heading is declared; asking makes the layout say of
+				// each block which element it begins with.
+				lopts.Heading = func(int32) uint8 { return 0 }
+				lopts.Para = func(mcid int32) int32 {
+					if mcid >= 0 && int(mcid) < len(m.Marks) {
+						return m.Marks[mcid].Para
+					}
+					return 0
+				}
+				tables.options(tags, &lopts)
+			}
+			lay = layout.Build(page, c, lopts)
+			if tables.drop(&lay) {
+				// Tables that the page does not bear out are its text again.
+				lay = layout.Build(page, c, lopts)
+			}
 			images = len(c.Images)
 			for k, i := range lay.Images {
 				if i < 0 {
@@ -236,12 +306,27 @@ func (e *Extractor) fixedPage(f *File, i int, w want, ws *workState) (out pageOu
 				}
 				// What the file says the image shows, where it draws it.
 				if alt := c.Images[i].Alt; alt != "" {
-					lay.Blocks[k].Text = cleanText(alt, &controls)
+					lay.Blocks[k].Text = fixedText(alt, &controls)
 				}
 				out.images = append(out.images, imageRef{block: int32(k), part: c.Images[i].Name})
 			}
-		}}, &res, &ws.xps, &info)
+		}}, &res, &ws.xps, &info, opts.Spans)
 	out.external = info.External
+	// The names the document lists as addressable on the page, each
+	// once, where they are as the page is displayed.
+	var seen map[string]bool
+	for i := range info.Anchors {
+		a := &info.Anchors[i]
+		name := cleanText(a.Name, &controls)
+		if name == "" || len(name) > maxAnchorBytes || seen[name] {
+			continue
+		}
+		if seen == nil {
+			seen = map[string]bool{}
+		}
+		seen[name] = true
+		out.anchors = append(out.anchors, named{name: name, x: a.X, y: info.Height - a.Y})
+	}
 	part.Width, part.Height = info.Width, info.Height
 	out.decoded = info.Decoded
 	if info.Spent {
@@ -251,7 +336,26 @@ func (e *Extractor) fixedPage(f *File, i int, w want, ws *workState) (out pageOu
 		out.decoded = math.MaxInt64 / 4
 	}
 	out.lines, out.styles, out.stats = lay.Lines, lay.Styles, lay.Stats
+	tables.fill(lay.Blocks, &lay)
 	part.Blocks = lay.Blocks
+	out.items = treeItems(lay.Styles, tags)
+	if m := info.Marks; m != nil {
+		// What stands in a fragment that the file declares to be the
+		// header or the footer of the page is that.
+		for k := range min(len(part.Blocks), len(lay.Styles)) {
+			b := &part.Blocks[k]
+			mc := lay.Styles[k].Marked - 1
+			if mc < 0 || int(mc) >= len(m.Marks) || b.Kind != gofastcore.KindParagraph || b.Display != 0 {
+				continue
+			}
+			switch m.Marks[mc].Kind {
+			case xps.FragmentHeader:
+				b.Kind, b.Origin = gofastcore.KindHeader, gofastcore.OriginNative
+			case xps.FragmentFooter:
+				b.Kind, b.Origin = gofastcore.KindFooter, gofastcore.OriginNative
+			}
+		}
+	}
 	part.Warnings = append(part.Warnings, res.Warnings...)
 	switch {
 	case err != nil:
@@ -323,4 +427,55 @@ func (st *state) fixedImage(part *gofastcore.Part, ref imageRef) {
 		st.budget -= int64(len(data))
 		img.Data = data
 	}
+}
+
+// fixedTags turns what the story fragments of a page say of its named
+// elements into what the structure tree of a tagged PDF says of marked
+// content, by identifier: the list item and the place in the order of
+// each, and the tables with their cells, which are then laid out, held
+// against the page and filled as those of a tagged PDF are (tables.go).
+// The cells and the tables are numbered from 1, in their order.
+func fixedTags(m *xps.Marks) ([]tag, *pageTables) {
+	tags := make([]tag, len(m.Marks))
+	// A table larger than a table may be is not one: its text is laid
+	// out as the page sets it.
+	usable := make([]bool, len(m.Tables))
+	any := false
+	for t, g := range m.Tables {
+		usable[t] = g.Rows > 0 && g.Cols > 0 && int64(g.Rows)*int64(g.Cols) <= maxTableCells
+		any = any || usable[t]
+	}
+	for i := range m.Marks {
+		mk, t := &m.Marks[i], &tags[i]
+		t.item, t.label, t.rank = mk.Item, mk.Label, mk.Rank
+		if c := mk.Cell; c >= 0 && int(c) < len(m.Cells) && usable[m.Cells[c].Table] {
+			t.cell, t.table = int64(c)+1, int64(m.Cells[c].Table)+1
+		}
+	}
+	if !any {
+		return tags, nil
+	}
+	pt := &pageTables{cellOf: map[int64]int32{}}
+	index := make([]int32, len(m.Tables)) // of each table, its place among those kept
+	for t, g := range m.Tables {
+		index[t] = -1
+		if !usable[t] {
+			continue
+		}
+		index[t] = int32(len(pt.tables))
+		pt.tables = append(pt.tables, int64(t)+1)
+		pt.grids = append(pt.grids, &tableGrid{cells: map[int64]gridCell{}, rows: g.Rows, cols: g.Cols, header: make([]bool, g.Rows)})
+	}
+	for i := range m.Cells {
+		c := &m.Cells[i]
+		k := index[c.Table]
+		if k < 0 {
+			continue
+		}
+		id := int64(i) + 1
+		pt.grids[k].cells[id] = gridCell{row: c.Row, col: c.Col, rows: c.Rows, cols: c.Cols}
+		pt.cellOf[id] = int32(len(pt.cells))
+		pt.cells, pt.cellTable = append(pt.cells, id), append(pt.cellTable, k)
+	}
+	return tags, pt
 }

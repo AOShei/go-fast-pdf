@@ -29,7 +29,17 @@
   - Resource dictionaries are followed, in the page or in a part of their own, for brushes, geometries
     and transformations. One outside the package, or an image outside it, is not fetched
     (`input.external_reference`). The content of a visual brush is read where the brush paints.
-  - Not read yet: links, the outline and declared structure.
+  - The outline a document declares is `Document.Outline`, each entry with its page (by number or by a
+    name the document lists as addressable). With `Options.Spans`, elements that name an address
+    (`NavigateUri`) make the words they cover links, to the address or to `#page=N`, and the names the
+    document lists as addressable are `Loc.Anchor` of the blocks that begin there.
+  - Story fragments are used as the structure tree of a tagged PDF is: declared paragraphs bound the
+    paragraphs (which stay `inferred`, their text being put together from the page), declared list
+    items and tables are `native` (a table the page does not bear out is text again), the order of
+    the fragments is evidence of the reading order, and a fragment declared the header or footer of
+    its page gives header and footer blocks.
+  - Ligatures and presentation forms are written as their letters, as for PDF.
+  - Not read: print tickets and thumbnails. Not read yet: the text of signature definitions.
   - PDF files are read as before: their output is byte for byte that of v0.5.0 on the test files, and
     the instructions they take are within 0.6 percent of it on every benchmark.
 - **go-fast-core v0.1.13.**

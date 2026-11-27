@@ -100,8 +100,32 @@
 // the brush paints, once however often it repeats; when the brush is a
 // named resource it is read where its dictionary stands.
 //
-// Not read yet: links, the outline and the structure a document
-// declares.
+// What a document declares of its structure is used. Its outline (the
+// DocumentStructure part of each fixed document) is Document.Outline,
+// each entry with the page it points at, by number or by a name the
+// document lists as addressable; the place on the page is not given.
+// With Options.Spans, an element that names an address (NavigateUri, on
+// text, on a path or on the Canvas around them) makes the words it
+// covers a link, to the address as written or, for a place of the
+// document, to "#page=N"; and a name the document lists as addressable
+// is the Loc.Anchor of the block that begins there.
+//
+// The story fragments of a page are used as the structure tree of a
+// tagged PDF is. Lines the fragments declare to be one paragraph are
+// one, and lines of two are two, however the page sets them; the
+// paragraphs stay OriginInferred, since their text is still put together
+// from the page, and so they are compared from page to page as any
+// others. A declared list item is a list item with its marker, and a
+// declared table a table with its merges, both OriginNative; a table
+// that the page does not bear out, its cells not standing where its
+// rows and columns say, is text again. The order of the fragments is
+// evidence of the order of reading where the page leaves it open. What
+// stands in a fragment declared the header or the footer of its page is
+// a header or a footer block, OriginNative.
+//
+// Not read: print tickets and thumbnails, which are printer settings
+// and a picture of the page. Not read yet: what a signature definition
+// says a signature is for.
 //
 // # The document
 //

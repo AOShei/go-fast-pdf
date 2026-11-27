@@ -65,6 +65,9 @@ type File struct {
 	// of the document, storedControls those of the stored part.
 	controls, storedControls removed
 
+	// What reading the structure of an XPS document found (xps.go).
+	fixedOutlineMany, fixedStructureDamaged bool
+
 	// What the pages read through this handle have shown so far.
 	active, external atomic.Bool
 	closed           atomic.Bool
@@ -782,6 +785,7 @@ func (p *Page) read(w want) (pageOut, error) {
 	lists(&out.part, out.styles, out.items)
 	headings(&out.part, out.styles, &s, titlesByPage(f.describe().outline)[out.part.Number])
 	nameAnchors(&out.part, f.namedDests().named(out.part.Number))
+	nameAnchors(&out.part, out.anchors)
 	st.charge(&out.part)
 	f.note(&out)
 	return out, nil

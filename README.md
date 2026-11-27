@@ -4,7 +4,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 A Go library that extracts the text and structure of PDF files, fast, for retrieval, knowledge graphs
-and language models. It is written from scratch on the standard library: its one dependency is
+and language models. It reads XPS and OpenXPS documents too, whose pages are laid out as those of a PDF
+are. It is written from scratch on the standard library: its one dependency is
 [go-fast-core](https://github.com/AOShei/go-fast-core), the document model that the go-fast libraries
 share.
 
@@ -81,7 +82,7 @@ gofastpdf document.pdf
 # As Markdown or plain text, into a file
 gofastpdf --format markdown -o document.md document.pdf
 
-# Several files, or every PDF under a directory: one JSON document per line
+# Several files, or every .pdf, .xps and .oxps file under a directory: one JSON document per line
 gofastpdf reports/ appendix.pdf > all.jsonl
 
 # Some pages, eight at a time, without blocks for the images
@@ -268,6 +269,37 @@ Settings that only PDF has are fields of `gofastpdf.Extractor`. The
   (`RenderOptions.Stored`, or `StoredKinds` for some kinds only; the command's `-stored[=kinds]`)
 - **Lines and words** - `Page.Lines` gives every line with its font and size and the box of each word
 
+## XPS and OpenXPS
+
+An XPS document (the XML Paper Specification, `.xps`) or an OpenXPS document (ECMA-388, `.oxps`) is a
+package of pages that are fixed layouts: text, paths and images at stated places. Every function and the
+command take one as they take a PDF file. What a file is, is told by its content, never by its name;
+`Source.Format` is `xps` or `oxps`.
+
+- **The same reading as PDF** - once its text is placed, a page is read by the code that reads a PDF
+  page: reading order, paragraphs, headings, lists, tables by rules, shading or alignment, running
+  headers and footers, footnotes, paragraphs over page breaks, bold, italic, `Page.Lines`. Sizes and
+  boxes are in points
+- **Text** - placed by the advances a page states or by the font's own, read from the font in the
+  package; text written from right to left is given in reading order; glyphs without text are read by
+  the font's table of characters; ligatures and presentation forms are written as their letters
+- **Images** - a block where a path is filled with an image, named by the image's part; on request its
+  bytes as the package holds them (PNG, JPEG, TIFF, JPEG XR), and what the file says it shows
+- **What the document declares** - its outline; with `Options.Spans` its links (to an address, or
+  `#page=N`) and the names it lists as addressable (`Loc.Anchor`); its story fragments, used as the
+  structure tree of a tagged PDF is: paragraphs, list items, tables, header and footer; what a
+  signature definition says its signature is to mean, as a `note`; the core properties as metadata
+- **What the file declares of display** - text with no fill, a fully transparent fill or an opacity of 0
+  is `no_ink`; nothing else is looked at
+- **Damaged and encrypted files** - a cut archive is read as far as it goes; a page with broken markup
+  keeps what stands before the break; text in a font the package lacks is still read
+  (`xps.font_unreadable`); an encrypted package (rights management) is refused with what it is
+- **Not read** - print tickets and thumbnails (printer settings, and a picture of a page); the signer,
+  date and place of a signature definition; digital signatures; `.dwfx` and OpenXPS 3D
+
+The package, its XML and the encrypted envelope are read by go-fast-core's `opc`, `xmlscan` and `cfb`,
+which every go-fast library that reads packages shares.
+
 ## Output
 
 ```json
@@ -345,7 +377,8 @@ That is a rule of position, which you choose, and not a judgement of this librar
 The library is made to be given files from anywhere. Every size that a file decides is bounded: the
 input (1 GiB by default), what its streams decode to (1 GiB together, 64 MiB each), the text and the
 blocks of the document (256 MiB), pages, objects, nesting, the text and the shapes of one page. Decoded bytes and text
-are counted for a document and the files attached to it together. A limit that cuts a document is reported as a warning or
+are counted for a document and the files attached to it together. For an XPS document the same limits bound what its package
+decompresses to, counted page by page. A limit that cuts a document is reported as a warning or
 an error, never passed over. Reading stops when the context ends, also inside a long page. One opened
 file can be read from many goroutines, and the result is the same for any number of workers.
 [SECURITY.md](SECURITY.md) has the threat model, every default, and how to report a problem.
@@ -363,6 +396,10 @@ file can be read from many goroutines, and the result is the same for any number
   compared with `compress/zlib` on the 11,394 streams of the tuning set.
 - **Budgets**: the allocations per page of the benchmark documents, and the instructions a benchmark
   executes against the last release.
+- **XPS and OpenXPS**: documents built in memory for every feature, with a font made for the tests;
+  the 14 public files of the shared go-fast corpus (3 of them held out, 3 encrypted and refused), the
+  words of those that are read compared with what PyMuPDF reads, run as a separate program; the public
+  files cut short and with bytes changed, 1,600 copies.
 - **Every change** runs on linux/amd64, linux/arm64, darwin/arm64 and windows/amd64 under the race
   detector, and as a 32-bit build. The tests run over 90 percent of the statements.
 
@@ -395,6 +432,12 @@ file can be read from many goroutines, and the result is the same for any number
   blocks it decides, so a text box that a word processor puts in the tree where it is anchored is still
   read where it stands. The tree's nesting of lists is not used: their levels are found by indent
 - **No OCR** - a scan without a text layer gives its images and the warning `part.image_only`
+- **XPS and OpenXPS** - an entry of the outline has its page but not its place on it. The content of a
+  visual brush is read once, where the brush paints, however often it repeats; a visual brush that is a
+  named resource is read where its resource dictionary stands. Glyphs set sideways are placed along
+  their line as upright ones are, by the height of each. Paragraphs that the story fragments declare
+  stay `inferred`, since their text is put together from the page. A table, a list or a header declared
+  by story fragments is tested on documents made for the tests only: no public file has one
 
 ## How it works
 

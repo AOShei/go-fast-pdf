@@ -26,7 +26,7 @@ rounds=${ROUNDS:-6}
 benchtime=${BENCHTIME:-1s}
 limit=${LIMIT:-10}
 out=${OUT:-bench-compare.txt}
-pattern='^(BenchmarkExtract$|BenchmarkExtractFiles$|BenchmarkScanner$|BenchmarkResolve$)'
+pattern='^(BenchmarkExtract$|BenchmarkExtractXPS$|BenchmarkExtractFiles$|BenchmarkScanner$|BenchmarkResolve$)'
 
 work=$(mktemp -d)
 cleanup() {

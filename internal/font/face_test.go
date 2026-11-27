@@ -46,26 +46,7 @@ func TestFace(t *testing.T) {
 	}
 
 	// A collection of two programs.
-	one, two := xpstest.Font(&xpstest.FontOptions{Name: "First"}), xpstest.Font(&xpstest.FontOptions{Name: "Second"})
-	ttc := []byte("ttcf\x00\x01\x00\x00\x00\x00\x00\x02\x00\x00\x00\x00\x00\x00\x00\x00")
-	base := len(ttc)
-	put := func(at, v int) {
-		ttc[at], ttc[at+1], ttc[at+2], ttc[at+3] = byte(v>>24), byte(v>>16), byte(v>>8), byte(v)
-	}
-	put(12, base)
-	put(16, base+len(one))
-	shift := func(prog []byte, by int) []byte {
-		out := append([]byte(nil), prog...)
-		n := int(out[4])<<8 | int(out[5])
-		for i := 0; i < n; i++ {
-			rec := 12 + 16*i
-			off := int(out[rec+8])<<24 | int(out[rec+9])<<16 | int(out[rec+10])<<8 | int(out[rec+11])
-			off += by
-			out[rec+8], out[rec+9], out[rec+10], out[rec+11] = byte(off>>24), byte(off>>16), byte(off>>8), byte(off)
-		}
-		return out
-	}
-	ttc = append(append(ttc, shift(one, base)...), shift(two, base+len(one))...)
+	ttc := xpstest.Collection(xpstest.Font(&xpstest.FontOptions{Name: "First"}), xpstest.Font(&xpstest.FontOptions{Name: "Second"}))
 	for i, want := range []string{"First", "Second"} {
 		if f := NewFace(ttc, i); f == nil || f.Name != want {
 			t.Errorf("face %d of a collection: %v", i, f)

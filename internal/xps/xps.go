@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"strings"
 	"sync"
 
@@ -39,9 +40,11 @@ const (
 
 const (
 	spFixed = xmlscan.FirstSpace + iota
+	spCompat
 )
 
-var spaces = map[string]xmlscan.Space{nsXPS: spFixed, nsOpenXPS: spFixed}
+var spaces = map[string]xmlscan.Space{nsXPS: spFixed, nsOpenXPS: spFixed,
+	"http://schemas.openxmlformats.org/markup-compatibility/2006": spCompat}
 
 var scanOptions = xmlscan.Options{Spaces: spaces}
 
@@ -90,6 +93,9 @@ type Document struct {
 	PagesCut int
 	// Core is the name of the core properties part, "" for none.
 	Core string
+	// limit is the number of bytes that may be decompressed for the
+	// document, which one page by itself may not pass either.
+	limit int64
 	// Docs are the fixed documents of the sequence, in order.
 	Docs []Doc
 	// targets are the names that the documents list as addressable, each
@@ -104,6 +110,14 @@ type Document struct {
 	fontBytes int64
 	fallback  map[string]*font.Font
 	images    map[string]ImageInfo
+	// imageBytes is what was read of the images to find their sizes.
+	imageBytes int64
+
+	// What the signature definitions say, read once: by page.
+	intentsOnce    sync.Once
+	intents        map[int][]string
+	intentsCut     bool
+	intentsDamaged bool
 }
 
 // Doc is one fixed document of the sequence.
@@ -112,6 +126,9 @@ type Doc struct {
 	Part string
 	// Structure is the name of its DocumentStructure part, "" for none.
 	Structure string
+	// Signatures is the name of its SignatureDefinitions part, "" for
+	// none.
+	Signatures string
 }
 
 // target is a name that a fixed document lists as addressable on one of
@@ -137,11 +154,21 @@ type fontKey struct {
 type fontEntry struct {
 	once sync.Once
 	face *font.Face
+	size int64 // the bytes of its program that were read
 }
 
 // Open opens a document. The error is ErrNotXPS when the input is not
 // one at all, and otherwise wraps an error of gofastcore.
 func Open(r io.ReaderAt, size int64, lim Limits) (*Document, error) {
+	// The package counts every byte it decompresses, whichever worker
+	// asks for it, and so cannot say which page of a document is the one
+	// that reaches a limit. What a page costs is therefore counted page
+	// by page, in the order of the pages, by who puts the document
+	// together (PageInfo.Decoded, Fonts), and given back to the package
+	// as it is read (counted): a document is then cut at the same page
+	// for any number of workers. What the package itself is left to
+	// bound is what belongs to no page: its table of content types, its
+	// relationships, the lists of its documents and pages, its outline.
 	pkg, err := opc.Open(r, size, opc.Limits{MaxDecodedBytes: lim.MaxDecodedBytes, MaxMembers: maxMembers})
 	if err != nil {
 		switch {
@@ -152,7 +179,7 @@ func Open(r io.ReaderAt, size int64, lim Limits) (*Document, error) {
 		}
 		return nil, fmt.Errorf("%w: %v", gofastcore.ErrMalformed, err)
 	}
-	d := &Document{pkg: pkg, fonts: map[fontKey]*fontEntry{}}
+	d := &Document{pkg: pkg, fonts: map[fontKey]*fontEntry{}, limit: lim.MaxDecodedBytes}
 	rels, err := pkg.Rels("")
 	if err != nil {
 		return nil, partError("the relationships of the package", err)
@@ -194,9 +221,19 @@ func Open(r io.ReaderAt, size int64, lim Limits) (*Document, error) {
 		// The structure the document declares: its outline.
 		if rels, err := pkg.RelsWith(doc, &s); err == nil {
 			for k := range rels {
-				if rel := &rels[k]; !rel.External && (rel.Type == nsXPS+"/documentstructure" || rel.Type == nsOpenXPS+"/documentstructure") && pkg.Has(rel.Target) {
-					d.Docs[i].Structure = rel.Target
-					break
+				rel := &rels[k]
+				if rel.External || !pkg.Has(rel.Target) {
+					continue
+				}
+				switch rel.Type {
+				case nsXPS + "/documentstructure", nsOpenXPS + "/documentstructure":
+					if d.Docs[i].Structure == "" {
+						d.Docs[i].Structure = rel.Target
+					}
+				case nsXPS + "/signature-definitions", nsOpenXPS + "/signature-definitions":
+					if d.Docs[i].Signatures == "" {
+						d.Docs[i].Signatures = rel.Target
+					}
 				}
 			}
 		}
@@ -355,26 +392,48 @@ func (d *Document) face(source string, uri []byte) *font.Face {
 		d.fonts[key] = e
 	}
 	d.mu.Unlock()
-	e.once.Do(func() { e.face = d.readFace(key) })
+	e.once.Do(func() { e.face, e.size = d.readFace(key) })
 	return e.face
 }
 
-func (d *Document) readFace(key fontKey) *font.Face {
+// fontBytesOf returns how many bytes were read of the font program that
+// a FontUri written in the part source names, once it has been read.
+func (d *Document) fontBytesOf(source string, uri []byte) (part string, size int64) {
+	target := string(uri)
+	if i := strings.IndexByte(target, '#'); i >= 0 {
+		target = target[:i]
+	}
+	part = opc.Resolve(source, target)
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	for k, e := range d.fonts {
+		if k.part == part {
+			// The program is one part, whichever of its faces is used.
+			size = max(size, e.size)
+		}
+	}
+	return part, size
+}
+
+func (d *Document) readFace(key fontKey) (*font.Face, int64) {
 	rc, err := d.pkg.Open(key.part)
 	if err != nil {
-		return nil
+		return nil, 0
 	}
 	defer rc.Close()
 	data, err := io.ReadAll(io.LimitReader(rc, font.MaxFaceBytes))
+	size := int64(len(data))
+	// Counted with the first page that uses the font, in page order.
+	d.pkg.Charge(-size)
 	if err != nil && len(data) < 64 {
-		return nil
+		return nil, size
 	}
 	d.mu.Lock()
 	d.fontBytes += int64(len(data))
 	over := d.fontBytes > maxFontBytes
 	d.mu.Unlock()
 	if over {
-		return nil
+		return nil, size
 	}
 	// The first 32 bytes of an obfuscated font are combined with the
 	// identifier that is the name of its part. The content type says
@@ -385,7 +444,71 @@ func (d *Document) readFace(key fontKey) *font.Face {
 			data = clear
 		}
 	}
-	return font.NewFace(data, key.index)
+	return font.NewFace(data, key.index), size
+}
+
+// errSpent is the error of a part that is longer than a document may be.
+var errSpent = errors.New("the limit on decompressed bytes was reached")
+
+// counted reads a part and counts what it reads, up to a bound. What it
+// counts it gives back to the package, which counts every byte read of
+// it: these bytes are counted here, to a page.
+type counted struct {
+	r     io.Reader
+	pkg   *opc.Package
+	n     *int64
+	left  int64
+	spent *bool
+}
+
+func (c *counted) Read(p []byte) (int, error) {
+	if c.left <= 0 {
+		*c.spent = true
+		return 0, errSpent
+	}
+	if int64(len(p)) > c.left {
+		p = p[:c.left]
+	}
+	// Given back before it is taken, so that the package's count is not
+	// short, for a moment, of what several workers are reading.
+	c.pkg.Charge(-int64(len(p)))
+	n, err := c.r.Read(p)
+	c.pkg.Charge(int64(len(p) - n))
+	*c.n += int64(n)
+	c.left -= int64(n)
+	if errors.Is(err, opc.ErrBudget) {
+		*c.spent = true
+	}
+	return n, err
+}
+
+// released closes a part and hands the window of its scanner back.
+type released struct {
+	io.Closer
+	s *xmlscan.Scanner
+}
+
+func (r released) Close() error {
+	r.s.Release()
+	return r.Closer.Close()
+}
+
+// scan opens the part name for the page that info describes and returns
+// a scanner over it: what is read of it is counted to the page, which
+// may read no more than a document may in all; past that the reading
+// ends and the page is marked spent.
+func (d *Document) scan(name string, s *xmlscan.Scanner, opts *xmlscan.Options, info *PageInfo) (io.Closer, error) {
+	rc, err := d.pkg.Open(name)
+	if err != nil {
+		info.Spent = info.Spent || errors.Is(err, opc.ErrBudget)
+		return nil, err
+	}
+	left := int64(math.MaxInt64)
+	if d.limit < math.MaxInt64/2 {
+		left = d.limit + 1 - info.Decoded
+	}
+	s.Reset(&counted{r: rc, pkg: d.pkg, n: &info.Decoded, left: left, spent: &info.Spent}, d.pkg.Window(name, opts))
+	return released{rc, s}, nil
 }
 
 // sfnt reports whether data begins as a TrueType or OpenType program

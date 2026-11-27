@@ -3,7 +3,8 @@
 - `run.sh` runs the Go benchmarks and records them with the machine and toolchain; `baseline.txt` holds
   the numbers of v0.1.1.
 - `compare.sh` compares the speed of the working tree with a base commit (`BASE`), and fails if a
-  benchmark got more than 10 percent slower.
+  benchmark got more than 10 percent slower. `BenchmarkExtractXPS` is among the benchmarks it compares;
+  a base from before XPS was read has no number for it.
 - `compare/` measures go-fast-pdf against other PDF libraries and writes `comparison.md`.
   With `-gc`, it measures the settings of Go's garbage collector (GOGC, GOMEMLIMIT) instead: time and
   memory, one document at a time and in a batch; it writes `gc.md`, and with `-readme README.md` its table.

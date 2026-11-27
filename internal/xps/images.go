@@ -32,8 +32,25 @@ const (
 // maxImageHeader bounds what is read of an image to find its size.
 const maxImageHeader = 1 << 20
 
-// maxImages bounds the images of a document whose sizes are kept.
-const maxImages = 1 << 16
+// maxImages bounds the images of a document whose sizes are kept, and
+// maxImageHeaders the bytes read of all of them together to find their
+// sizes: past it, images have no size.
+const (
+	maxImages       = 1 << 16
+	maxImageHeaders = 64 << 20
+)
+
+// counting counts the bytes read through it.
+type counting struct {
+	r io.Reader
+	n int64
+}
+
+func (c *counting) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	c.n += int64(n)
+	return n, err
+}
 
 // Image returns what is known of the image that is the part name. Its
 // size is read once for the document.
@@ -45,7 +62,14 @@ func (d *Document) Image(name string) ImageInfo {
 		return info
 	}
 	info = ImageInfo{ID: d.pkg.Label(d.pkg.Written(name)), MIME: d.pkg.Label(d.pkg.ContentType(name))}
-	if rc, err := d.pkg.Open(name); err == nil {
+	d.mu.Lock()
+	room := d.imageBytes < maxImageHeaders
+	d.mu.Unlock()
+	if !room {
+		return info // no more is read to find the sizes of images
+	}
+	if part, err := d.pkg.Open(name); err == nil {
+		rc := &counting{r: part}
 		head := make([]byte, 16)
 		n, _ := io.ReadFull(rc, head)
 		head = head[:n]
@@ -68,7 +92,10 @@ func (d *Document) Image(name string) ImageInfo {
 			data, _ := io.ReadAll(rest)
 			info.Width, info.Height = tiffSize(data)
 		}
-		rc.Close()
+		part.Close()
+		d.mu.Lock()
+		d.imageBytes += rc.n
+		d.mu.Unlock()
 	}
 	d.mu.Lock()
 	if d.images == nil {

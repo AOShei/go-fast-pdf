@@ -361,6 +361,10 @@ type state struct {
 	// budget was spent.
 	unread bool
 
+	// fonts are the font programs of an XPS document that have been
+	// counted against the budget (xps.go).
+	fonts map[string]bool
+
 	// funcs reads the functions of the colour spaces of the images, each
 	// once; funcWork is what is left of maxFunctionWorkAll; and kinds is
 	// how the data of each image object is delivered. They are made with
@@ -680,7 +684,7 @@ func (f *File) Parts(ctx context.Context) iter.Seq2[gofastcore.Part, error] {
 			return whole
 		}
 		err := f.each(ctx, want{}, func(out *pageOut) bool {
-			if st.budget -= out.decoded; st.budget < 0 {
+			if st.budget -= out.decoded + st.newFonts(out); st.budget < 0 {
 				limit = fmt.Errorf("%w: the document decodes to more than the limit of %d bytes; what follows page %d is not read",
 					gofastcore.ErrLimitExceeded, st.decodeLimit, last)
 				return false
@@ -826,7 +830,7 @@ func (f *File) Document(ctx context.Context) (*gofastcore.Document, error) {
 		return whole
 	}
 	err := f.each(ctx, want{}, func(out *pageOut) bool {
-		if st.budget -= out.decoded; st.budget < 0 {
+		if st.budget -= out.decoded + st.newFonts(out); st.budget < 0 {
 			spent = true
 			return false
 		}

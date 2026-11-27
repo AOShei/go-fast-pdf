@@ -123,9 +123,23 @@
 // stands in a fragment declared the header or the footer of its page is
 // a header or a footer block, OriginNative.
 //
+// What a signature definition says its signature is to mean (its
+// Intent) is a note of the page the definition names, or of the first
+// page of its document: a block of kind note after the content of the
+// page, as what an annotation of a PDF says is. Markup of a later
+// version of the format (AlternateContent) is passed over for the
+// fallback it comes with.
+//
+// The limit on decoded bytes bounds what the package decompresses to.
+// It is counted page by page in the order of the pages, each page with
+// its markup, its story fragments and the resource dictionaries it draws
+// on, and a font with the first page that uses it, so that a document
+// the limit cuts ends at the same page for any number of workers. Bytes
+// after the end of the archive are reported (input.trailing_data).
+//
 // Not read: print tickets and thumbnails, which are printer settings
-// and a picture of the page. Not read yet: what a signature definition
-// says a signature is for.
+// and a picture of the page; of a signature definition, who is to sign,
+// by when and where; digital signatures.
 //
 // # The document
 //

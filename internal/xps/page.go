@@ -53,8 +53,14 @@ func (a matrix) mul(b matrix) matrix {
 type PageInfo struct {
 	// Width and Height are the size of the page in points.
 	Width, Height float64
-	// Decoded is the size of the page's markup, decompressed.
+	// Decoded is the number of bytes decompressed for the page: its
+	// markup, its story fragments and the resource dictionaries it draws
+	// on. It depends on the page alone.
 	Decoded int64
+	// Fonts are the font programs the page uses, each once, with the
+	// number of bytes read of it: a document counts each once, with the
+	// first of its pages that uses it.
+	Fonts []FontUse
 	// Spent is set when the limit on decompressed bytes was reached
 	// while the page was read.
 	Spent bool
@@ -69,6 +75,12 @@ type PageInfo struct {
 	// elements, nil when it has none. The strings of a named element
 	// have its mark as their identifier (extract.Run.MCID).
 	Marks *Marks
+}
+
+// FontUse is a font program that a page uses.
+type FontUse struct {
+	Part  string
+	Bytes int64
 }
 
 // Link is a link of a page: an element that names an address.
@@ -149,10 +161,16 @@ type Worker struct {
 	spaces []extract.Space
 	clus   []extract.Cluster
 	res    resources
-	links  bool               // the links and the names of the page are asked for
-	marks  *Marks             // what the fragments of the page say, nil for none
-	paths  []*pathState       // one for each Path that is open
-	scans  []*xmlscan.Scanner // for the resource dictionaries of other parts
+	links  bool // the links and the names of the page are asked for
+	// The font looked up last: the address that named it, in which part,
+	// and the font.
+	faceURI    []byte
+	faceSource string
+	face       *font.Face
+	faceKnown  bool
+	marks      *Marks             // what the fragments of the page say, nil for none
+	paths      []*pathState       // one for each Path that is open
+	scans      []*xmlscan.Scanner // for the resource dictionaries of other parts
 }
 
 // reader reads one page: the part being scanned, which is the page or a
@@ -189,16 +207,14 @@ type reader struct {
 // in info.
 func (d *Document) ReadPage(i int, opts extract.Options, res *extract.Result, w *Worker, info *PageInfo, links bool) error {
 	name := d.Pages[i].Part
-	info.Decoded = max(d.pkg.Size(name), 0)
 	// What the page declares of its elements, before they are read.
-	marks, marksDamaged := d.marks(name, &w.s)
+	marks, marksDamaged := d.marks(name, &w.s, info)
 	info.Marks, w.marks = marks, marks
-	closer, err := d.pkg.Scan(name, &w.s, &scanOptions)
+	closer, err := d.scan(name, &w.s, &scanOptions, info)
 	if err != nil {
 		if errors.Is(err, opc.ErrNotFound) {
 			return fmt.Errorf("%w: the document names a page %q that the package does not have", gofastcore.ErrMalformed, d.pkg.Label(name))
 		}
-		info.Spent = errors.Is(err, opc.ErrBudget)
 		return fmt.Errorf("%w: %v", gofastcore.ErrMalformed, err)
 	}
 	defer closer.Close()
@@ -206,6 +222,7 @@ func (d *Document) ReadPage(i int, opts extract.Options, res *extract.Result, w 
 	defer fx.Finish()
 	r := &reader{d: d, w: w, fx: fx, s: &w.s, name: name, info: info, page: i}
 	w.links = links
+	w.face, w.faceKnown = nil, false
 	s := r.s
 	w.stack = w.stack[:0]
 	w.res.reset()
@@ -238,7 +255,7 @@ func (d *Document) ReadPage(i int, opts extract.Options, res *extract.Result, w 
 			"the part that says what the elements of the page are (its story fragments) is damaged; what stands after the damage is not read")
 	}
 	if err := s.Err(); err != nil {
-		if errors.Is(err, opc.ErrBudget) {
+		if errors.Is(err, opc.ErrBudget) || errors.Is(err, errSpent) {
 			info.Spent = true
 		}
 		if len(w.stack) == 0 {
@@ -284,6 +301,18 @@ func (r *reader) content() {
 		default:
 			continue
 		}
+		if s.Space() == spCompat {
+			// Markup of another version of the format, with what a reader
+			// that does not know it is to read in its place. This reader
+			// knows no other version: it reads the fallback.
+			switch string(s.Local()) {
+			case "AlternateContent":
+				r.alternate()
+			default:
+				s.Skip()
+			}
+			continue
+		}
 		if s.Space() != spFixed {
 			s.Skip()
 			continue
@@ -313,6 +342,28 @@ func (r *reader) content() {
 	for d := s.Depth(); s.Depth() >= d; {
 		if s.Next() == xmlscan.EOF {
 			return
+		}
+	}
+}
+
+// alternate reads an AlternateContent element, whose start tag is
+// current: the content of its Fallback, where the page goes on. Its
+// choices are for readers of a version of the format this one does not
+// know.
+func (r *reader) alternate() {
+	s := r.s
+	for d := s.Depth(); ; {
+		k := s.Next()
+		if k == xmlscan.EOF || k == xmlscan.End && s.Depth() < d {
+			return
+		}
+		if k != xmlscan.Start {
+			continue
+		}
+		if s.Is(spCompat, "Fallback") {
+			r.content()
+		} else {
+			s.Skip()
 		}
 	}
 }
@@ -594,7 +645,24 @@ func (r *reader) show() bool {
 			return true
 		}
 	}
-	face := d.face(source, g.fontURI)
+	// The font of the element before this one is most often its font.
+	var face *font.Face
+	if w.faceKnown && w.faceSource == source && bytes.Equal(w.faceURI, g.fontURI) {
+		face = w.face
+	} else {
+		face = d.face(source, g.fontURI)
+		w.face, w.faceSource, w.faceKnown = face, source, true
+		w.faceURI = append(w.faceURI[:0], g.fontURI...)
+		// The program, counted once for the page.
+		part, size := d.fontBytesOf(source, g.fontURI)
+		seen := false
+		for k := range r.info.Fonts {
+			seen = seen || r.info.Fonts[k].Part == part
+		}
+		if !seen && size > 0 && len(r.info.Fonts) < maxFonts {
+			r.info.Fonts = append(r.info.Fonts, FontUse{Part: part, Bytes: size})
+		}
+	}
 	var f *font.Font
 	space := 0.25
 	if face != nil {
@@ -739,18 +807,25 @@ func (w *Worker) clusters(face *font.Face) {
 		// The characters of the cluster, counted in units of UTF-16 as
 		// the indices count them.
 		first, lo := rune(-1), pos
-		for units := 0; units < e.units && pos < len(uni); {
-			r, n := utf8.DecodeRune(uni[pos:])
-			if first < 0 {
-				first = r
-			}
-			pos += n
-			units++
-			if r >= 0x10000 {
+		if e.units == 1 && pos < len(uni) && uni[pos] < 0x80 {
+			// Most text is this: one character of ASCII.
+			first = rune(uni[pos])
+			pos++
+			w.text = append(w.text, uni[lo])
+		} else {
+			for units := 0; units < e.units && pos < len(uni); {
+				r, n := utf8.DecodeRune(uni[pos:])
+				if first < 0 {
+					first = r
+				}
+				pos += n
 				units++
+				if r >= 0x10000 {
+					units++
+				}
 			}
+			w.text = append(w.text, uni[lo:pos]...)
 		}
-		w.text = append(w.text, uni[lo:pos]...)
 		// Its glyphs: this entry, and those after it that it counts in.
 		for k := 0; ; k++ {
 			gid := e.glyph
@@ -799,13 +874,18 @@ func (w *Worker) clusters(face *font.Face) {
 			e.glyph, e.advance = e2.glyph, e2.advance
 		}
 		// Ligatures and presentation forms are written as their letters,
-		// as the text of a PDF font is. All begin with the same byte.
-		if bytes.IndexByte(w.text[it.lo:], 0xEF) >= 0 {
-			w.text = charset.LettersIn(w.text, int(it.lo))
+		// as the text of a PDF font is. All begin with the same byte, and
+		// none is one byte long.
+		if t := w.text[it.lo:]; len(t) == 1 {
+			it.space = t[0] == ' '
+		} else {
+			if bytes.IndexByte(t, 0xEF) >= 0 {
+				w.text = charset.LettersIn(w.text, int(it.lo))
+			}
+			t = w.text[it.lo:]
+			it.space = len(t) > 0 && len(bytes.TrimLeft(t, " ")) == 0
 		}
 		it.hi = int32(len(w.text))
-		t := w.text[it.lo:it.hi]
-		it.space = len(t) > 0 && len(bytes.TrimLeft(t, " ")) == 0
 		w.items = append(w.items, it)
 	}
 }
@@ -928,6 +1008,27 @@ func number(b []byte) float64 {
 // fraction, an exponent. White space around it is passed over. The
 // number is bounded (maxCoord).
 func parseNumber(b []byte) (float64, bool) {
+	// Most numbers are a few digits, with a fraction or without.
+	if n := len(b); n > 0 && n <= 15 {
+		whole, frac, scale, i := 0.0, 0.0, 1.0, 0
+		for ; i < n && b[i] >= '0' && b[i] <= '9'; i++ {
+			whole = whole*10 + float64(b[i]-'0')
+		}
+		if i < n && b[i] == '.' {
+			for i++; i < n && b[i] >= '0' && b[i] <= '9'; i++ {
+				frac = frac*10 + float64(b[i]-'0')
+				scale *= 10
+			}
+			if i == n && n > 1 {
+				// The digits are an integer that a float64 holds, and the
+				// scale a power of ten that it holds: the quotient is the
+				// number nearest to what is written.
+				return (whole*scale + frac) / scale, true
+			}
+		} else if i == n {
+			return whole, true
+		}
+	}
 	b = bytes.TrimSpace(b)
 	if len(b) == 0 || len(b) > 64 {
 		return 0, false

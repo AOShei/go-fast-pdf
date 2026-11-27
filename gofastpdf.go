@@ -192,6 +192,10 @@ type pageOut struct {
 	lines []layout.Line
 	// What the page contributes to the document's warnings.
 	active, external bool
+	// fonts are the font programs the page uses, for a page of an XPS
+	// document: each is counted against the limit on decoded bytes once,
+	// with the first page that uses it (state.newFonts).
+	fonts []xps.FontUse
 	// anchors are the places of the page that the document names, for a
 	// page of an XPS document (xps.go); a PDF's are its destinations.
 	anchors []named

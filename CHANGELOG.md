@@ -39,7 +39,13 @@
     items and tables are `native` (a table the page does not bear out is text again), the order of
     the fragments is evidence of the reading order, and a fragment declared the header or footer of
     its page gives header and footer blocks.
-  - Not read: print tickets and thumbnails. Not read yet: the text of signature definitions.
+  - What a signature definition says its signature is to mean is a `note` of the page it names. Markup
+    of a later version of the format (`AlternateContent`) is passed over for its fallback. Bytes after
+    the end of the archive are reported (`input.trailing_data`).
+  - The limit on decoded bytes is counted page by page, a font with the first page that uses it: a
+    document it cuts ends at the same page for any number of workers.
+  - Not read: print tickets and thumbnails; the signer, date and place of a signature definition;
+    digital signatures.
   - PDF files are read as before: their output is byte for byte that of v0.5.0 on the test files, and
     the instructions they take are within 0.6 percent of it on every benchmark.
 - **go-fast-core v0.1.13.**

@@ -567,19 +567,55 @@ func TestXPSPagesTogether(t *testing.T) {
 	}
 }
 
-// TestXPSLimits: the limit on decompressed bytes ends the document.
+// TestXPSLimits: the limit on decompressed bytes ends the document, at
+// the same page for any number of workers: what a page costs is counted
+// for the page, and a font with the first page that uses it.
 func TestXPSLimits(t *testing.T) {
 	var pages []string
-	for i := 1; i <= 8; i++ {
-		pages = append(pages, xpstest.Page(xpstest.XPS, 816, 1056, strings.Repeat(xpstest.Glyphs(96, 120, 16, fmt.Sprintf("The text of page %d.", i), ""), 40)))
+	for i := 1; i <= 24; i++ {
+		// Pages of different sizes, and a second font from page 9 on.
+		font := xpstest.FontName
+		if i >= 9 {
+			font = "/Resources/second.ttf"
+		}
+		line := strings.Replace(xpstest.Glyphs(96, 120, 16, fmt.Sprintf("The text of page %d.", i), ""), xpstest.FontName, font, 1)
+		pages = append(pages, xpstest.Page(xpstest.XPS, 816, 1056, strings.Repeat(line, 10+7*(i%5))))
 	}
-	data := xpstest.Document(xpstest.XPS, pages...).Bytes()
-	doc, err := gofastpdf.Extract(context.Background(), bytes.NewReader(data), int64(len(data)), &gofastcore.Options{Workers: 1, Limits: gofastcore.Limits{MaxDecodedBytes: 30_000}})
-	if err != nil {
-		t.Fatal(err)
+	pkg := xpstest.Document(xpstest.XPS, pages...)
+	pkg.Add("Resources/second.ttf", xpstest.Font(&xpstest.FontOptions{Name: "Second"}))
+	data := pkg.Bytes()
+	read := func(limit int64, workers int) (int, bool) {
+		doc, err := gofastpdf.Extract(context.Background(), bytes.NewReader(data), int64(len(data)), &gofastcore.Options{Workers: workers, Limits: gofastcore.Limits{MaxDecodedBytes: limit}})
+		if err != nil {
+			t.Fatalf("limit %d, %d workers: %v", limit, workers, err)
+		}
+		return len(doc.Parts), xpsWarned(doc.Warnings, gofastcore.WarnLimitExceeded)
 	}
-	if n := len(doc.Parts); n == 0 || n >= 8 || !xpsWarned(doc.Warnings, gofastcore.WarnLimitExceeded) {
-		t.Errorf("%d parts, warnings %v", n, doc.Warnings)
+	whole, cut := read(1<<30, 1)
+	if whole != 24 || cut {
+		t.Fatalf("without a limit: %d parts, cut %v", whole, cut)
+	}
+	last, cuts := -1, 0
+	for limit := int64(4_000); limit <= 200_000; limit += 6_500 {
+		one, cut := read(limit, 1)
+		if one < last {
+			t.Errorf("limit %d: %d parts, fewer than with a lower limit (%d)", limit, one, last)
+		}
+		last = one
+		if cut != (one < 24) {
+			t.Errorf("limit %d: %d parts, warning %v", limit, one, cut)
+		}
+		if cut {
+			cuts++
+		}
+		for try := 0; try < 3; try++ {
+			if many, cutMany := read(limit, 8); many != one || cutMany != cut {
+				t.Fatalf("limit %d: %d parts with 1 worker and %d with 8", limit, one, many)
+			}
+		}
+	}
+	if cuts < 5 || last != 24 {
+		t.Errorf("%d limits cut the document, and the largest left %d parts", cuts, last)
 	}
 }
 

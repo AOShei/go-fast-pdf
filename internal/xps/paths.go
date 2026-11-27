@@ -1030,12 +1030,10 @@ func (r *reader) remoteDictionary(target string) {
 		w.scans = append(w.scans, new(xmlscan.Scanner))
 	}
 	sc := w.scans[r.open]
-	closer, err := pkg.Scan(part, sc, &scanOptions)
+	closer, err := r.d.scan(part, sc, &scanOptions, r.info)
 	if err != nil {
-		r.info.Spent = r.info.Spent || errors.Is(err, opc.ErrBudget)
 		return
 	}
-	r.info.Decoded += max(pkg.Size(part), 0)
 	s, name := r.s, r.name
 	r.s, r.name = sc, part
 	r.open++
@@ -1054,8 +1052,11 @@ func (r *reader) remoteDictionary(target string) {
 	r.open--
 	r.s, r.name = s, name
 	if err := sc.Err(); err != nil {
-		r.info.Spent = r.info.Spent || errors.Is(err, opc.ErrBudget)
-		r.damaged = true
+		if errors.Is(err, opc.ErrBudget) || errors.Is(err, errSpent) {
+			r.info.Spent = true
+		} else {
+			r.damaged = true
+		}
 	}
 	closer.Close()
 }

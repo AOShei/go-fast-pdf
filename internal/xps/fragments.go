@@ -3,6 +3,7 @@ package xps
 import (
 	"strings"
 
+	"github.com/AOShei/go-fast-core/opc"
 	"github.com/AOShei/go-fast-core/xmlscan"
 )
 
@@ -31,6 +32,14 @@ const (
 	relFragmentsOX = nsOpenXPS + "/storyfragments"
 	typeFragments  = "application/vnd.ms-package.xps-storyfragments+xml"
 )
+
+const (
+	spRels = xmlscan.FirstSpace + 32 + iota
+)
+
+var relsOptions = xmlscan.Options{Spaces: map[string]xmlscan.Space{
+	"http://schemas.openxmlformats.org/package/2006/relationships": spRels,
+}}
 
 // Marks is what the fragments of a page say of its named elements.
 type Marks struct {
@@ -73,25 +82,45 @@ type Grid struct{ Rows, Cols int32 }
 
 // marks reads the story fragments of the page that is the part name;
 // nil when it has none, or when they name nothing.
-func (d *Document) marks(name string, s *xmlscan.Scanner) (m *Marks, damaged bool) {
+func (d *Document) marks(name string, s *xmlscan.Scanner, info *PageInfo) (m *Marks, damaged bool) {
 	if d.pkg.Typed() && !d.pkg.HasContentType(typeFragments) {
 		return nil, false // no part of the package is one: most have none
 	}
-	rels, err := d.pkg.RelsWith(name, s)
-	if err != nil {
-		return nil, false
-	}
+	// The relationships of the page say which part it is. They are read
+	// here and not by the package, so that they are counted to the page.
 	part := ""
-	for i := range rels {
-		if rel := &rels[i]; !rel.External && (rel.Type == relFragmentsXP || rel.Type == relFragmentsOX) && d.pkg.Has(rel.Target) {
-			part = rel.Target
-			break
+	if rels := opc.RelsName(name); d.pkg.Has(rels) {
+		closer, err := d.scan(rels, s, &relsOptions, info)
+		if err != nil {
+			return nil, false
 		}
+		for part == "" {
+			k := s.Next()
+			if k == xmlscan.EOF {
+				break
+			}
+			if k != xmlscan.Start || !s.Is(spRels, "Relationship") {
+				continue
+			}
+			typ, _ := s.Attr(xmlscan.NoSpace, "Type")
+			if string(typ) != relFragmentsXP && string(typ) != relFragmentsOX {
+				continue
+			}
+			if mode, ok := s.Attr(xmlscan.NoSpace, "TargetMode"); ok && string(mode) == "External" {
+				continue
+			}
+			if target, ok := s.Attr(xmlscan.NoSpace, "Target"); ok {
+				if p := opc.Resolve(name, string(target)); d.pkg.Has(p) {
+					part = p
+				}
+			}
+		}
+		closer.Close()
 	}
 	if part == "" {
 		return nil, false
 	}
-	closer, err := d.pkg.Scan(part, s, &structureOptions)
+	closer, err := d.scan(part, s, &structureOptions, info)
 	if err != nil {
 		return nil, true
 	}

@@ -326,6 +326,7 @@ func (e *Extractor) fixedPage(f *File, i int, w want, ws *workState) (out pageOu
 			}
 		}}, &res, &ws.xps, &info, opts.Spans)
 	out.external = info.External
+	out.fonts = info.Fonts
 	// The names the document lists as addressable on the page, each
 	// once, where they are as the page is displayed.
 	var seen map[string]bool
@@ -506,4 +507,24 @@ func fixedTags(m *xps.Marks) ([]tag, *pageTables) {
 		pt.cells, pt.cellTable = append(pt.cells, id), append(pt.cellTable, k)
 	}
 	return tags, pt
+}
+
+// newFonts returns the bytes of the font programs that a page of an XPS
+// document uses and no page before it used: a font is read once for a
+// document, and is counted with the first of the pages that use it, in
+// the order of the pages, so that where the limit on decoded bytes cuts
+// a document does not depend on which worker read the font.
+func (st *state) newFonts(out *pageOut) int64 {
+	var n int64
+	for _, f := range out.fonts {
+		if st.fonts[f.Part] {
+			continue
+		}
+		if st.fonts == nil {
+			st.fonts = map[string]bool{}
+		}
+		st.fonts[f.Part] = true
+		n += f.Bytes
+	}
+	return n
 }

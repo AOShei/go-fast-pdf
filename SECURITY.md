@@ -147,6 +147,41 @@ recipient and never sees the private key itself. The file's envelopes are read a
 only when both layers of padding check and the content has the length of the file's seed; a key that
 does not fit gives `ErrKeyRequired`, never text decrypted with a wrong key.
 
+## XPS and OpenXPS
+
+An XPS or OpenXPS document is a zip archive of XML parts, fonts and images. What is said above of a PDF
+file holds for one, with these particulars.
+
+- **The archive and its XML** are read by go-fast-core (`opc`, `xmlscan`). No document type declaration
+  that declares anything is accepted, no entity of the file's making is expanded, and nothing a part
+  names outside the package is fetched: a resource dictionary or an image at an address outside it gets
+  `input.external_reference`.
+- **The limit on decoded bytes** (`Limits.MaxDecodedBytes`) bounds what the package decompresses to. It
+  is counted page by page in the order of the pages: the markup of a page, its story fragments and the
+  resource dictionaries it draws on, a font with the first page that uses it, and the data of an image
+  when it is asked for. One page may not pass the limit by itself. So a document that the limit cuts
+  ends at the same page for any number of workers. The parts that belong to no page (the table of
+  content types, relationships, the lists of documents and pages, the outline) are bounded by the same
+  number, counted by the package.
+- **Further bounds**: 1,048,576 members of the archive and as many pages; 262,144 addressable names;
+  a font program of 32 MiB, 4,096 fonts and 256 MiB of them together; 16,384 named resources and 64
+  resource dictionaries of other parts for a page, nested 4 deep; Canvas elements and the content of
+  visual brushes nested 256 deep; 131,072 entries of the outline; 1,024 signature definitions with 1 MiB
+  of text; 64 MiB read of all images together to find their sizes. The text and the shapes of one page
+  are bounded as those of a PDF page are.
+- **A page** is read under a recover, as a PDF page is: a defect ends that page with `part.failed`, not
+  the process. A page whose markup breaks off keeps what stands before the break, with
+  `input.stream_damaged`.
+- **Fonts** are read for the widths of their glyphs and for which character a glyph shows: the tables
+  `head`, `hhea`, `maxp`, `hmtx`, `vhea`, `vmtx`, `cmap`, `name` and `OS/2`. No glyph is drawn and no
+  instruction of a font is run.
+- **Images** are not decoded. The size of a PNG or JPEG image is read from its header by Go's `image`
+  package (`DecodeConfig`), that of a TIFF image from its first directory. With `ImagesData` the bytes
+  of the part are handed on as they are, and whatever decodes them next is given untrusted bytes.
+- **An encrypted package** (the envelope of a rights-managed or password-protected document, a compound
+  file) is refused with `ErrUnsupported`. Its streams are listed by go-fast-core's `cfb`; nothing of it
+  is decrypted and no server is contacted.
+
 ## How this is tested
 
 - Every pull request fuzzes the targets of `.github/fuzz-targets.txt` for 30 seconds each; every night for an hour each. A release is
@@ -158,6 +193,10 @@ does not fit gives `ErrKeyRequired`, never text decrypted with a wrong key.
   images, shapes or names, forms that draw themselves, objects that contain themselves, decompression
   bombs, an outline of a hundred thousand items.
 - The suite runs under the race detector on four platforms, and as a 32-bit build.
+- For XPS: the fuzz targets `FuzzXPSPage` and `FuzzXPSStructure` give the markup of pages, story
+  fragments and outlines to the whole library, and `FuzzIndices`, `FuzzPathData` and `FuzzFace` the
+  parsers under it; each bound above has a test with a document made for it; and the public XPS files of
+  the shared go-fast corpus are read cut short and with bytes changed, 1,600 copies.
 
 ## Reporting a problem
 

@@ -53,8 +53,14 @@ func (a matrix) mul(b matrix) matrix {
 type PageInfo struct {
 	// Width and Height are the size of the page in points.
 	Width, Height float64
-	// Decoded is the size of the page's markup, decompressed.
+	// Decoded is the number of bytes decompressed for the page: its
+	// markup, its story fragments and the resource dictionaries it draws
+	// on. It depends on the page alone.
 	Decoded int64
+	// Fonts are the font programs the page uses, each once, with the
+	// number of bytes read of it: a document counts each once, with the
+	// first of its pages that uses it.
+	Fonts []FontUse
 	// Spent is set when the limit on decompressed bytes was reached
 	// while the page was read.
 	Spent bool
@@ -69,6 +75,12 @@ type PageInfo struct {
 	// elements, nil when it has none. The strings of a named element
 	// have its mark as their identifier (extract.Run.MCID).
 	Marks *Marks
+}
+
+// FontUse is a font program that a page uses.
+type FontUse struct {
+	Part  string
+	Bytes int64
 }
 
 // Link is a link of a page: an element that names an address.
@@ -195,16 +207,14 @@ type reader struct {
 // in info.
 func (d *Document) ReadPage(i int, opts extract.Options, res *extract.Result, w *Worker, info *PageInfo, links bool) error {
 	name := d.Pages[i].Part
-	info.Decoded = max(d.pkg.Size(name), 0)
 	// What the page declares of its elements, before they are read.
-	marks, marksDamaged := d.marks(name, &w.s)
+	marks, marksDamaged := d.marks(name, &w.s, info)
 	info.Marks, w.marks = marks, marks
-	closer, err := d.pkg.Scan(name, &w.s, &scanOptions)
+	closer, err := d.scan(name, &w.s, &scanOptions, info)
 	if err != nil {
 		if errors.Is(err, opc.ErrNotFound) {
 			return fmt.Errorf("%w: the document names a page %q that the package does not have", gofastcore.ErrMalformed, d.pkg.Label(name))
 		}
-		info.Spent = errors.Is(err, opc.ErrBudget)
 		return fmt.Errorf("%w: %v", gofastcore.ErrMalformed, err)
 	}
 	defer closer.Close()
@@ -245,7 +255,7 @@ func (d *Document) ReadPage(i int, opts extract.Options, res *extract.Result, w 
 			"the part that says what the elements of the page are (its story fragments) is damaged; what stands after the damage is not read")
 	}
 	if err := s.Err(); err != nil {
-		if errors.Is(err, opc.ErrBudget) {
+		if errors.Is(err, opc.ErrBudget) || errors.Is(err, errSpent) {
 			info.Spent = true
 		}
 		if len(w.stack) == 0 {
@@ -643,6 +653,15 @@ func (r *reader) show() bool {
 		face = d.face(source, g.fontURI)
 		w.face, w.faceSource, w.faceKnown = face, source, true
 		w.faceURI = append(w.faceURI[:0], g.fontURI...)
+		// The program, counted once for the page.
+		part, size := d.fontBytesOf(source, g.fontURI)
+		seen := false
+		for k := range r.info.Fonts {
+			seen = seen || r.info.Fonts[k].Part == part
+		}
+		if !seen && size > 0 && len(r.info.Fonts) < maxFonts {
+			r.info.Fonts = append(r.info.Fonts, FontUse{Part: part, Bytes: size})
+		}
 	}
 	var f *font.Font
 	space := 0.25

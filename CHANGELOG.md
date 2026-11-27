@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## v0.6.1 (2026-11-27)
+
+go-fast-core v0.1.15, and one more warning for XPS. Nothing of the API changes, and no file that was
+read is read otherwise: an XPS document with character references that name no character has a warning
+it did not have.
 
 - **go-fast-core v0.1.15.** Its XML scanner counts the character references below. XPS and PDF read as
   fast as before and give the same output: the changes to the scanner's speed in v0.1.14 make no
@@ -11,6 +15,14 @@
   document one for those in its properties, outline and signature definitions, in the words the go-fast
   libraries share: "N character references name no character (&#0;, a surrogate or a number past
   U+10FFFF) and are read as U+FFFD".
+
+### Checked before the release
+
+On the code that is tagged: the 3,186 files of the corpora (50,995 pages) read in processes of their own,
+three times, with no crash, hang or memory failure, at most 2.3 s and 745 MiB for a file; instructions
+per operation of the 12 benchmarks that count them between 0.4 percent fewer and 0.6 percent more than
+v0.6.0's, a median change of 0.0 (`bench/v0.6.1.txt`); fuzzing of its 30 targets for an hour each on
+machines of four processors, 120 processor hours and 3.58 billion inputs, with nothing found.
 
 ## v0.6.0 (2026-11-27)
 

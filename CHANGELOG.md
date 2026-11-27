@@ -14,6 +14,7 @@
     left is given in reading order and stays so. Glyphs without text are read by the font's table of
     characters turned round.
   - Page sizes and boxes are in points, as for PDF. The metadata is the package's core properties.
+  - Ligatures and presentation forms are written as their letters, as for PDF.
   - Text of an element without a fill, or whose fill or opacity is fully transparent, is `no_ink`:
     the file's own declarations, and nothing else.
   - A page with damaged markup keeps what stands before the damage (`input.stream_damaged`). Text in a

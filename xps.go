@@ -10,6 +10,7 @@ import (
 
 	gofastcore "github.com/AOShei/go-fast-core"
 	"github.com/AOShei/go-fast-core/cfb"
+	"github.com/AOShei/go-fast-pdf/internal/charset"
 	"github.com/AOShei/go-fast-pdf/internal/extract"
 	"github.com/AOShei/go-fast-pdf/internal/layout"
 	"github.com/AOShei/go-fast-pdf/internal/xps"
@@ -125,7 +126,7 @@ func (f *File) describeFixed() {
 		return
 	}
 	md := &d.meta
-	val := func(s string) string { return cleanText(s, &f.controls) }
+	val := func(s string) string { return fixedText(s, &f.controls) }
 	md.Title, md.Subject, md.Language = val(p.Title), val(p.Subject), val(p.Language)
 	// One field, one entry: it is free text and is not split.
 	if a := val(p.Creator); a != "" {
@@ -144,6 +145,14 @@ func (f *File) describeFixed() {
 			md.Extra[e[0]] = v
 		}
 	}
+}
+
+// fixedText returns a string of an XPS document that is text to be read,
+// such as a title, as the strings of a PDF are given: without control
+// characters, which rm counts, and with ligatures and presentation forms
+// written as their letters.
+func fixedText(s string, rm *removed) string {
+	return charset.Letters(cleanText(s, rm))
 }
 
 // packageTime reads a date of the core properties: the W3C profile of

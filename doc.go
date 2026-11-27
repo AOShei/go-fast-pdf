@@ -83,9 +83,24 @@
 // The envelope of an encrypted package, which a document under rights
 // management is in, is refused with ErrUnsupported and what it is.
 //
-// Not read yet: the paths of a page (so a table is found by how its
-// text stands, not by its ruling), its images, what it takes from a
-// resource dictionary, links, the outline and the structure a document
+// The paths of a page are followed as those of a PDF page are: the thin
+// boxes and lines that run along its axes are the rules of tables, and
+// the filled boxes the grounds of their cells, when they are painted. A
+// path without a fill or a stroke paints nothing, and neither does one
+// whose brush is a fully transparent colour or whose opacity is 0, which
+// is how the areas of links are written. A path filled with an image is
+// an image block where the path is: its ID is the name of the image's
+// part, its bytes with ImagesData are those of the part (PNG, JPEG, TIFF
+// or JPEG XR, as Image.MIME says), and its text is what the file says
+// the image shows (AutomationProperties.HelpText, or Name). Brushes,
+// geometries and transformations named in a resource dictionary are
+// followed, in the page or in a part of its own; a dictionary or an
+// image outside the package is never fetched, and the document says
+// input.external_reference. The content of a visual brush is read where
+// the brush paints, once however often it repeats; when the brush is a
+// named resource it is read where its dictionary stands.
+//
+// Not read yet: links, the outline and the structure a document
 // declares.
 //
 // # The document

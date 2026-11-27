@@ -90,6 +90,7 @@ type Document struct {
 	fonts     map[fontKey]*fontEntry
 	fontBytes int64
 	fallback  map[string]*font.Font
+	images    map[string]ImageInfo
 }
 
 // Page is one page of a document.

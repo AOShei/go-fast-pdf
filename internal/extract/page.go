@@ -48,6 +48,10 @@ type Image struct {
 	// MCID is the marked-content identifier the image is drawn under, as
 	// for a run; -1 for none.
 	MCID int32
+	// Alt is the description the file gives of the image where it is
+	// drawn, for a page that is not a content stream (fixed.go); a PDF
+	// gives one in its structure tree, by MCID.
+	Alt string
 	// Dict is the dictionary of an inline image, its entries written out
 	// (inline.go), and Data its data as the content stream has it, when
 	// Options.InlineData is set.

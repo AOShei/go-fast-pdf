@@ -20,8 +20,17 @@
   - A page with damaged markup keeps what stands before the damage (`input.stream_damaged`). Text in a
     font the package lacks is read, with the new warning `xps.font_unreadable`. An encrypted package
     (rights management) is refused with `ErrUnsupported` and what it is.
-  - Not read yet: paths (ruled and shaded tables), images, resource dictionaries, links, the outline
-    and declared structure.
+  - Paths are followed as in PDF: painted thin boxes and lines along the axes are the rules of tables,
+    painted filled boxes the grounds of cells. What the file declares to paint nothing (no fill or
+    stroke, a fully transparent colour, an opacity of 0) is neither: the areas of links are written
+    that way.
+  - A path filled with an image is an image block: its ID is the part's name, its media type and size
+    are read from the image, its bytes with `ImagesData` are the part's (PNG, JPEG, TIFF, JPEG XR),
+    and its text is what the file says it shows (`AutomationProperties.HelpText`, or `Name`).
+  - Resource dictionaries are followed, in the page or in a part of their own, for brushes, geometries
+    and transformations. One outside the package, or an image outside it, is not fetched
+    (`input.external_reference`). The content of a visual brush is read where the brush paints.
+  - Not read yet: links, the outline and declared structure.
   - PDF files are read as before: their output is byte for byte that of v0.5.0 on the test files, and
     the instructions they take are within 0.6 percent of it on every benchmark.
 - **go-fast-core v0.1.13.**

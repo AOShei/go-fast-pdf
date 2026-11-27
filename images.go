@@ -202,6 +202,10 @@ func imageData(f *file.File, fr *function.Reader, src imageSrc, kind imageKind, 
 // data is asked for, its bytes on the first block that shows the image.
 // inline counts the images of the page that have no object of their own.
 func (st *state) image(part *gofastcore.Part, ref imageRef, inline *int) {
+	if st.f.x != nil {
+		st.fixedImage(part, ref)
+		return
+	}
 	f := st.f.f
 	img := part.Blocks[ref.block].Image
 	wantData := st.f.opts.Images == gofastcore.ImagesData

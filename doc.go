@@ -130,6 +130,12 @@
 // version of the format (AlternateContent) is passed over for the
 // fallback it comes with.
 //
+// A character reference that names no character XML allows (&#0;, a
+// surrogate, a number past U+10FFFF) is read as U+FFFD, and the page
+// whose parts have such references says how many in a warning
+// text.unmapped_glyphs of its own; the document says it of its
+// properties, its outline and its signature definitions.
+//
 // The limit on decoded bytes bounds what the package decompresses to.
 // It is counted page by page in the order of the pages, each page with
 // its markup, its story fragments and the resource dictionaries it draws

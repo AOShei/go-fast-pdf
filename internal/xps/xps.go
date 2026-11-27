@@ -112,6 +112,9 @@ type Document struct {
 	images    map[string]ImageInfo
 	// imageBytes is what was read of the images to find their sizes.
 	imageBytes int64
+	// charRefs counts the character references to no character read in
+	// the parts that belong to no page.
+	charRefs int
 
 	// What the signature definitions say, read once: by page.
 	intentsOnce    sync.Once
@@ -482,13 +485,16 @@ func (c *counted) Read(p []byte) (int, error) {
 	return n, err
 }
 
-// released closes a part and hands the window of its scanner back.
+// released closes a part and hands the window of its scanner back,
+// once what the scanner counted of the part is counted to the page.
 type released struct {
 	io.Closer
-	s *xmlscan.Scanner
+	s    *xmlscan.Scanner
+	info *PageInfo
 }
 
 func (r released) Close() error {
+	r.info.CharRefs += r.s.Stats.CharRefsReplaced
 	r.s.Release()
 	return r.Closer.Close()
 }
@@ -508,7 +514,27 @@ func (d *Document) scan(name string, s *xmlscan.Scanner, opts *xmlscan.Options, 
 		left = d.limit + 1 - info.Decoded
 	}
 	s.Reset(&counted{r: rc, pkg: d.pkg, n: &info.Decoded, left: left, spent: &info.Spent}, d.pkg.Window(name, opts))
-	return released{rc, s}, nil
+	return released{rc, s, info}, nil
+}
+
+// noteRefs counts the character references to no character that were
+// read in a part that belongs to no page.
+func (d *Document) noteRefs(s *xmlscan.Scanner) {
+	if n := s.Stats.CharRefsReplaced; n > 0 {
+		d.mu.Lock()
+		d.charRefs += n
+		d.mu.Unlock()
+	}
+}
+
+// CharRefs returns how many character references to no character were
+// read in the parts of the document that belong to no page and have
+// been read so far: its properties, its outline, its signature
+// definitions.
+func (d *Document) CharRefs() int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.charRefs
 }
 
 // sfnt reports whether data begins as a TrueType or OpenType program

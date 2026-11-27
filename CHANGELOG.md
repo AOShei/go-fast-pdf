@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- **go-fast-core v0.1.15.** Its XML scanner counts the character references below. XPS and PDF read as
+  fast as before and give the same output: the changes to the scanner's speed in v0.1.14 make no
+  difference that can be measured here.
+- **XPS: character references that name no character are reported.** A reference such as `&#0;`, to a
+  surrogate or to a number past U+10FFFF was read as U+FFFD and nothing said so. The page whose parts
+  have such references now has a warning `text.unmapped_glyphs` of its own with their number, and the
+  document one for those in its properties, outline and signature definitions, in the words the go-fast
+  libraries share: "N character references name no character (&#0;, a surrogate or a number past
+  U+10FFFF) and are read as U+FFFD".
+
 ## v0.6.0 (2026-11-27)
 
 XPS and OpenXPS. The library reads two more formats, whose pages are fixed layouts as those of a PDF

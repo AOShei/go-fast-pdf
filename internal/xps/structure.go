@@ -91,6 +91,7 @@ func (d *Document) Outline(limit int64) (entries []OutlineEntry, cut, many, dama
 		if s.Err() != nil {
 			damaged = true
 		}
+		d.noteRefs(&s)
 		closer.Close()
 		if cut || many {
 			break
@@ -248,6 +249,7 @@ func (d *Document) readIntents() {
 		if s.Err() != nil {
 			d.intentsDamaged = true
 		}
+		d.noteRefs(&s)
 		closer.Close()
 	}
 }

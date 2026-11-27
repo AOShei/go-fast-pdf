@@ -4,6 +4,7 @@ import (
 	"math"
 	"testing"
 
+	"github.com/AOShei/go-fast-pdf/internal/charset"
 	"github.com/AOShei/go-fast-pdf/internal/font"
 	"github.com/AOShei/go-fast-pdf/internal/xpstest"
 )
@@ -107,8 +108,9 @@ func FuzzIndices(f *testing.F) {
 				}
 				text += string(w.text[it.lo:it.hi])
 			}
-			if uni != "" && text != uni {
-				t.Fatalf("the clusters hold %q of %q", text, uni)
+			// With its ligatures and presentation forms as their letters.
+			if want := charset.Letters(uni); uni != "" && text != want {
+				t.Fatalf("the clusters hold %q of %q", text, want)
 			}
 		}
 	})

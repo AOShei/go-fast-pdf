@@ -289,9 +289,12 @@ type interp struct {
 	stopped bool
 	prev    lineEnd
 	full    bool // a limit was reached: no more text is taken
-	str     []byte
-	name    []byte
-	silent  []byte
+	// sealed is set when the run made last takes no further string: one
+	// given whole, in the order it is read (Fixed.ShowBack).
+	sealed bool
+	str    []byte
+	name   []byte
+	silent []byte
 
 	unmapped    int
 	assumed     int
@@ -542,7 +545,9 @@ func (in *interp) reset(f *file.File, p *file.Page, opts Options, res *Result) {
 	in.cuts.Reset()
 	clear(in.cutFonts)
 	in.level = 0
-	in.resourcesAt(0).reset(p.Resources())
+	if p != nil {
+		in.resourcesAt(0).reset(p.Resources())
+	}
 	in.stackFloor, in.mcFloor = append(in.stackFloor[:0], 0), append(in.mcFloor[:0], 0)
 	in.gs = initialState()
 	in.geomValid = false
@@ -554,6 +559,7 @@ func (in *interp) reset(f *file.File, p *file.Page, opts Options, res *Result) {
 	in.gaps, in.joins, in.images, in.clusters = in.gaps[:0], in.joins[:0], in.images[:0], in.clusters[:0]
 	in.pending = in.pending[:0]
 	in.prev, in.full, in.rtlLine, in.joints = lineEnd{}, false, false, in.joints[:0]
+	in.sealed = false
 	in.unmapped, in.assumed, in.byOutline, in.fontMissing = 0, 0, 0, false
 	in.formActive, in.formCalls = in.formActive[:0], 0
 	in.clips, in.textClip, in.clipPainted = 0, 0, in.clipPainted[:0]

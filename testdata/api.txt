@@ -7,6 +7,11 @@ const (
 )
 
 const (
+	FormatXPS     = "xps"
+	FormatOpenXPS = "oxps"
+)
+
+const (
 	WarnGlyphTextAssumed = "pdf.glyph_text_assumed"
 
 	WarnGlyphTextByOutline = "pdf.glyph_text_by_outline"
@@ -32,6 +37,8 @@ const (
 
 const Format = "pdf"
 
+const WarnFontUnreadable = xps.WarnFontUnreadable
+
 func (*Extractor) Formats() []string
 
 func (e *Extractor) Extract(ctx context.Context, r io.ReaderAt, size int64, opts *gofastcore.Options) (*gofastcore.Document, error)
@@ -47,6 +54,8 @@ func (e *Extractor) OpenReaderAt(r io.ReaderAt, size int64, opts *gofastcore.Opt
 func (f *File) Close() error
 
 func (f *File) Document(ctx context.Context) (*gofastcore.Document, error)
+
+func (f *File) Format() string
 
 func (f *File) Metadata() gofastcore.Metadata
 

@@ -28,3 +28,6 @@
 ./internal/font FuzzCFFEncoding
 ./internal/font FuzzTrueTypeProgram
 ./internal/font FuzzCMapChars
+./internal/font FuzzFace
+./internal/xps FuzzIndices
+. FuzzXPSPage

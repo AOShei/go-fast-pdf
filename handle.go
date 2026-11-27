@@ -17,6 +17,7 @@ import (
 	gofastcore "github.com/AOShei/go-fast-core"
 	"github.com/AOShei/go-fast-pdf/internal/file"
 	"github.com/AOShei/go-fast-pdf/internal/function"
+	"github.com/AOShei/go-fast-pdf/internal/xps"
 )
 
 // File is an open PDF file. Nothing of its pages is read until a page is
@@ -29,14 +30,23 @@ import (
 //
 // The whole file is held in memory while it is open: a PDF is read from
 // its end and by offsets all over it.
+//
+// An XPS or OpenXPS document is opened by the same functions and is a
+// File like any other (see the package documentation). Format says
+// which of the formats a file is.
 type File struct {
-	e    *Extractor
-	f    *file.File
+	e *Extractor
+	f *file.File
+	// x is the document when the file is an XPS or OpenXPS document, and
+	// then f and pages are not set (xps.go).
+	x    *xps.Document
 	opts gofastcore.Options
 	name string
 	size int64
 
 	pages []file.Page
+	// n is the number of pages.
+	n int
 	// The pages that Options.Parts and Limits.MaxParts select: the range
 	// in pages, how many were asked for, and whether the limit cut them.
 	lo, hi  int
@@ -157,13 +167,27 @@ func (e *Extractor) OpenBytes(data []byte, opts *gofastcore.Options) (*File, err
 	if opts.Limits.MaxDecodedBytes < 0 && e.MaxStreamBytes <= 0 {
 		limits.MaxStreamBytes = 1 << 40
 	}
-	inner, err := file.OpenKeys(data, limits, opts.Password, opts.Keys)
+	// A document of another format that this library reads: XPS and
+	// OpenXPS, which are packages and not PDF files (xps.go).
+	fixed, err := openFixed(data, budget)
 	if err != nil {
 		return nil, err
 	}
-	pages := inner.Pages()
-	if len(pages) == 0 {
-		return nil, fmt.Errorf("%w: %w", gofastcore.ErrMalformed, file.ErrNoPages)
+	var inner *file.File
+	var pages []file.Page
+	n := 0
+	if fixed != nil {
+		n = len(fixed.Pages)
+	} else {
+		inner, err = file.OpenKeys(data, limits, opts.Password, opts.Keys)
+		if err != nil {
+			return nil, err
+		}
+		pages = inner.Pages()
+		if len(pages) == 0 {
+			return nil, fmt.Errorf("%w: %w", gofastcore.ErrMalformed, file.ErrNoPages)
+		}
+		n = len(pages)
 	}
 
 	// The pages asked for.
@@ -171,13 +195,13 @@ func (e *Extractor) OpenBytes(data []byte, opts *gofastcore.Options) (*File, err
 	if rng.First < 1 {
 		rng.First = 1
 	}
-	if rng.Last < 0 || rng.Last != 0 && rng.First > rng.Last || rng.First > len(pages) {
-		return nil, fmt.Errorf("%w: pages %d to %d of a document of %d", gofastcore.ErrNoPartsSelected, opts.Parts.First, opts.Parts.Last, len(pages))
+	if rng.Last < 0 || rng.Last != 0 && rng.First > rng.Last || rng.First > n {
+		return nil, fmt.Errorf("%w: pages %d to %d of a document of %d", gofastcore.ErrNoPartsSelected, opts.Parts.First, opts.Parts.Last, n)
 	}
-	if rng.Last == 0 || rng.Last > len(pages) {
-		rng.Last = len(pages)
+	if rng.Last == 0 || rng.Last > n {
+		rng.Last = n
 	}
-	f := &File{e: e, f: inner, opts: *opts, name: opts.Name, size: int64(len(data)), pages: pages, budget: budget,
+	f := &File{e: e, f: inner, x: fixed, opts: *opts, name: opts.Name, size: int64(len(data)), pages: pages, n: n, budget: budget,
 		textLimit: gofastcore.ResolveLimit(opts.Limits.MaxTextBytes, gofastcore.DefaultMaxTextBytes)}
 	f.lo, f.hi, f.asked = rng.First-1, rng.Last, rng.Last-rng.First+1
 	if most := gofastcore.ResolveLimit(int64(opts.Limits.MaxParts), math.MaxInt64); int64(f.asked) > most {
@@ -195,7 +219,7 @@ func (f *File) Close() error {
 
 // NumPages returns the number of pages in the file, whatever range of
 // them the options select.
-func (f *File) NumPages() int { return len(f.pages) }
+func (f *File) NumPages() int { return f.n }
 
 // Metadata returns what the file says about itself: title, author,
 // dates, the program that made it. No page is read for it.
@@ -238,6 +262,9 @@ func (f *File) Warnings() []gofastcore.Warning {
 // warnings returns the warnings of the file itself, in an order that
 // does not depend on which worker found what.
 func (f *File) warnings(active, external bool) []gofastcore.Warning {
+	if f.x != nil {
+		return f.fixedWarnings(external)
+	}
 	ws := f.f.Warnings()
 	for i := range ws {
 		ws[i].Message = cleanString(ws[i].Message)
@@ -406,7 +433,7 @@ func (st *state) stored() (part gofastcore.Part, ok, whole bool) {
 	if len(d.stored) == 0 || f.opts.Parts != (gofastcore.PartRange{}) || f.tooMany {
 		return part, false, true
 	}
-	part = gofastcore.Part{Kind: gofastcore.PartStored, Number: len(f.pages) + 1}
+	part = gofastcore.Part{Kind: gofastcore.PartStored, Number: f.n + 1}
 	// A copy: the part is the caller's to change, and what was read is
 	// read once for the file.
 	part.Blocks = make([]gofastcore.Block, len(d.stored))
@@ -498,12 +525,20 @@ func (f *File) namedDests() *destinations {
 	return f.describe().dests
 }
 
+// readPage reads the page with index i, from 0, of the file.
+func (f *File) readPage(i int, w want, ws *workState) pageOut {
+	if f.x != nil {
+		return f.e.fixedPage(f, i, w, ws)
+	}
+	return f.e.page(f.f, &f.pages[i], &f.opts, w, ws)
+}
+
 // each reads the selected pages and calls fn with each in page order,
 // until fn returns false. Several pages are read at a time, and no more
 // than a few are held that fn has not had yet. It returns the error of
 // ctx if that ended it.
 func (f *File) each(ctx context.Context, w want, fn func(out *pageOut) bool) error {
-	pages := f.pages[f.lo:f.hi]
+	pages := f.hi - f.lo
 	if f.opts.Spans {
 		w.dests = f.describe().dests
 	}
@@ -512,7 +547,7 @@ func (f *File) each(ctx context.Context, w want, fn func(out *pageOut) bool) err
 	if workers <= 0 {
 		workers = runtime.GOMAXPROCS(0)
 	}
-	workers = min(workers, len(pages))
+	workers = min(workers, pages)
 
 	// The page being read is abandoned when the context ends.
 	var stop atomic.Bool
@@ -528,7 +563,7 @@ func (f *File) each(ctx context.Context, w want, fn func(out *pageOut) bool) err
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			out := f.e.page(f.f, &pages[i], &f.opts, w, &ws)
+			out := f.readPage(f.lo+i, w, &ws)
 			if err := ctx.Err(); err != nil {
 				return err
 			}
@@ -543,7 +578,7 @@ func (f *File) each(ctx context.Context, w want, fn func(out *pageOut) bool) err
 	// same order, the place each result will arrive at. The queue is
 	// bounded, so the workers cannot run far ahead of fn.
 	type job struct {
-		page *file.Page
+		page int
 		out  chan pageOut
 	}
 	jobs := make(chan job)
@@ -556,7 +591,7 @@ func (f *File) each(ctx context.Context, w want, fn func(out *pageOut) bool) err
 			var ws workState
 			defer ws.release()
 			for j := range jobs {
-				j.out <- f.e.page(f.f, j.page, &f.opts, w, &ws)
+				j.out <- f.readPage(j.page, w, &ws)
 			}
 		}()
 	}
@@ -573,7 +608,7 @@ func (f *File) each(ctx context.Context, w want, fn func(out *pageOut) bool) err
 				return
 			}
 			select {
-			case jobs <- job{&pages[i], out}:
+			case jobs <- job{f.lo + i, out}:
 			case <-ctx.Done():
 				return
 			}
@@ -682,7 +717,8 @@ func (f *File) Parts(ctx context.Context) iter.Seq2[gofastcore.Part, error] {
 // Page is one page of an open file.
 type Page struct {
 	f *File
-	p *file.Page
+	p *file.Page // nil for a page of an XPS document
+	n int        // its number, from 1
 }
 
 // Page returns page n of the file, the first being 1. Any page of the
@@ -692,14 +728,17 @@ func (f *File) Page(n int) (*Page, error) {
 	if f.closed.Load() {
 		return nil, ErrClosed
 	}
-	if n < 1 || n > len(f.pages) {
-		return nil, fmt.Errorf("%w: page %d of a document of %d", gofastcore.ErrNoPartsSelected, n, len(f.pages))
+	if n < 1 || n > f.n {
+		return nil, fmt.Errorf("%w: page %d of a document of %d", gofastcore.ErrNoPartsSelected, n, f.n)
 	}
-	return &Page{f: f, p: &f.pages[n-1]}, nil
+	if f.x != nil {
+		return &Page{f: f, n: n}, nil
+	}
+	return &Page{f: f, p: &f.pages[n-1], n: n}, nil
 }
 
 // Number returns the number of the page in its file, from 1.
-func (p *Page) Number() int { return p.p.Number }
+func (p *Page) Number() int { return p.n }
 
 // Part reads the page and returns its part, as Document and Parts give
 // it. A page that cannot be read is a part with part.failed, not an
@@ -728,7 +767,7 @@ func (p *Page) read(w want) (pageOut, error) {
 		w.dests = f.describe().dests
 	}
 	w.structure = f.describe().structure
-	out := f.e.page(f.f, p.p, &f.opts, w, nil)
+	out := f.readPage(p.n-1, w, nil)
 	st := f.newState()
 	st.finish(&out)
 	// Its headings, by the type of this page alone.
@@ -758,8 +797,8 @@ func (f *File) Document(ctx context.Context) (*gofastcore.Document, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	doc := gofastcore.New(Format)
-	doc.Source.Name, doc.Source.MIME, doc.Source.Size = f.name, "application/pdf", f.size
+	doc := gofastcore.New(f.Format())
+	doc.Source.Name, doc.Source.MIME, doc.Source.Size = f.name, f.mime(), f.size
 	doc.Parts = make([]gofastcore.Part, 0, f.hi-f.lo)
 
 	// The parts are put together in page order, and the budget for

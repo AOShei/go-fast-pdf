@@ -185,8 +185,13 @@ func checkContract(doc *gofastcore.Document, opts *gofastcore.Options) error {
 	if again, err := json.Marshal(&back); err != nil || !bytes.Equal(enc, again) {
 		return fmt.Errorf("the document changes when it is written as JSON and read back (%v)", err)
 	}
-	if doc.Source.Format != gofastpdf.Format {
-		return fmt.Errorf("source format %q", doc.Source.Format)
+	// The format and its media type go together.
+	switch [2]string{doc.Source.Format, doc.Source.MIME} {
+	case [2]string{gofastpdf.Format, "application/pdf"},
+		[2]string{gofastpdf.FormatXPS, "application/vnd.ms-xpsdocument"},
+		[2]string{gofastpdf.FormatOpenXPS, "application/oxps"}:
+	default:
+		return fmt.Errorf("source format %q with media type %q", doc.Source.Format, doc.Source.MIME)
 	}
 	// The rendered text holds the words of the blocks, all of them and
 	// in the order the renderers write them, and the Markdown is there

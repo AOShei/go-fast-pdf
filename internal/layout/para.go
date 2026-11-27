@@ -90,6 +90,25 @@ func (b *builder) paragraphs(first int, display gofastcore.Display) {
 	})
 	order := b.sorted
 
+	// What the file declares each line to be in, where it declares
+	// anything: a list item, or else a paragraph (Options.Item, Para).
+	// A line is made in neither, and most pages declare nothing.
+	if b.opts.Item != nil || b.opts.Para != nil {
+		for li := range lines {
+			ln := &lines[li]
+			ln.li = 0
+			if ln.hi <= ln.lo {
+				continue
+			}
+			if b.opts.Item != nil {
+				ln.li, _ = b.opts.Item(b.c.Runs[b.pieces[b.lidx[ln.lo]].run].MCID)
+			}
+			if ln.li == 0 && b.opts.Para != nil {
+				ln.li = -int64(b.opts.Para(b.c.Runs[b.pieces[b.lidx[ln.lo]].run].MCID))
+			}
+		}
+	}
+
 	// For every line, the nearest line above it that it lies under.
 	b.pred = append(b.pred[:0], make([]int32, n)...)
 	b.claims = append(b.claims[:0], make([]int32, n)...)
@@ -105,6 +124,13 @@ func (b *builder) paragraphs(first int, display gofastcore.Display) {
 		for back := 1; back <= lookBack && oi-back >= 0; back++ {
 			at := order[oi-back]
 			up := &lines[at]
+			if ln.li < 0 && up.li == ln.li {
+				// The nearest line before it of the paragraph that the
+				// file declares both to be in, wherever it stands.
+				b.pred[li] = at
+				b.claims[at]++
+				break
+			}
 			d := ln.v - up.v
 			if d > leadingMax*max(ln.size, up.size) {
 				break
@@ -150,10 +176,7 @@ func (b *builder) paragraphs(first int, display gofastcore.Display) {
 	for li := range lines {
 		ln := &lines[li]
 		raw := b.text[ln.tlo:ln.thi]
-		ln.item, ln.gap, ln.li = false, false, 0
-		if b.opts.Item != nil && ln.hi > ln.lo {
-			ln.li, _ = b.opts.Item(b.c.Runs[b.pieces[b.lidx[ln.lo]].run].MCID)
-		}
+		ln.item, ln.gap = false, false
 		if !mayStartItem(raw) {
 			continue
 		}
@@ -171,6 +194,11 @@ func (b *builder) paragraphs(first int, display gofastcore.Display) {
 		ln := &lines[li]
 		ln.pred, ln.start = -1, true
 		p := b.pred[li]
+		if p >= 0 && ln.li < 0 && ln.li == lines[p].li {
+			// One paragraph by what the file declares.
+			ln.pred, ln.start = p, false
+			continue
+		}
 		if p < 0 || b.claims[p] > 1 {
 			continue
 		}
@@ -234,6 +262,8 @@ func (b *builder) paragraphs(first int, display gofastcore.Display) {
 		// Lines of two items of a tagged list, or of an item and what is
 		// not in one, are two paragraphs. So are an entry of a table of
 		// contents and what follows it; rows stay together as rows.
+		// And lines of two paragraphs that the file declares, or of one
+		// and what is in none, are two (Options.Para).
 		if !ln.item && ln.li == up.li && b.continues(upC, lnC, before, lines, leading, right) &&
 			(upC.tab || !EndsEntry(b.text[up.tlo:up.thi])) {
 			ln.pred, ln.start = p, false

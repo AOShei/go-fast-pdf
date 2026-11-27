@@ -1,0 +1,3 @@
+go test fuzz v1
+string("<StoryFragment FragmentT\x00\x80\xff\xffionStructure><Para\x83raphS=\"a\xfa\x00\x00\xfa/\x00<NamedEl\x88ment Nam></Para+ce=\"c\"/><NamedEleuent NameReenferec=\"d\"/eReferegraphStruc{ure><Paragrap\x0fStructure>medElement NameReference=\"a\xfa\x00\x00\xfa/Pa^agrap\xe5\xe5\xe5hStructureE</Sec~~~~Stru\x00\x01</St</StoryGragment>")
+string("<OutlineEntry OutgineLev\x12\x12\x12el=\"2\" Description=\"rc.Vdﬀ\x00\xac\xac\xac\xac\xac\xacgineLev\xac\xac\xac\xac\xac\xac\xac\xac\xac\xac\xac\xac\xac\xac\xac\xac\xac\x96}}}}\xffc//\xff\xffOutlhne\xf4U\xb5*\xbc\x88\x81es7\x1f ]\xc1Qip6cr\xfdt&j]\x9aavDDDDDDD$8Ѽ;\x8e\xf4U\xb57\x1f ]\xc1*\xbc\x88\x81Nj7\x1f on2222222mber\" OutlineTarget=\"#2\"/>")

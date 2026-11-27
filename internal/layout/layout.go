@@ -76,6 +76,13 @@ type Options struct {
 	// whether it is the item's label. A paragraph never joins lines of two
 	// items, or of an item and content outside one (see Style.Item).
 	Item func(mcid int32) (item int64, label bool)
+	// Para, when set, gives the paragraph that the file declares the
+	// content under an identifier to be in, from 1; 0 for none. Lines of
+	// one such paragraph that stand one under the other are one
+	// paragraph, however they are set, and a paragraph never joins lines
+	// of two, or of one and content outside any. A PDF declares no such
+	// thing that is followed; the story fragments of an XPS document do.
+	Para func(mcid int32) int32
 	// Rank, when set, gives the place of the content under a
 	// marked-content identifier in the order of the structure tree of a
 	// tagged PDF, from 1; 0 for none. The blocks are then ordered with

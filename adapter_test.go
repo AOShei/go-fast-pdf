@@ -371,8 +371,11 @@ func checkContract(doc *gofastcore.Document, opts *gofastcore.Options) error {
 			// The text of the page is put into paragraphs by this library.
 			// The value of a form field and a note are what the file says
 			// they are.
+			// And so is the header or the footer that an XPS document
+			// declares a fragment of a page to be.
 			_, field := b.Attrs[gofastcore.AttrField]
-			if native := field || b.Kind == gofastcore.KindNote || b.Kind == gofastcore.KindListItem && b.Origin == gofastcore.OriginNative; native != (b.Origin == gofastcore.OriginNative) || !native && b.Origin != gofastcore.OriginInferred {
+			declared := doc.Source.Format != gofastpdf.Format && (b.Kind == gofastcore.KindHeader || b.Kind == gofastcore.KindFooter) && b.Origin == gofastcore.OriginNative
+			if native := field || declared || b.Kind == gofastcore.KindNote || b.Kind == gofastcore.KindListItem && b.Origin == gofastcore.OriginNative; native != (b.Origin == gofastcore.OriginNative) || !native && b.Origin != gofastcore.OriginInferred {
 				return fmt.Errorf("%s: a %s block with origin %s (the value of a form field: %v)", where, b.Kind, b.Origin, field)
 			}
 			if len(b.Spans) > 0 && !opts.Spans {

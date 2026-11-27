@@ -192,6 +192,9 @@ type pageOut struct {
 	lines []layout.Line
 	// What the page contributes to the document's warnings.
 	active, external bool
+	// anchors are the places of the page that the document names, for a
+	// page of an XPS document (xps.go); a PDF's are its destinations.
+	anchors []named
 	// attachments are the files attached to the page by annotations.
 	attachments []attachment
 	// scripts are the scripts of the actions that were looked at.

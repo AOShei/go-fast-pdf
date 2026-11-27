@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strconv"
+	"strings"
 	"unicode/utf8"
 
 	gofastcore "github.com/AOShei/go-fast-core"
@@ -59,13 +61,49 @@ type PageInfo struct {
 	// External is set when the page names a resource outside the
 	// package: a resource dictionary or an image. Nothing is fetched.
 	External bool
+	// Links are the links of the page and Anchors the places on it that
+	// the document lists as addressable, when they are asked for.
+	Links   []Link
+	Anchors []Anchor
+	// Marks is what the story fragments of the page say of its named
+	// elements, nil when it has none. The strings of a named element
+	// have its mark as their identifier (extract.Run.MCID).
+	Marks *Marks
 }
+
+// Link is a link of a page: an element that names an address.
+type Link struct {
+	// Box is where the element is, as [x0 y0 x1 y1] in points from the
+	// bottom left of the page.
+	Box [4]float64
+	// Href is the address: as written when it is outside the document,
+	// "#page=N" when it is a page of it.
+	Href string
+}
+
+// Anchor is a named element of a page that the document lists as
+// addressable.
+type Anchor struct {
+	Name string
+	// X and Y are the left and the top of the element, in points from
+	// the bottom left of the page.
+	X, Y float64
+}
+
+// Bounds on the links and the names of one page.
+const (
+	maxLinks   = 1 << 14
+	maxAnchors = 1 << 14
+	maxHref    = 4096
+)
 
 // canvas is what an open Canvas gives the elements in it.
 type canvas struct {
 	m       matrix  // to the page, in points with y upwards
 	opacity float64 // the opacities declared around the element, multiplied
 	mark    int     // the resources that were there when it was opened
+	href    string  // the address the elements in it link to, "" for none
+	id      int32   // the mark of the named element it is, or is in; -1 for none
 }
 
 // glyphs is a Glyphs element as it is being read.
@@ -84,6 +122,8 @@ type glyphs struct {
 	// The names of the resources that its transformation and its fill
 	// are, when they are written as such, in key.
 	key, transformKey, fillKey []byte
+	// Its name and the address it links to, when links are asked for.
+	name, href []byte
 }
 
 // item is one cluster of a Glyphs element: the text of some of its
@@ -109,6 +149,8 @@ type Worker struct {
 	spaces []extract.Space
 	clus   []extract.Cluster
 	res    resources
+	links  bool               // the links and the names of the page are asked for
+	marks  *Marks             // what the fragments of the page say, nil for none
 	paths  []*pathState       // one for each Path that is open
 	scans  []*xmlscan.Scanner // for the resource dictionaries of other parts
 }
@@ -122,6 +164,7 @@ type reader struct {
 	s    *xmlscan.Scanner
 	name string // the part being scanned: what its addresses are relative to
 	info *PageInfo
+	page int // the index of the page
 	// remote counts the resource dictionaries of other parts read for
 	// the page, and open is how many of them are being read now.
 	remote, open int
@@ -141,9 +184,15 @@ type reader struct {
 // a warning in res. The error is not nil when nothing of the page could
 // be read. info is filled as the page is read: its size is there when
 // opts.Use is called.
-func (d *Document) ReadPage(i int, opts extract.Options, res *extract.Result, w *Worker, info *PageInfo) error {
+//
+// With links, the links of the page and its addressable names are put
+// in info.
+func (d *Document) ReadPage(i int, opts extract.Options, res *extract.Result, w *Worker, info *PageInfo, links bool) error {
 	name := d.Pages[i].Part
 	info.Decoded = max(d.pkg.Size(name), 0)
+	// What the page declares of its elements, before they are read.
+	marks, marksDamaged := d.marks(name, &w.s)
+	info.Marks, w.marks = marks, marks
 	closer, err := d.pkg.Scan(name, &w.s, &scanOptions)
 	if err != nil {
 		if errors.Is(err, opc.ErrNotFound) {
@@ -155,7 +204,8 @@ func (d *Document) ReadPage(i int, opts extract.Options, res *extract.Result, w 
 	defer closer.Close()
 	fx := extract.NewFixed(opts, res)
 	defer fx.Finish()
-	r := &reader{d: d, w: w, fx: fx, s: &w.s, name: name, info: info}
+	r := &reader{d: d, w: w, fx: fx, s: &w.s, name: name, info: info, page: i}
+	w.links = links
 	s := r.s
 	w.stack = w.stack[:0]
 	w.res.reset()
@@ -179,9 +229,13 @@ func (d *Document) ReadPage(i int, opts extract.Options, res *extract.Result, w 
 			width, height = 816, 1056
 		}
 		info.Width, info.Height = width*unit, height*unit
-		w.stack = append(w.stack, canvas{m: matrix{unit, 0, 0, -unit, 0, height * unit}, opacity: 1})
+		w.stack = append(w.stack, canvas{m: matrix{unit, 0, 0, -unit, 0, height * unit}, opacity: 1, id: -1})
 		r.content()
 		break
+	}
+	if marksDamaged {
+		fx.Warn(gofastcore.SeverityWarning, gofastcore.WarnInputStreamDamaged,
+			"the part that says what the elements of the page are (its story fragments) is damaged; what stands after the damage is not read")
 	}
 	if err := s.Err(); err != nil {
 		if errors.Is(err, opc.ErrBudget) {
@@ -279,6 +333,23 @@ func (r *reader) canvas() {
 	}
 	top.opacity *= attrOpacity(s)
 	top.mark = w.res.mark()
+	if w.marks != nil {
+		// A Canvas that the fragments name gives its place in them to
+		// what is in it.
+		if v, ok := s.Attr(xmlscan.NoSpace, "Name"); ok {
+			if id, ok := w.marks.Names[string(v)]; ok {
+				top.id = id
+			}
+		}
+	}
+	if w.links {
+		// A Canvas that names an address gives it to what is in it.
+		if v, ok := s.Attr(xmlscan.NoSpace, "FixedPage.NavigateUri"); ok {
+			if href := r.href(v); href != "" {
+				top.href = href
+			}
+		}
+	}
 	w.stack = append(w.stack, top)
 	r.content()
 	if n := len(w.stack); n > 1 {
@@ -358,8 +429,65 @@ func (r *reader) glyphs() {
 		}
 	}
 	r.invalid = r.invalid || g.invalid
-	if !r.d.show(r.fx, r.name, w) {
+	if !r.show() {
 		r.fontMissing = true
+	}
+}
+
+// href returns the address a NavigateUri names: as written when it is
+// outside the document, "#page=N" when it is a page of it or a name the
+// document lists on one, and "" for an address inside the document that
+// names nothing known, or one longer than is kept.
+func (r *reader) href(v []byte) string {
+	if len(v) > maxHref {
+		return ""
+	}
+	address := strings.TrimSpace(strings.ToValidUTF8(string(v), ""))
+	if address == "" {
+		return ""
+	}
+	if !outside(address) && strings.Contains(address, "#") {
+		if p := r.d.pageOf(address, r.name, r.d.Pages[r.page].Doc); p >= 0 {
+			return "#page=" + strconv.Itoa(p+1)
+		}
+		if i := strings.IndexByte(address, '#'); i == 0 || r.d.pkg.Has(opc.Resolve(r.name, address[:i])) {
+			return "" // a place of this document that it does not have
+		}
+	}
+	return address
+}
+
+// element notes an element of the page that names an address or has a
+// name: box is where it is, as [x0 y0 x1 y1] in the space that m takes
+// to the page, with y downwards.
+func (r *reader) element(name, href []byte, inherited string, m matrix, box [4]float64) {
+	link := inherited
+	if len(href) > 0 {
+		if h := r.href(href); h != "" {
+			link = h
+		}
+	}
+	named := len(name) > 0 && r.d.Target(r.d.Pages[r.page].Doc, name, r.page)
+	if link == "" && !named {
+		return
+	}
+	// The box on the page, whatever the transformation turns it into.
+	var out [4]float64
+	for k, c := range [4][2]float64{{box[0], box[1]}, {box[2], box[1]}, {box[2], box[3]}, {box[0], box[3]}} {
+		x, y := c[0]*m[0]+c[1]*m[2]+m[4], c[0]*m[1]+c[1]*m[3]+m[5]
+		if x != x || y != y {
+			return
+		}
+		if k == 0 {
+			out = [4]float64{x, y, x, y}
+		}
+		out[0], out[1], out[2], out[3] = min(out[0], x), min(out[1], y), max(out[2], x), max(out[3], y)
+	}
+	if link != "" && len(r.info.Links) < maxLinks {
+		r.info.Links = append(r.info.Links, Link{Box: out, Href: link})
+	}
+	if named && len(r.info.Anchors) < maxAnchors {
+		r.info.Anchors = append(r.info.Anchors, Anchor{Name: string(name), X: out[0], Y: out[3]})
 	}
 }
 
@@ -368,7 +496,7 @@ func (r *reader) glyphs() {
 // is shown when it ends, after the elements in it.
 func (w *Worker) readGlyphs(s *xmlscan.Scanner) *glyphs {
 	g := &w.g
-	*g = glyphs{uni: g.uni[:0], indices: g.indices[:0], fontURI: g.fontURI[:0], key: g.key[:0], opacity: 1}
+	*g = glyphs{uni: g.uni[:0], indices: g.indices[:0], fontURI: g.fontURI[:0], key: g.key[:0], name: g.name[:0], href: g.href[:0], opacity: 1}
 	for i := 0; i < s.NumAttr(); i++ {
 		space, local, v := s.AttrAt(i)
 		if space != xmlscan.NoSpace {
@@ -395,6 +523,14 @@ func (w *Worker) readGlyphs(s *xmlscan.Scanner) *glyphs {
 			}
 		case "Indices":
 			g.indices = append(g.indices, v...)
+		case "Name":
+			if (w.links || w.marks != nil) && len(v) <= MaxName {
+				g.name = append(g.name, v...)
+			}
+		case "FixedPage.NavigateUri":
+			if w.links && len(v) <= maxHref {
+				g.href = append(g.href, v...)
+			}
 		case "FontUri":
 			g.fontURI = append(g.fontURI, v...)
 		case "OriginX":
@@ -442,7 +578,8 @@ func (w *Worker) readGlyphs(s *xmlscan.Scanner) *glyphs {
 
 // show hands the Glyphs element read last to the page. It reports false
 // when the font of the element could not be read.
-func (d *Document) show(fx *extract.Fixed, source string, w *Worker) bool {
+func (r *reader) show() bool {
+	d, fx, source, w := r.d, r.fx, r.name, r.w
 	g := &w.g
 	if !(g.size > 0) || len(g.uni) == 0 && len(g.indices) == 0 || len(w.stack) == 0 {
 		return true
@@ -477,7 +614,29 @@ func (d *Document) show(fx *extract.Fixed, source string, w *Worker) bool {
 		alpha = 0
 	}
 	fx.Font(f, g.size, m, mode, alpha)
+	if w.marks != nil {
+		id := top.id
+		if len(g.name) > 0 {
+			if i, ok := w.marks.Names[string(g.name)]; ok {
+				id = i
+			}
+		}
+		fx.Mark(id)
+	}
 	w.clusters(face)
+	if w.links && (len(g.href) > 0 || len(g.name) > 0 || top.href != "") {
+		// Where the element is: as far as its glyphs advance, and as high
+		// as a line of its size.
+		total := 0.0
+		for i := range w.items {
+			total += w.items[i].adv
+		}
+		x0, x1 := g.x, g.x+total
+		if g.bidi&1 == 1 {
+			x0, x1 = g.x-total, g.x
+		}
+		r.element(g.name, g.href, top.href, m, [4]float64{x0, g.y - 0.8*g.size, x1, g.y + 0.2*g.size})
+	}
 
 	size := g.size
 	gap := min(max(0.5*space*size, 0.08*size), 0.30*size)

@@ -32,3 +32,4 @@
 ./internal/xps FuzzIndices
 . FuzzXPSPage
 ./internal/xps FuzzPathData
+. FuzzXPSStructure

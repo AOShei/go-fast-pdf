@@ -59,6 +59,11 @@ func (x *Fixed) Font(f *font.Font, size float64, m [6]float64, mode uint8, alpha
 	g.mode, g.fillAlpha = mode, alpha
 }
 
+// Mark gives the strings shown next an identifier, by which the caller
+// knows what the file declares of them: the place of the MCID of a
+// PDF's marked content (Run.MCID). -1 is none.
+func (x *Fixed) Mark(id int32) { x.in.mcid = id }
+
 // Full reports whether the page takes no more text: a limit was reached,
 // or Options.Stop was set.
 func (x *Fixed) Full() bool {

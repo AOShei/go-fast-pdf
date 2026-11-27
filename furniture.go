@@ -322,6 +322,7 @@ func (w *furnitureWindow) next(emit func(*pageOut) bool) bool {
 	// The names of places on the page, once its headers and footers are
 	// known: a name does not go on those.
 	nameAnchors(part, w.dests.named(part.Number))
+	nameAnchors(part, out.anchors)
 
 	if len(w.behind) == furnitureReach {
 		copy(w.behind, w.behind[1:])

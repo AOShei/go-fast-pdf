@@ -295,7 +295,7 @@ func (r *reader) visual(b *brush, base matrix) {
 			return
 		}
 	}
-	w.stack = append(w.stack, canvas{m: m, opacity: top.opacity * b.opacity, mark: w.res.mark()})
+	w.stack = append(w.stack, canvas{m: m, opacity: top.opacity * b.opacity, mark: w.res.mark(), href: top.href, id: top.id})
 	r.content()
 	if n := len(w.stack); n > 1 {
 		w.res.release(w.stack[n-1].mark)
@@ -646,6 +646,9 @@ type pathState struct {
 	stroke      brush
 	thickness   float64
 	alt, name   []byte
+	// The name of the element and the address it links to, when links
+	// are asked for.
+	id, href []byte
 }
 
 // path reads a Path element, whose start tag is current: its painted
@@ -661,7 +664,7 @@ func (r *reader) path() {
 		w.paths = append(w.paths, &pathState{})
 	}
 	p := w.paths[level]
-	*p = pathState{data: p.data[:0], geom: p.geom, alt: p.alt[:0], name: p.name[:0], opacity: 1, thickness: 1}
+	*p = pathState{data: p.data[:0], geom: p.geom, alt: p.alt[:0], name: p.name[:0], id: p.id[:0], href: p.href[:0], opacity: 1, thickness: 1}
 	p.geom.reset()
 	fromResource := false
 	for i := 0; i < s.NumAttr(); i++ {
@@ -697,6 +700,14 @@ func (r *reader) path() {
 			p.alt = append(p.alt[:0], v[:min(len(v), maxAlt)]...)
 		case "AutomationProperties.Name":
 			p.name = append(p.name[:0], v[:min(len(v), maxAlt)]...)
+		case "Name":
+			if w.links && len(v) <= MaxName {
+				p.id = append(p.id, v...)
+			}
+		case "FixedPage.NavigateUri":
+			if w.links && len(v) <= maxHref {
+				p.href = append(p.href, v...)
+			}
 		}
 	}
 	follow := r.fx.Paths() && r.ops <= maxPathOps
@@ -746,6 +757,9 @@ func (r *reader) path() {
 	}
 	if !p.geom.any {
 		return
+	}
+	if w.links && (len(p.href) > 0 || len(p.id) > 0 || top.href != "") {
+		r.element(p.id, p.href, top.href, m, p.geom.box)
 	}
 	if top.opacity*p.opacity > 0 && r.fx.Paths() {
 		// A figure filled with an image is no ground of a cell.

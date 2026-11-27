@@ -16,7 +16,7 @@ share.
   exhaust them.
 - It starts no program, fetches nothing, runs nothing that a file contains, and does no OCR.
 
-> **Status.** v0.5.0 (2026-11-26), on go-fast-core v0.1.11. The API is not that of v0.1:
+> **Status.** v0.6.0 (2026-11-27), on go-fast-core v0.1.13. The API is not that of v0.1:
 > [MIGRATION.md](MIGRATION.md) says what became what; [CHANGELOG.md](CHANGELOG.md) says what changed.
 
 ## Speed
@@ -24,20 +24,20 @@ share.
 <!-- comparison:begin (written by go run ./bench/compare -readme README.md) -->
 | | Pages per second | Time against go-fast-pdf | Most memory | Words as pdftotext's (F1) |
 |---|---:|---:|---:|---:|
-| go-fast-pdf | 9,187 | 1 | 33 MB | 0.986 |
-| go-fast-pdf, all processors | 19,225 | 0.48 times | 67 MB | 0.986 |
-| gofastpdf (the command) | 7,495 | 1.23 times | 22 MB | 0.986 |
-| pdftotext (poppler) | 1,988 | 4.62 times | 21 MB | the reference |
-| PyMuPDF | 2,239 | 4.10 times | 63 MB | 0.986 |
-| pypdfium2 (PDFium) | 2,199 | 4.18 times | 32 MB | 0.974 |
-| pypdf | 349 | 26.4 times | 74 MB | 0.970 |
-| pdfplumber | 56 | 163 times | 55 MB | 0.964 |
-| pdf_oxide (Rust) | 320 | 28.7 times | 31 MB | 0.974 |
-| pdf-extract (Rust) | 2,030 | 4.53 times | 25 MB | 0.970 |
-| lopdf (Rust) | 6,358 | 1.44 times | 27 MB | 0.900 |
+| go-fast-pdf | 9,387 | 1 | 33 MB | 0.986 |
+| go-fast-pdf, all processors | 19,330 | 0.49 times | 57 MB | 0.986 |
+| gofastpdf (the command) | 7,424 | 1.26 times | 23 MB | 0.986 |
+| pdftotext (poppler) | 2,016 | 4.66 times | 20 MB | the reference |
+| PyMuPDF | 2,226 | 4.22 times | 64 MB | 0.986 |
+| pypdfium2 (PDFium) | 2,149 | 4.37 times | 32 MB | 0.974 |
+| pypdf | 350 | 26.8 times | 73 MB | 0.970 |
+| pdfplumber | 57 | 165 times | 54 MB | 0.964 |
+| pdf_oxide (Rust) | 325 | 28.9 times | 29 MB | 0.974 |
+| pdf-extract (Rust) | 2,058 | 4.56 times | 25 MB | 0.970 |
+| lopdf (Rust) | 6,297 | 1.49 times | 25 MB | 0.900 |
 
 8 documents, 530 pages, 9.7 MB: the long documents of the public corpus's tuning set and one small one.
-Each program reads each document 5 times and its best time counts; the table is the sum over the documents, as a batch of them would take, and on one document the order can differ. Measured on AMD Ryzen 9 9900X 12-Core Processor (24 threads, linux/amd64) with go1.27.3-X:nodwarf5, 2026-11-26.
+Each program reads each document 5 times and its best time counts; the table is the sum over the documents, as a batch of them would take, and on one document the order can differ. Measured on AMD Ryzen 9 9900X 12-Core Processor (24 threads, linux/amd64) with go1.27.3-X:nodwarf5, 2026-11-27.
 The last column is how far each program's words agree with pdftotext's, not how correct they are: 1 is the same words.
 The method, the versions, the time for each document, and how far each pair of programs agree, each as the reference in turn, are in [bench/comparison.md](bench/comparison.md).
 <!-- comparison:end -->

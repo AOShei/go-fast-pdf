@@ -1,6 +1,16 @@
 # Changelog
 
-## Unreleased
+## v0.6.0 (2026-11-27)
+
+XPS and OpenXPS. The library reads two more formats, whose pages are fixed layouts as those of a PDF
+are, into the same parts and blocks. Nothing is taken from the API of v0.5: it gains `FormatXPS`,
+`FormatOpenXPS`, `File.Format` and the warning `xps.font_unreadable`, and `Extractor.Formats` lists
+three formats. PDF files are read as before, byte for byte on the test files.
+
+On the 14 public XPS files of the shared go-fast corpus, 11 are read and 3 are refused as encrypted. Of
+the words PyMuPDF reads, run as a separate program, 99.2 percent are in this library's output on the
+453-page specification of the format, the rest being list markers, which are in `Marker`, and
+hyphenated words joined; on the other 10 files every word is, the 3 held-out files among them.
 
 - **XPS and OpenXPS documents are read.** They are packages whose pages are fixed layouts, as those of a
   PDF are, and from the placed text on they are read by the same code: reading order, paragraphs,
@@ -46,9 +56,24 @@
     document it cuts ends at the same page for any number of workers.
   - Not read: print tickets and thumbnails; the signer, date and place of a signature definition;
     digital signatures.
-  - PDF files are read as before: their output is byte for byte that of v0.5.0 on the test files, and
-    the instructions they take are within 0.6 percent of it on every benchmark.
-- **go-fast-core v0.1.13.**
+  - PDF files are read as before: their output is byte for byte that of v0.5.0 on the test files.
+- **go-fast-core v0.1.13.** Its `opc`, `xmlscan` and `cfb` read the package, its XML and the envelope of
+  an encrypted package.
+
+### Checked before the release
+
+On the code that is tagged: the 3,186 files of the corpora (50,995 pages) read in processes of their own,
+three times, with no crash, hang or memory failure, at most 2.5 s and 625 MiB for a file; instructions
+per operation of the 10 benchmarks that count them for PDF between 0.5 percent fewer and 0.7 percent more
+than v0.5.0's, a median change of 0.0 (`bench/v0.6.0.txt`); fuzzing of its 30 targets for an hour each on machines of
+four processors, 120 processor hours and 3.88 billion inputs, with nothing found. A first campaign, on
+the code before its last change, found one thing after 17 minutes: an XPS image whose description was
+only a space gave a block with white space for its text. It is fixed, and its input is a test.
+The 10 small public XPS files that are not held out were read cut at 40 places each and in 120 copies
+each with 8 bytes changed: of the 1,600 copies 713 were read and 887 refused, none with an internal
+error or a document outside the contract of the shared model. The 453-page specification of XPS takes
+0.58 s on one thread and 0.13 s on eight. The table of the README that compares the library with others
+is measured again: on its 8 documents the library reads 9,387 pages a second (9,187 at v0.5.0).
 
 ## v0.5.0 (2026-11-26)
 

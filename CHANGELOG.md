@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+- **go-fast-core v0.1.17.** Three things that go-fast-pdf did for itself are core's now, shared with the
+  other go-fast libraries. No XPS file of the corpus is read otherwise, and PDF is not touched.
+  - **What protects an encrypted package** is told by core's `envelope`, with its words. The message for
+    a package protected with a password now says "with a password or for the owners of certificates".
+  - **The bytes counted to a page are given back to the package** with `opc.Package.Refund`, where a
+    negative count to `Charge` was used.
+  - **Valid UTF-8 is the XML scanner's to see to.** go-fast-pdf no longer mends the text of a page
+    itself. A page whose parts have bytes that are part of no character has the warning
+    `text.unmapped_glyphs` with their number, in the words the go-fast libraries share: "N byte
+    sequences are not valid UTF-8 and are read as U+FFFD"; it said "text on the page has bytes that
+    are no characters; they appear as U+FFFD", for the text of the page alone. The document says the
+    same of its properties, outline and signature definitions. The address of a link with such a byte
+    keeps it as U+FFFD, where the byte was dropped.
+
 ## v0.6.1 (2026-11-27)
 
 go-fast-core v0.1.15, and one more warning for XPS. Nothing of the API changes, and no file that was

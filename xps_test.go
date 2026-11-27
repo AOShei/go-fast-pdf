@@ -340,7 +340,27 @@ func TestXPSInvalidText(t *testing.T) {
 	if len(p.Blocks) != 1 || strings.Count(p.Blocks[0].Text, "\uFFFD") != 2 || !strings.Contains(p.Blocks[0].Text, "a letter") {
 		t.Errorf("blocks: %q", xpsBlocks(p))
 	}
-	if !xpsWarned(p.Warnings, gofastcore.WarnTextUnmappedGlyphs) {
+	// The page says how many, in the words the go-fast libraries share.
+	found := false
+	for _, w := range p.Warnings {
+		found = found || w.Code == gofastcore.WarnTextUnmappedGlyphs && w.Message == "2 byte sequences are not valid UTF-8 and are read as U+FFFD"
+	}
+	if !found {
+		t.Errorf("warnings: %v", p.Warnings)
+	}
+	// One, and in a link: the address keeps it as U+FFFD.
+	page = xpstest.Page(xpstest.XPS, 816, 1056, xpstest.Glyphs(96, 120, 16, "A link", `FixedPage.NavigateUri="https://example.com/a\xffb"`))
+	page = strings.Replace(page, `\xff`, "\xff", 1)
+	doc = xpsExtract(t, &gofastcore.Options{Spans: true}, xpstest.Document(xpstest.XPS, page).Bytes())
+	p = &doc.Parts[0]
+	if len(p.Blocks) != 1 || len(p.Blocks[0].Spans) == 0 || p.Blocks[0].Spans[0].Href != "https://example.com/a\uFFFDb" {
+		t.Errorf("link: %+v", p.Blocks)
+	}
+	found = false
+	for _, w := range p.Warnings {
+		found = found || w.Message == "1 byte sequence is not valid UTF-8 and is read as U+FFFD"
+	}
+	if !found {
 		t.Errorf("warnings: %v", p.Warnings)
 	}
 }
@@ -445,13 +465,13 @@ func TestXPSEncrypted(t *testing.T) {
 	}{
 		{"rights management, as Office writes it",
 			storage("Root Entry", storage("\x06DataSpaces", storage("DataSpaceInfo", stream("\x09DRMEncryptedDataSpace"))), stream("EncryptedPackage")),
-			"rights management", gofastcore.ErrUnsupported},
+			"encrypted package protected by rights management (Information Rights Management)", gofastcore.ErrUnsupported},
 		{"rights management, as the .NET packaging classes write it",
 			storage("Root Entry", storage("\x06DataSpaces", storage("TransformInfo", storage("EncryptionTransform", stream("EUL-PCOF64OLAHYHETKLVEGTG3H6ZD"), stream("\x06Primary")))), stream("EncryptedPackage")),
 			"rights management", gofastcore.ErrUnsupported},
 		{"a password",
 			storage("Root Entry", stream("EncryptionInfo"), stream("EncryptedPackage")),
-			"password", gofastcore.ErrUnsupported},
+			"protected with a password or for the owners of certificates", gofastcore.ErrUnsupported},
 		{"unstated",
 			storage("Root Entry", stream("EncryptedPackage")),
 			"not stated", gofastcore.ErrUnsupported},

@@ -114,7 +114,7 @@ type Document struct {
 	imageBytes int64
 	// charRefs counts the character references to no character read in
 	// the parts that belong to no page.
-	charRefs int
+	charRefs, invalidUTF8 int
 
 	// What the signature definitions say, read once: by page.
 	intentsOnce    sync.Once
@@ -427,7 +427,7 @@ func (d *Document) readFace(key fontKey) (*font.Face, int64) {
 	data, err := io.ReadAll(io.LimitReader(rc, font.MaxFaceBytes))
 	size := int64(len(data))
 	// Counted with the first page that uses the font, in page order.
-	d.pkg.Charge(-size)
+	d.pkg.Refund(size)
 	if err != nil && len(data) < 64 {
 		return nil, size
 	}
@@ -474,7 +474,7 @@ func (c *counted) Read(p []byte) (int, error) {
 	}
 	// Given back before it is taken, so that the package's count is not
 	// short, for a moment, of what several workers are reading.
-	c.pkg.Charge(-int64(len(p)))
+	c.pkg.Refund(int64(len(p)))
 	n, err := c.r.Read(p)
 	c.pkg.Charge(int64(len(p) - n))
 	*c.n += int64(n)
@@ -495,6 +495,7 @@ type released struct {
 
 func (r released) Close() error {
 	r.info.CharRefs += r.s.Stats.CharRefsReplaced
+	r.info.InvalidUTF8 += r.s.Stats.InvalidUTF8
 	r.s.Release()
 	return r.Closer.Close()
 }
@@ -517,24 +518,26 @@ func (d *Document) scan(name string, s *xmlscan.Scanner, opts *xmlscan.Options, 
 	return released{rc, s, info}, nil
 }
 
-// noteRefs counts the character references to no character that were
-// read in a part that belongs to no page.
+// noteRefs counts what the scanner read as U+FFFD in a part that
+// belongs to no page: character references to no character, and bytes
+// that are part of no character.
 func (d *Document) noteRefs(s *xmlscan.Scanner) {
-	if n := s.Stats.CharRefsReplaced; n > 0 {
+	if refs, invalid := s.Stats.CharRefsReplaced, s.Stats.InvalidUTF8; refs > 0 || invalid > 0 {
 		d.mu.Lock()
-		d.charRefs += n
+		d.charRefs += refs
+		d.invalidUTF8 += invalid
 		d.mu.Unlock()
 	}
 }
 
-// CharRefs returns how many character references to no character were
-// read in the parts of the document that belong to no page and have
-// been read so far: its properties, its outline, its signature
-// definitions.
-func (d *Document) CharRefs() int {
+// Unmapped returns how many character references to no character, and
+// how many bytes that are part of no character, were read as U+FFFD in
+// the parts of the document that belong to no page and have been read so
+// far: its properties, its outline, its signature definitions.
+func (d *Document) Unmapped() (refs, invalid int) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	return d.charRefs
+	return d.charRefs, d.invalidUTF8
 }
 
 // sfnt reports whether data begins as a TrueType or OpenType program

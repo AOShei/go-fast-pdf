@@ -55,12 +55,16 @@ type PageInfo struct {
 	// Spent is set when the limit on decompressed bytes was reached
 	// while the page was read.
 	Spent bool
+	// External is set when the page names a resource outside the
+	// package: a resource dictionary or an image. Nothing is fetched.
+	External bool
 }
 
 // canvas is what an open Canvas gives the elements in it.
 type canvas struct {
 	m       matrix  // to the page, in points with y upwards
 	opacity float64 // the opacities declared around the element, multiplied
+	mark    int     // the resources that were there when it was opened
 }
 
 // glyphs is a Glyphs element as it is being read.
@@ -76,6 +80,9 @@ type glyphs struct {
 	fill                  bool // a Fill is stated, as an attribute or an element
 	clear                 bool // the Fill is a colour that is fully transparent
 	invalid               bool // the text had bytes that are no character
+	// The names of the resources that its transformation and its fill
+	// are, when they are written as such, in key.
+	key, transformKey, fillKey []byte
 }
 
 // item is one cluster of a Glyphs element: the text of some of its
@@ -100,13 +107,39 @@ type Worker struct {
 	items  []item
 	spaces []extract.Space
 	clus   []extract.Cluster
+	res    resources
+	paths  []*pathState       // one for each Path that is open
+	scans  []*xmlscan.Scanner // for the resource dictionaries of other parts
+}
+
+// reader reads one page: the part being scanned, which is the page or a
+// resource dictionary it draws on, and what the page has shown so far.
+type reader struct {
+	d    *Document
+	w    *Worker
+	fx   *extract.Fixed
+	s    *xmlscan.Scanner
+	name string // the part being scanned: what its addresses are relative to
+	info *PageInfo
+	// remote counts the resource dictionaries of other parts read for
+	// the page, and open is how many of them are being read now.
+	remote, open int
+	// ops counts the segments of the paths looked at for rules.
+	ops int
+
+	// pathLevel is how many Path elements are open: one inside the
+	// visual of the brush of another.
+	pathLevel int
+
+	fontMissing, invalid, tooDeep, external, resourcesCut, damaged bool
 }
 
 // ReadPage reads page i of the document into a page of positioned
 // strings, begun here with opts and ended before it returns. A page
 // whose markup is damaged yields what was read before the damage, with
 // a warning in res. The error is not nil when nothing of the page could
-// be read.
+// be read. info is filled as the page is read: its size is there when
+// opts.Use is called.
 func (d *Document) ReadPage(i int, opts extract.Options, res *extract.Result, w *Worker, info *PageInfo) error {
 	name := d.Pages[i].Part
 	info.Decoded = max(d.pkg.Size(name), 0)
@@ -121,148 +154,220 @@ func (d *Document) ReadPage(i int, opts extract.Options, res *extract.Result, w 
 	defer closer.Close()
 	fx := extract.NewFixed(opts, res)
 	defer fx.Finish()
-	s := &w.s
+	r := &reader{d: d, w: w, fx: fx, s: &w.s, name: name, info: info}
+	s := r.s
 	w.stack = w.stack[:0]
-	fontMissing, invalid := false, false
-	// What the element being read is inside: the transformation written
-	// as an element belongs to the Canvas or the Glyphs around it.
-	const (
-		inNone = iota
-		inCanvasTransform
-		inGlyphsTransform
-	)
-	in, inGlyphs, root, tooDeep := inNone, false, false, false
-	for !fx.Full() {
+	w.res.reset()
+	// The root says how large the page is.
+	for {
 		k := s.Next()
 		if k == xmlscan.EOF {
 			break
 		}
-		if k == xmlscan.End {
-			if s.Space() != spFixed {
-				continue
-			}
-			switch string(s.Local()) {
-			case "Canvas":
-				if n := len(w.stack); n > 1 {
-					w.stack = w.stack[:n-1]
-				}
-			case "Canvas.RenderTransform", "Glyphs.RenderTransform":
-				in = inNone
-			case "Glyphs":
-				if inGlyphs {
-					inGlyphs = false
-					invalid = invalid || w.g.invalid
-					if !d.show(fx, name, w) {
-						fontMissing = true
-					}
-				}
-			}
-			continue
-		}
 		if k != xmlscan.Start {
 			continue
 		}
-		if s.Space() != spFixed {
-			s.Skip()
-			continue
+		if !s.Is(spFixed, "FixedPage") {
+			return fmt.Errorf("%w: the page %q is not a FixedPage", gofastcore.ErrMalformed, d.pkg.Label(name))
 		}
-		if !root {
-			// The root says how large the page is.
-			if !s.Is(spFixed, "FixedPage") {
-				return fmt.Errorf("%w: the page %q is not a FixedPage", gofastcore.ErrMalformed, d.pkg.Label(name))
-			}
-			root = true
-			width, height := attrNumber(s, "Width"), attrNumber(s, "Height")
-			if !(width > 0) || !(height > 0) {
-				// The size is required. A page without one is read as a
-				// page of the size most pages have, so that its text has
-				// places.
-				width, height = 816, 1056
-			}
-			info.Width, info.Height = width*unit, height*unit
-			w.stack = append(w.stack, canvas{m: matrix{unit, 0, 0, -unit, 0, height * unit}, opacity: 1})
-			continue
+		width, height := attrNumber(s, "Width"), attrNumber(s, "Height")
+		if !(width > 0) || !(height > 0) {
+			// The size is required. A page without one is read as a
+			// page of the size most pages have, so that its text has
+			// places.
+			width, height = 816, 1056
 		}
-		switch string(s.Local()) {
-		case "Canvas":
-			if inGlyphs || len(w.stack) >= maxCanvasDepth {
-				tooDeep = tooDeep || !inGlyphs
-				s.Skip()
-				continue
-			}
-			top := w.stack[len(w.stack)-1]
-			if v, ok := s.Attr(xmlscan.NoSpace, "RenderTransform"); ok {
-				if m, ok := parseMatrix(v); ok {
-					top.m = m.mul(top.m)
-				}
-			}
-			top.opacity *= attrOpacity(s)
-			w.stack = append(w.stack, top)
-		case "Canvas.RenderTransform":
-			in = inCanvasTransform
-		case "Glyphs.RenderTransform":
-			in = inGlyphsTransform
-		case "MatrixTransform":
-			v, _ := s.Attr(xmlscan.NoSpace, "Matrix")
-			m, ok := parseMatrix(v)
-			switch {
-			case !ok:
-			case in == inCanvasTransform && len(w.stack) >= 2:
-				// Of the Canvas that was opened last, over what is
-				// around it.
-				n := len(w.stack)
-				w.stack[n-1].m = m.mul(w.stack[n-2].m)
-			case in == inGlyphsTransform && inGlyphs:
-				w.g.m, w.g.transformed = m, true
-			}
-		case "Glyphs":
-			if inGlyphs {
-				s.Skip()
-				continue
-			}
-			inGlyphs = true
-			w.readGlyphs(s)
-		case "Glyphs.Fill":
-			if inGlyphs {
-				w.g.fill = true
-			}
-			s.Skip()
-		default:
-			// Paths, resources and what else a page has: not text.
-			s.Skip()
-		}
+		info.Width, info.Height = width*unit, height*unit
+		w.stack = append(w.stack, canvas{m: matrix{unit, 0, 0, -unit, 0, height * unit}, opacity: 1})
+		r.content()
+		break
 	}
 	if err := s.Err(); err != nil {
 		if errors.Is(err, opc.ErrBudget) {
 			info.Spent = true
 		}
-		if !root {
+		if len(w.stack) == 0 {
 			return fmt.Errorf("%w: the page %q: %v", gofastcore.ErrMalformed, d.pkg.Label(name), err)
 		}
 		fx.Warn(gofastcore.SeverityError, gofastcore.WarnInputStreamDamaged,
 			fmt.Sprintf("the markup of the page is damaged at byte %d; what follows it is not read", s.Offset()))
 	}
-	if tooDeep {
+	info.External = r.external
+	if r.tooDeep {
 		fx.Warn(gofastcore.SeverityError, gofastcore.WarnLimitExceeded,
 			fmt.Sprintf("the page nests Canvas elements more than %d deep; what is nested deeper is not read", maxCanvasDepth-1))
 	}
-	if invalid {
+	if r.resourcesCut {
+		fx.Warn(gofastcore.SeverityError, gofastcore.WarnLimitExceeded,
+			fmt.Sprintf("the page has more than %d resources, or draws on more than %d resource dictionaries of other parts; the rest are not read", maxResources, maxRemote))
+	}
+	if r.damaged {
+		fx.Warn(gofastcore.SeverityWarning, gofastcore.WarnInputStreamDamaged,
+			"the markup of a resource dictionary that the page draws on is damaged; the resources after the damage are not read")
+	}
+	if r.invalid {
 		fx.Warn(gofastcore.SeverityWarning, gofastcore.WarnTextUnmappedGlyphs,
 			"text on the page has bytes that are no characters; they appear as U+FFFD")
 	}
-	if fontMissing {
+	if r.fontMissing {
 		fx.Warn(gofastcore.SeverityWarning, WarnFontUnreadable,
 			"text on the page is set in a font that the package does not have or that cannot be read; the text is what the page says it is, placed by the advances the page states")
 	}
 	return nil
 }
 
+// content reads what is in the element whose start tag was read last: a
+// FixedPage, a Canvas or the visual of a brush. It returns at the end of
+// that element.
+func (r *reader) content() {
+	s := r.s
+	for !r.fx.Full() {
+		switch s.Next() {
+		case xmlscan.EOF, xmlscan.End:
+			return
+		case xmlscan.Start:
+		default:
+			continue
+		}
+		if s.Space() != spFixed {
+			s.Skip()
+			continue
+		}
+		switch string(s.Local()) {
+		case "Canvas":
+			r.canvas()
+		case "Glyphs":
+			r.glyphs()
+		case "Path":
+			r.path()
+		case "Canvas.RenderTransform":
+			// Of the Canvas that was opened last, over what is around it.
+			if m, ok := r.transform(); ok {
+				if n := len(r.w.stack); n >= 2 {
+					r.w.stack[n-1].m = m.mul(r.w.stack[n-2].m)
+				}
+			}
+		case "FixedPage.Resources", "Canvas.Resources":
+			r.resources()
+		default:
+			// What else an element holds: its clip, its opacity mask.
+			s.Skip()
+		}
+	}
+	// The page takes no more: what is left of the element is passed over.
+	for d := s.Depth(); s.Depth() >= d; {
+		if s.Next() == xmlscan.EOF {
+			return
+		}
+	}
+}
+
+// canvas reads a Canvas element, whose start tag is current.
+func (r *reader) canvas() {
+	s, w := r.s, r.w
+	if len(w.stack) >= maxCanvasDepth {
+		r.tooDeep = true
+		s.Skip()
+		return
+	}
+	top := w.stack[len(w.stack)-1]
+	if v, ok := s.Attr(xmlscan.NoSpace, "RenderTransform"); ok {
+		if m, ok := r.matrixValue(v); ok {
+			top.m = m.mul(top.m)
+		}
+	}
+	top.opacity *= attrOpacity(s)
+	top.mark = w.res.mark()
+	w.stack = append(w.stack, top)
+	r.content()
+	if n := len(w.stack); n > 1 {
+		w.res.release(w.stack[n-1].mark)
+		w.stack = w.stack[:n-1]
+	}
+}
+
+// transform reads an element that holds a transformation, such as
+// Canvas.RenderTransform, whose start tag is current, to its end: the
+// matrix of the MatrixTransform in it.
+func (r *reader) transform() (m matrix, ok bool) {
+	s := r.s
+	for d := s.Depth(); ; {
+		k := s.Next()
+		if k == xmlscan.EOF || k == xmlscan.End && s.Depth() < d {
+			return m, ok
+		}
+		if k == xmlscan.Start && s.Is(spFixed, "MatrixTransform") {
+			if v, has := s.Attr(xmlscan.NoSpace, "Matrix"); has {
+				if mm, good := parseMatrix(v); good {
+					m, ok = mm, true
+				}
+			}
+		}
+	}
+}
+
+// matrixValue reads a transformation written as an attribute: its six
+// numbers, or the name of a resource that is one.
+func (r *reader) matrixValue(v []byte) (matrix, bool) {
+	if key, ok := staticResource(v); ok {
+		if res := r.w.res.find(key); res != nil && res.kind == resMatrix {
+			return res.m, true
+		}
+		return matrix{}, false
+	}
+	return parseMatrix(v)
+}
+
+// glyphs reads a Glyphs element, whose start tag is current, and shows
+// its text.
+func (r *reader) glyphs() {
+	s, w := r.s, r.w
+	g := w.readGlyphs(s)
+	if g.transformKey != nil {
+		if res := w.res.find(g.transformKey); res != nil && res.kind == resMatrix {
+			g.m, g.transformed = res.m, true
+		}
+	}
+	if g.fillKey != nil {
+		if res := w.res.find(g.fillKey); res != nil && res.kind == resBrush {
+			g.fill, g.clear = true, res.brush.clear()
+		}
+	}
+	for d := s.Depth(); ; {
+		k := s.Next()
+		if k == xmlscan.EOF || k == xmlscan.End && s.Depth() < d {
+			break
+		}
+		if k != xmlscan.Start {
+			continue
+		}
+		switch {
+		case s.Is(spFixed, "Glyphs.RenderTransform"):
+			if m, ok := r.transform(); ok {
+				g.m, g.transformed = m, true
+			}
+		case s.Is(spFixed, "Glyphs.Fill"):
+			// What the text is painted with. The visual of a brush is
+			// what it is drawn with, not text of the page.
+			if b, ok := r.brushIn(nil); ok {
+				g.fill, g.clear = true, b.clear()
+			}
+		default:
+			s.Skip()
+		}
+	}
+	r.invalid = r.invalid || g.invalid
+	if !r.d.show(r.fx, r.name, w) {
+		r.fontMissing = true
+	}
+}
+
 // readGlyphs takes the attributes of a Glyphs element. They are copied:
 // what the scanner hands out lasts until its next token, and the element
 // is shown when it ends, after the elements in it.
-func (w *Worker) readGlyphs(s *xmlscan.Scanner) {
+func (w *Worker) readGlyphs(s *xmlscan.Scanner) *glyphs {
 	g := &w.g
-	*g = glyphs{uni: g.uni[:0], indices: g.indices[:0], fontURI: g.fontURI[:0], opacity: 1}
+	*g = glyphs{uni: g.uni[:0], indices: g.indices[:0], fontURI: g.fontURI[:0], key: g.key[:0], opacity: 1}
 	for i := 0; i < s.NumAttr(); i++ {
 		space, local, v := s.AttrAt(i)
 		if space != xmlscan.NoSpace {
@@ -311,16 +416,27 @@ func (w *Worker) readGlyphs(s *xmlscan.Scanner) {
 				g.bold, g.italic = true, true
 			}
 		case "RenderTransform":
-			if m, ok := parseMatrix(v); ok {
+			if key, ok := staticResource(v); ok {
+				n := len(g.key)
+				g.key = append(g.key, key...)
+				g.transformKey = g.key[n:len(g.key):len(g.key)]
+			} else if m, ok := parseMatrix(v); ok {
 				g.m, g.transformed = m, true
 			}
 		case "Opacity":
 			g.opacity = opacity(v)
 		case "Fill":
-			g.fill = true
-			g.clear = transparent(v)
+			if key, ok := staticResource(v); ok {
+				n := len(g.key)
+				g.key = append(g.key, key...)
+				g.fillKey = g.key[n:len(g.key):len(g.key)]
+			} else {
+				g.fill = true
+				g.clear = transparent(v)
+			}
 		}
 	}
+	return g
 }
 
 // show hands the Glyphs element read last to the page. It reports false

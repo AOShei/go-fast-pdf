@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"image"
+	"image/png"
 	"os"
 	"path/filepath"
 	"strings"
@@ -578,7 +580,15 @@ func xpsSeeds() []string {
 		`<Canvas RenderTransform="2,0,0,2,0,0" Opacity="0.5"><Canvas><Canvas.RenderTransform><MatrixTransform Matrix="0,1,-1,0,10,20"/></Canvas.RenderTransform>` +
 			g(38, 40, 8, "Turned", `IsSideways="true" StyleSimulations="BoldItalicSimulation"`) + `</Canvas></Canvas>`,
 		`<Glyphs FontUri="` + xpstest.FontName + `#0" FontRenderingEmSize="16" OriginX="96" OriginY="120" Indices="35;36;37,,1,2;900"/>` +
-			`<Path Data="M 0,0 L 10,0 10,10 Z" Fill="#FF000000"/><Glyphs Fill="#00000000" FontUri="/none.ttf" FontRenderingEmSize="1e2" OriginX="1" OriginY="2" UnicodeString="{}{x}"><Glyphs.Fill><SolidColorBrush Color="#FF000000"/></Glyphs.Fill></Glyphs>`,
+			`<Path Data="M 0,0 L 10,0 10,10 Z" Fill="#FF000000"/><Glyphs Fill="#00000000" FontUri="/none.ttf" FontRenderingEmSize="1e2" OriginX="1" OriginY="2" UnicodeString="{}{x}"><Glyphs.Fill><SolidColorBrush Color="#FF000000"/></Glyphs.Fill></Glyphs>`, // A ruled grid with text in its cells, an image, resources and
+		// the visual of a brush.
+		xpsGrid([]float64{96, 296, 496}, []float64{200, 240, 300}) + g(104, 226, 14, "Region", "") + g(304, 226, 14, "Units", "") + g(104, 266, 14, "North", "") + g(304, 266, 14, "1 200", ""),
+		`<FixedPage.Resources><ResourceDictionary xmlns:x="` + xpstest.XPS + `/resourcedictionary-key"><SolidColorBrush x:Key="a" Color="#FF000000"/><MatrixTransform x:Key="m" Matrix="1,0,0,1,5,5"/>` +
+			`<PathGeometry x:Key="g" Figures="M 100,200 H 400 V 201 H 100 Z"/></ResourceDictionary><ResourceDictionary Source="/Resources/none.dict"/></FixedPage.Resources>` +
+			`<Path Data="{StaticResource g}" Fill="{StaticResource a}" RenderTransform="{StaticResource m}"/>` +
+			`<Path Data="M 96,96 L 296,96 L 296,196 L 96,196 Z" AutomationProperties.HelpText="An image"><Path.Fill><ImageBrush ImageSource="/Resources/font.ttf" Viewbox="0,0,1,1" Viewport="0,0,1,1"/></Path.Fill></Path>` +
+			`<Path Stroke="#FF000000" StrokeThickness="2"><Path.Data><PathGeometry><PathFigure StartPoint="1,2" IsClosed="true"><PolyLineSegment Points="3,2 3,9"/><ArcSegment Point="1,2" Size="2,2"/></PathFigure></PathGeometry></Path.Data>` +
+			`<Path.Fill><VisualBrush Viewbox="0,0,100,50" Viewport="96,96,200,100"><VisualBrush.Visual><Canvas>` + g(0, 10, 10, "In a brush.", "") + `</Canvas></VisualBrush.Visual></VisualBrush></Path.Fill></Path>`,
 	}
 }
 
@@ -665,4 +675,135 @@ func TestXPSCorpus(t *testing.T) {
 		}
 	}
 	t.Logf("%d files read, %d refused as encrypted", read, refused)
+}
+
+// xpsGrid draws the rules of a grid as thin filled boxes: the vertical
+// ones at xs, the horizontal ones at ys.
+func xpsGrid(xs, ys []float64) string {
+	var b strings.Builder
+	for _, y := range ys {
+		fmt.Fprintf(&b, `<Path Data="M %g,%g L %g,%g L %g,%g L %g,%g Z" Fill="#FF000000"/>`, xs[0], y, xs[len(xs)-1], y, xs[len(xs)-1], y+1, xs[0], y+1)
+	}
+	for _, x := range xs {
+		fmt.Fprintf(&b, `<Path Data="M %g,%g L %g,%g L %g,%g L %g,%g Z" Fill="#FF000000"/>`, x, ys[0], x+1, ys[0], x+1, ys[len(ys)-1], x, ys[len(ys)-1])
+	}
+	return b.String()
+}
+
+// TestXPSRuledTable: a table drawn with rules is found by them, as in a
+// PDF: the cells are those of the grid, whatever stands in them.
+func TestXPSRuledTable(t *testing.T) {
+	g := xpstest.Glyphs
+	xs, ys := []float64{96, 296, 496, 696}, []float64{200, 240, 300, 340}
+	body := g(96, 150, 16, "Before the table.", "") + xpsGrid(xs, ys) +
+		g(104, 226, 14, "Region", "") + g(304, 226, 14, "Units sold", "") + g(504, 226, 14, "Note", "") +
+		g(104, 266, 14, "North and the", "") + g(104, 286, 14, "islands", "") + g(304, 266, 14, "1 200", "") + g(504, 266, 14, "estimated", "") +
+		g(104, 326, 14, "South", "") + g(304, 326, 14, "975", "") +
+		g(96, 400, 16, "After the table.", "")
+	doc := xpsDoc(t, nil, body)
+	p := &doc.Parts[0]
+	if len(p.Blocks) != 3 || p.Blocks[1].Kind != gofastcore.KindTable {
+		t.Fatalf("blocks: %q", xpsBlocks(p))
+	}
+	var rows []string
+	for _, row := range p.Blocks[1].Table.Rows {
+		rows = append(rows, strings.Join(row, " | "))
+	}
+	want := "Region | Units sold | Note\nNorth and the islands | 1 200 | estimated\nSouth | 975 | "
+	if got := strings.Join(rows, "\n"); got != want {
+		t.Errorf("table:\n%s\nwant:\n%s", got, want)
+	}
+
+	// The same rules declared to paint nothing are no table.
+	doc = xpsDoc(t, nil, strings.ReplaceAll(body, `Fill="#FF000000"/>`, `Fill="#00000000"/>`))
+	for i := range doc.Parts[0].Blocks {
+		if doc.Parts[0].Blocks[i].Kind == gofastcore.KindTable {
+			t.Errorf("a table of rules that paint nothing: %q", xpsBlocks(&doc.Parts[0]))
+		}
+	}
+	// With Extractor.NoRuledTables the rules are not looked at.
+	data := xpstest.Document(xpstest.XPS, xpstest.Page(xpstest.XPS, 816, 1056, body)).Bytes()
+	plain, err := (&gofastpdf.Extractor{NoRuledTables: true}).Extract(context.Background(), bytes.NewReader(data), int64(len(data)), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range plain.Parts[0].Blocks {
+		if b := &plain.Parts[0].Blocks[i]; b.Kind == gofastcore.KindTable && len(b.Table.Rows) == 3 && len(b.Table.Rows[0]) == 3 && strings.Contains(b.Table.Rows[1][0], "islands") {
+			t.Errorf("NoRuledTables: the grid was followed: %q", xpsBlocks(&plain.Parts[0]))
+		}
+	}
+}
+
+// xpsPNG returns a PNG image of the size given.
+func xpsPNG(t *testing.T, w, h int) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, image.NewGray(image.Rect(0, 0, w, h))); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+// TestXPSImages: an image of a page is a block where it is drawn, named
+// by its part; its bytes are those of the part, on the first block that
+// shows it.
+func TestXPSImages(t *testing.T) {
+	g := xpstest.Glyphs
+	img := func(y float64, src, attrs string) string {
+		return fmt.Sprintf(`<Path Data="M 96,%g L 296,%g L 296,%g L 96,%g Z" %s><Path.Fill><ImageBrush ImageSource="%s" Viewbox="0,0,1,1" Viewport="0,0,1,1"/></Path.Fill></Path>`, y, y, y+100, y+100, attrs, src)
+	}
+	picture := xpsPNG(t, 40, 20)
+	tiff := append([]byte("II*\x00\x08\x00\x00\x00\x02\x00"), []byte("\x00\x01\x03\x00\x01\x00\x00\x00\x40\x01\x00\x00"+"\x01\x01\x03\x00\x01\x00\x00\x00\xF0\x00\x00\x00"+"\x00\x00\x00\x00")...)
+	build := func() *xpstest.Package {
+		pkg := xpstest.Document(xpstest.XPS,
+			xpstest.Page(xpstest.XPS, 816, 1056, g(96, 80, 16, "A picture follows.", "")+img(100, "/Resources/Images/Chart.PNG", `AutomationProperties.HelpText="Sales by region"`)+g(96, 260, 16, "And text after it.", "")),
+			xpstest.Page(xpstest.XPS, 816, 1056, img(100, "/Resources/Images/Chart.PNG", "")+img(300, "/Resources/Images/scan.tif", "")))
+		pkg.Types["png"], pkg.Types["tif"] = "image/png", "image/tiff"
+		pkg.Add("Resources/Images/Chart.PNG", picture)
+		pkg.Add("Resources/Images/scan.tif", tiff)
+		return pkg
+	}
+	doc := xpsExtract(t, nil, build().Bytes())
+	p := &doc.Parts[0]
+	if len(p.Blocks) != 3 || p.Blocks[1].Kind != gofastcore.KindImage {
+		t.Fatalf("page 1: %q", xpsBlocks(p))
+	}
+	b := &p.Blocks[1]
+	if b.Text != "Sales by region" || b.Image.ID != "Resources/Images/Chart.PNG" || b.Image.MIME != "image/png" || b.Image.Width != 40 || b.Image.Height != 20 || b.Image.Data != nil {
+		t.Errorf("image: %q %+v", b.Text, *b.Image)
+	}
+	if box := b.Loc.BBox; box.X0 != 72 || box.X1 != 222 || box.Y0 != 75 || box.Y1 != 150 {
+		t.Errorf("box: %+v", box)
+	}
+	// A page of images and no text says so.
+	q := &doc.Parts[1]
+	if len(q.Blocks) != 2 || !xpsWarned(q.Warnings, gofastcore.WarnPartImageOnly) {
+		t.Errorf("page 2: %q %v", xpsBlocks(q), q.Warnings)
+	}
+	if im := q.Blocks[1].Image; im.MIME != "image/tiff" || im.Width != 320 || im.Height != 240 {
+		t.Errorf("TIFF: %+v", *im)
+	}
+
+	// With the data: once for each image, on the first block.
+	doc = xpsExtract(t, &gofastcore.Options{Images: gofastcore.ImagesData}, build().Bytes())
+	if got := doc.Parts[0].Blocks[1].Image.Data; !bytes.Equal(got, picture) {
+		t.Errorf("data of %d bytes, want %d", len(got), len(picture))
+	}
+	if doc.Parts[1].Blocks[0].Image.Data != nil || !bytes.Equal(doc.Parts[1].Blocks[1].Image.Data, tiff) {
+		t.Error("the data of the images of page 2")
+	}
+	// Without images.
+	doc = xpsExtract(t, &gofastcore.Options{Images: gofastcore.ImagesNone}, build().Bytes())
+	wantBlocks(t, &doc.Parts[0], "paragraph: A picture follows.", "paragraph: And text after it.")
+}
+
+// TestXPSExternal: a page that names a resource outside the package is
+// read without it, and the document says that it points outside itself.
+func TestXPSExternal(t *testing.T) {
+	body := `<FixedPage.Resources><ResourceDictionary Source="http://example.com/shared.dict"/></FixedPage.Resources>` + xpstest.Glyphs(96, 120, 16, "The text of the page.", "")
+	doc := xpsDoc(t, nil, body)
+	wantBlocks(t, &doc.Parts[0], "paragraph: The text of the page.")
+	if !xpsWarned(doc.Warnings, gofastcore.WarnInputExternalReference) {
+		t.Errorf("warnings: %v", doc.Warnings)
+	}
 }

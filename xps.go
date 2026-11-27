@@ -218,6 +218,8 @@ func (e *Extractor) fixedPage(f *File, i int, w want, ws *workState) (out pageOu
 	var lay layout.Result
 	var info xps.PageInfo
 	var res extract.Result
+	var controls removed
+	images := 0
 	err := f.x.ReadPage(i, extract.Options{Words: w.lines, Rules: !e.NoRuledTables, Stop: w.stop, Worker: &ws.ex,
 		Use: func(c *extract.Content) {
 			// The page as the interpreter of PDF hands one over: in
@@ -227,7 +229,19 @@ func (e *Extractor) fixedPage(f *File, i int, w want, ws *workState) (out pageOu
 				Worker: &ws.lay, Images: opts.Images != gofastcore.ImagesNone, Lines: w.lines,
 				Spans: opts.Spans, OnPage: e.NoOffPageText,
 			})
+			images = len(c.Images)
+			for k, i := range lay.Images {
+				if i < 0 {
+					continue
+				}
+				// What the file says the image shows, where it draws it.
+				if alt := c.Images[i].Alt; alt != "" {
+					lay.Blocks[k].Text = cleanText(alt, &controls)
+				}
+				out.images = append(out.images, imageRef{block: int32(k), part: c.Images[i].Name})
+			}
 		}}, &res, &ws.xps, &info)
+	out.external = info.External
 	part.Width, part.Height = info.Width, info.Height
 	out.decoded = info.Decoded
 	if info.Spent {
@@ -241,11 +255,13 @@ func (e *Extractor) fixedPage(f *File, i int, w want, ws *workState) (out pageOu
 	part.Warnings = append(part.Warnings, res.Warnings...)
 	switch {
 	case err != nil:
-		part.Blocks, out.lines, out.styles = nil, nil, nil
+		part.Blocks, out.lines, out.styles, out.images = nil, nil, nil, nil
 		part.Warn(gofastcore.SeverityError, gofastcore.WarnPartFailed, err.Error())
 	case res.Err != nil:
 		part.Warn(gofastcore.SeverityError, gofastcore.WarnPartFailed, res.Err.Error())
 	case lay.HasText:
+	case images > 0:
+		part.Warn(gofastcore.SeverityWarning, gofastcore.WarnPartImageOnly, fmt.Sprintf("the page has %d images and no text", images))
 	default:
 		part.Warn(gofastcore.SeverityInfo, gofastcore.WarnPartNoText, "the page has no text and no images")
 	}
@@ -253,7 +269,6 @@ func (e *Extractor) fixedPage(f *File, i int, w want, ws *workState) (out pageOu
 		part.Warn(gofastcore.SeverityWarning, gofastcore.WarnTextUnmappedGlyphs,
 			fmt.Sprintf("%d characters on the page are control characters and appear as U+FFFD", lay.Controls))
 	}
-	var controls removed
 	controls.add(lay.Removed)
 	for k := range part.Warnings {
 		part.Warnings[k].Message = cleanString(part.Warnings[k].Message)
@@ -262,4 +277,50 @@ func (e *Extractor) fixedPage(f *File, i int, w want, ws *workState) (out pageOu
 		part.Warnings = append(part.Warnings, w)
 	}
 	return out
+}
+
+// fixedImage completes one image block of a page of an XPS document: its
+// ID, which is the name of its part, its media type and size, and, when
+// data is asked for, its bytes as the package holds them, on the first
+// block that shows the image.
+func (st *state) fixedImage(part *gofastcore.Part, ref imageRef) {
+	x := st.f.x
+	img := part.Blocks[ref.block].Image
+	if img == nil {
+		return
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			img.MIME, img.Data = "", nil
+			if !part.Has(gofastcore.WarnPartFailed) {
+				part.Warn(gofastcore.SeverityError, gofastcore.WarnPartFailed, "an image on the page could not be read: "+internalError(r))
+			}
+		}
+	}()
+	if panicHook != nil {
+		panicHook("image")
+	}
+	info := x.Image(ref.part)
+	img.ID, img.MIME, img.Width, img.Height = info.ID, info.MIME, info.Width, info.Height
+	if st.f.opts.Images != gofastcore.ImagesData || st.images[img.ID] {
+		return
+	}
+	st.images[img.ID] = true
+	if st.budget <= 0 {
+		st.imagesCut = true
+		return
+	}
+	data, over, err := x.ImageData(ref.part, st.budget)
+	switch {
+	case over:
+		st.imagesCut = true
+	case err != nil:
+		if !part.Has(gofastcore.WarnImageUnsupportedEncoding) {
+			part.Warn(gofastcore.SeverityWarning, gofastcore.WarnImageUnsupportedEncoding,
+				"the data of an image on the page is not included: "+printable(err.Error()))
+		}
+	default:
+		st.budget -= int64(len(data))
+		img.Data = data
+	}
 }

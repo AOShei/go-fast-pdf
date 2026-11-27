@@ -212,7 +212,8 @@ type imageRef struct {
 	// The dictionary of an inline image, and its data when data is
 	// asked for (extract.Image).
 	dict syntax.Value
-	data []byte
+	data []byte // part is the part that the image is, in an XPS document.
+	part string
 }
 
 // want says what a page is read for besides its part.

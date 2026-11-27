@@ -162,6 +162,47 @@ func (x *Fixed) ShowBack(str []byte, glyphs, unmapped int, px, py, advance float
 	in.checkTextLimit()
 }
 
+// Paths reports whether the painted boxes of the page are recorded
+// (Options.Rules): a caller that is told no need not look at its paths
+// for them.
+func (x *Fixed) Paths() bool { return x.in.followPaths }
+
+// Box records a box that the page paints, r as [x0 y0 x1 y1] in the
+// space that m takes to the page: with a fill when width is 0, or as a
+// line stroked width wide, in the units of that space, when r has no
+// extent one way. What is thin and long is a rule, and what is filled
+// and thick the ground of a cell, perhaps (Content.Rules, Fills).
+func (x *Fixed) Box(m [6]float64, r [4]float64, width float64) {
+	in := x.in
+	if !in.followPaths {
+		return
+	}
+	g := &in.gs
+	if g.ctm != matrix(m) {
+		g.ctm = matrix(m)
+		in.geomValid = false
+	}
+	in.addRule(r, width)
+}
+
+// Image records an image drawn in the box r, as [x0 y0 x1 y1] in the
+// space that m takes to the page. name says which image it is, to the
+// caller; alt is what the file says the image shows, "" for nothing.
+func (x *Fixed) Image(m [6]float64, r [4]float64, name, alt string) {
+	in := x.in
+	if len(in.images) >= maxImagesPerPage {
+		in.cut(boundImages, 1, 0)
+		return
+	}
+	q := matrix(m).quad(r)
+	x0, y0, x1, y1 := q[0], q[1], q[0], q[1]
+	for i := 2; i < 8; i += 2 {
+		x0, x1 = min(x0, q[i]), max(x1, q[i])
+		y0, y1 = min(y0, q[i+1]), max(y1, q[i+1])
+	}
+	in.images = append(in.images, Image{Name: name, Alt: alt, Rect: [4]float64{x0, y0, x1 - x0, y1 - y0}, Quad: q, MCID: -1})
+}
+
 // Warn adds a warning to the page, once for each code.
 func (x *Fixed) Warn(severity gofastcore.Severity, code, message string) {
 	x.in.warn(severity, code, message)

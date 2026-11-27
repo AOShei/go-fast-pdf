@@ -1,0 +1,2 @@
+go test fuzz v1
+string("<FixedPage xmlns=\"http://schemas.microsoft.com/xps/2005/06\"><Path Data=\"M0 0\"AutomationProperties.HelpText=\" \"><Path.Fill><ImageBrush ImageSource=\"/ResourCes/font.ttf\">")

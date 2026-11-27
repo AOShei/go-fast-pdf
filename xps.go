@@ -319,8 +319,9 @@ func (e *Extractor) fixedPage(f *File, i int, w want, ws *workState) (out pageOu
 					continue
 				}
 				// What the file says the image shows, where it draws it.
+				// It is the text of the block: without white space around it.
 				if alt := c.Images[i].Alt; alt != "" {
-					lay.Blocks[k].Text = fixedText(alt, &controls)
+					lay.Blocks[k].Text = strings.TrimSpace(fixedText(alt, &controls))
 				}
 				out.images = append(out.images, imageRef{block: int32(k), part: c.Images[i].Name})
 			}
@@ -379,7 +380,7 @@ func (e *Extractor) fixedPage(f *File, i int, w want, ws *workState) (out pageOu
 	if err == nil {
 		intents, _, _ := f.x.Intents(i)
 		for _, intent := range intents {
-			if text := fixedText(intent, &controls); text != "" {
+			if text := strings.TrimSpace(fixedText(intent, &controls)); text != "" {
 				extras = append(extras, extra{block: gofastcore.Block{Kind: gofastcore.KindNote, Text: text,
 					Attrs: map[string]string{gofastcore.AttrNoteType: gofastcore.NoteComment}}})
 			}

@@ -74,6 +74,9 @@ type Font struct {
 	// Italic is set for a font whose letters slant: its name says so, or
 	// its descriptor does (an italic angle, or the flag of italic fonts).
 	Italic bool
+	// placed is set for a font whose strings are not character codes:
+	// each is its text, with what its glyphs are (Placed, face.go).
+	placed bool
 
 	// A simple font: the text and the advance of each of its 256 codes.
 	// An empty text is a code with no mapping, unless the code is blank:
@@ -160,6 +163,9 @@ func (f *Font) Append(dst, s []byte) ([]byte, Shown) {
 			}
 		}
 		return dst, sh
+	}
+	if f.placed {
+		return appendPlaced(dst, s)
 	}
 	start := len(dst)
 	for len(s) > 0 {

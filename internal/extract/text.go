@@ -632,7 +632,7 @@ func (in *interp) showCodes(f *font.Font, raw []byte) {
 		in.endLine()
 	}
 	in.rtlLine = in.rtlLine || rtl
-	if n := len(in.runs); n > 0 && sep != '\n' && !replaced && !back && !(sep == ' ' && along > ge.size) && prevTrail == 0 && in.runs[n-1].Clip == clip && in.continues(&in.runs[n-1], f) {
+	if n := len(in.runs); n > 0 && sep != '\n' && !replaced && !back && !(sep == ' ' && along > ge.size) && prevTrail == 0 && !in.sealed && in.runs[n-1].Clip == clip && in.continues(&in.runs[n-1], f) {
 		last := &in.runs[n-1]
 		if sep == ' ' && start > 0 && in.text[start-1] != ' ' && len(in.text) > start && in.text[start] != ' ' {
 			in.text = append(in.text, 0)
@@ -764,6 +764,9 @@ func (in *interp) endLine() {
 // markClusters notes the codes of the string raw, whose text in the
 // font f begins at start, that stand for more than one character.
 func (in *interp) markClusters(f *font.Font, raw []byte, start int) {
+	if f.Placed() {
+		return // the string is not character codes (fixed.go)
+	}
 	off := start
 	for len(raw) > 0 && len(in.clusters) < maxRunsPerPage {
 		n := min(max(f.CodeLen(raw), 1), len(raw))
@@ -782,6 +785,9 @@ func (in *interp) markClusters(f *font.Font, raw []byte, start int) {
 // one by one, which Append does not do; it is done only when words are
 // asked for.
 func (in *interp) markSpaces(f *font.Font, raw []byte) {
+	if f.Placed() {
+		return // its spaces are marked already (fixed.go)
+	}
 	var sh font.Shown
 	off := 0
 	for len(raw) > 0 {

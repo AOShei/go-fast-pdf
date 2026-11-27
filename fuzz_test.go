@@ -13,6 +13,7 @@ import (
 	gofastcore "github.com/AOShei/go-fast-core"
 	gofastpdf "github.com/AOShei/go-fast-pdf"
 	"github.com/AOShei/go-fast-pdf/internal/pdftest"
+	"github.com/AOShei/go-fast-pdf/internal/xpstest"
 )
 
 // FuzzOpen feeds whole files to the library through its public entry
@@ -53,6 +54,10 @@ func FuzzOpen(f *testing.F) {
 	f.Add(tableDoc().bytes())
 	f.Add(listDoc().bytes())
 	f.Add(gridDoc(true).bytes())
+	// XPS documents: packages, read by another front end.
+	for _, seed := range xpsSeeds() {
+		f.Add(xpstest.Document(xpstest.XPS, xpstest.Page(xpstest.XPS, 816, 1056, seed)).Bytes())
+	}
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// An error is fine. A document that breaks the contract of the
 		// shared model is not, and neither is one that depends on the

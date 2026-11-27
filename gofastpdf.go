@@ -11,10 +11,21 @@ import (
 	"github.com/AOShei/go-fast-pdf/internal/file"
 	"github.com/AOShei/go-fast-pdf/internal/layout"
 	"github.com/AOShei/go-fast-pdf/internal/syntax"
+	"github.com/AOShei/go-fast-pdf/internal/xps"
 )
 
-// Format is the name of the format in Source.Format.
+// Format is the name of the format in Source.Format of a PDF file.
 const Format = "pdf"
+
+// The names of the other formats this library reads, in Source.Format:
+// XPS 1.0 (the XML Paper Specification) and OpenXPS (ECMA-388). Both are
+// packages of pages laid out as those of a PDF are, and are read into
+// the same parts and blocks. Which of the two a file is, is said by the
+// package and not by the name of the file.
+const (
+	FormatXPS     = "xps"
+	FormatOpenXPS = "oxps"
+)
 
 // The defaults for the limits of gofastcore.Limits that are left zero.
 const (
@@ -69,7 +80,7 @@ type Extractor struct {
 var _ gofastcore.Extractor = (*Extractor)(nil)
 
 // Formats returns the format this extractor handles: "pdf".
-func (*Extractor) Formats() []string { return []string{Format} }
+func (*Extractor) Formats() []string { return []string{Format, FormatXPS, FormatOpenXPS} }
 
 // Extract reads a PDF file of size bytes from r and returns it as a
 // document: one part per page, the text of each page as paragraphs in
@@ -227,6 +238,7 @@ type want struct {
 type workState struct {
 	ex  extract.Worker
 	lay layout.Worker
+	xps xps.Worker
 }
 
 func (ws *workState) release() {

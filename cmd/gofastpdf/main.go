@@ -1,11 +1,13 @@
-// Command gofastpdf extracts the text and structure of PDF files.
+// Command gofastpdf extracts the text and structure of PDF files, and
+// of XPS and OpenXPS documents.
 //
 //	gofastpdf [flags] <file or directory>...
 //
 // Each input is written to standard output, or to the file given with
 // -o, in the format asked for: the shared document model of the go-fast
 // libraries as JSON, or its text as Markdown or plain text. A directory
-// stands for the PDF files in it and below it. What goes wrong is
+// stands for the files named .pdf, .xps and .oxps in it and below it. What
+// goes wrong is
 // reported on standard error, and the exit status is 1 if any input
 // could not be read and 2 if the command line is wrong.
 package main
@@ -103,7 +105,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	showVersion := flags.Bool("version", false, "print the version and exit")
 	flags.Usage = func() {
 		fmt.Fprintln(stderr, "usage: gofastpdf [flags] <file or directory>...")
-		fmt.Fprintln(stderr, "Extracts PDF files into JSON (the go-fast document model), Markdown or text.")
+		fmt.Fprintln(stderr, "Extracts PDF files, and XPS and OpenXPS documents, into JSON (the go-fast document model), Markdown or text.")
 		flags.PrintDefaults()
 	}
 	if err := flags.Parse(args); err != nil {
@@ -154,7 +156,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return usage("-workers %d: not a number of workers", *workers)
 	}
 
-	// The inputs: files as given, and the PDF files of directories.
+	// The inputs: files as given, and of directories the files named as
+	// those of the formats that are read.
 	var inputs []string
 	status := 0
 	failed := func(path string, err error) {
@@ -173,7 +176,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 					failed(path, err)
 					return nil
 				}
-				if !d.IsDir() && strings.EqualFold(filepath.Ext(path), ".pdf") {
+				if !d.IsDir() && readable(filepath.Ext(path)) {
 					found = append(found, path)
 				}
 				return nil
@@ -265,4 +268,11 @@ func report(w io.Writer, path string, doc *gofastcore.Document) {
 		}
 	}
 	fmt.Fprintf(w, "gofastpdf: %s: %s\n", path, strings.Join(codes, ", "))
+}
+
+// readable reports whether ext is the extension of a format the command
+// reads. A file given by its name is read whatever it is called: what a
+// file is, is said by its content.
+func readable(ext string) bool {
+	return strings.EqualFold(ext, ".pdf") || strings.EqualFold(ext, ".xps") || strings.EqualFold(ext, ".oxps")
 }

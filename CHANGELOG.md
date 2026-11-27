@@ -1,5 +1,31 @@
 # Changelog
 
+## Unreleased
+
+- **XPS and OpenXPS documents are read.** They are packages whose pages are fixed layouts, as those of a
+  PDF are, and from the placed text on they are read by the same code: reading order, paragraphs,
+  headings, lists, tables, running headers and footers, footnotes, paragraphs over page breaks.
+  `Source.Format` is `xps` or `oxps` (`FormatXPS`, `FormatOpenXPS`), told by the package and never by the
+  name of the file; `File.Format` says it of an open file, and `Extractor.Formats` lists the three. The
+  package, its XML and the bounds on what it decompresses to are go-fast-core's (`opc`, `xmlscan`,
+  `cfb`), which every go-fast library that reads packages shares.
+  - Text is placed by the advances a page states, or else by the font's, read from the font program in
+    the package (obfuscated or not, a face of a collection by its number). Text written from right to
+    left is given in reading order and stays so. Glyphs without text are read by the font's table of
+    characters turned round.
+  - Page sizes and boxes are in points, as for PDF. The metadata is the package's core properties.
+  - Ligatures and presentation forms are written as their letters, as for PDF.
+  - Text of an element without a fill, or whose fill or opacity is fully transparent, is `no_ink`:
+    the file's own declarations, and nothing else.
+  - A page with damaged markup keeps what stands before the damage (`input.stream_damaged`). Text in a
+    font the package lacks is read, with the new warning `xps.font_unreadable`. An encrypted package
+    (rights management) is refused with `ErrUnsupported` and what it is.
+  - Not read yet: paths (ruled and shaded tables), images, resource dictionaries, links, the outline
+    and declared structure.
+  - PDF files are read as before: their output is byte for byte that of v0.5.0 on the test files, and
+    the instructions they take are within 0.6 percent of it on every benchmark.
+- **go-fast-core v0.1.13.**
+
 ## v0.5.0 (2026-11-26)
 
 Tables in files without tags, paragraphs and footnotes. Nothing is taken from the API of v0.4: it gains

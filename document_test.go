@@ -581,7 +581,7 @@ func TestSource(t *testing.T) {
 	if doc.Source != want || doc.SchemaVersion != gofastcore.SchemaVersion {
 		t.Errorf("source %+v, schema %q", doc.Source, doc.SchemaVersion)
 	}
-	if got := (&gofastpdf.Extractor{}).Formats(); !reflect.DeepEqual(got, []string{"pdf"}) {
+	if got := (&gofastpdf.Extractor{}).Formats(); !reflect.DeepEqual(got, []string{"pdf", "xps", "oxps"}) {
 		t.Errorf("formats %v", got)
 	}
 	// The method and the function are the same thing, and nil options

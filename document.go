@@ -72,6 +72,10 @@ type described struct {
 // it.
 func (f *File) describe() *described {
 	f.once.Do(func() {
+		if f.x != nil {
+			f.describeFixed()
+			return
+		}
 		d, in := &f.desc, f.f
 		defer func() {
 			if r := recover(); r != nil {

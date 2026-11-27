@@ -50,6 +50,44 @@
 // The command gofastpdf, in cmd/gofastpdf, writes files as JSON,
 // Markdown or text.
 //
+// # XPS and OpenXPS
+//
+// The library also reads XPS documents (the XML Paper Specification,
+// version 1.0) and OpenXPS documents (ECMA-388). Both are packages, zip
+// archives of parts as a Word file is, whose pages are fixed layouts as
+// those of a PDF are: runs of glyphs at stated places on pages of a
+// stated size. Every function and method here takes them as it takes a
+// PDF file, and what a file is, is said by its content: Source.Format is
+// FormatXPS or FormatOpenXPS, by the package and not by the name of the
+// file, and File.Format says the same of an open file.
+//
+// Their text is placed by the advances the page states or else by those
+// of the font, which the package holds, and is then read as that of a
+// PDF without tags is: put in reading order and made into paragraphs,
+// headings, lists and tables, the pages compared for their running
+// lines, footnotes found and paragraphs followed over page breaks. Text
+// written from right to left is given by such a document in the order
+// it is read. The size of a page is in points, its units of 1/96 inch
+// converted, so that the PDF and the XPS of one document have the same
+// boxes. The metadata is the core properties of the package.
+//
+// What the file declares of how text is drawn is as little as for PDF:
+// text of an element without a fill, which by the specification has no
+// visible effect, and text whose fill or opacity is fully transparent,
+// has the reason DisplayNoInk. Nothing else is looked at.
+//
+// A page whose markup is damaged yields what stands before the damage,
+// with input.stream_damaged; the parts of the package itself (its
+// relationships, the list of its pages) must be sound. Text in a font
+// that the package lacks is read all the same, with WarnFontUnreadable.
+// The envelope of an encrypted package, which a document under rights
+// management is in, is refused with ErrUnsupported and what it is.
+//
+// Not read yet: the paths of a page (so a table is found by how its
+// text stands, not by its ruling), its images, what it takes from a
+// resource dictionary, links, the outline and the structure a document
+// declares.
+//
 // # The document
 //
 // A document has one part per page, of kind page, numbered as the

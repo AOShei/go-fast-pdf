@@ -210,5 +210,5 @@ func ExampleExtractor() {
 	}
 	fmt.Println(e.Formats(), len(doc.Parts))
 	// Output:
-	// [pdf] 3
+	// [pdf xps oxps] 3
 }

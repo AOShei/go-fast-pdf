@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"strings"
 	"testing"
 
 	gofastpdf "github.com/AOShei/go-fast-pdf"
 	"github.com/AOShei/go-fast-pdf/internal/pdftest"
+	"github.com/AOShei/go-fast-pdf/internal/xpstest"
 )
 
 // Whole-document benchmarks through the public entry point. The numbers
@@ -73,6 +75,64 @@ func benchExtract(b *testing.B, path string, o extractOpts) {
 func BenchmarkExtract(b *testing.B) {
 	for _, pages := range []int{10, 100, 1000} {
 		path := pdftest.TempFile(b, benchPages(pages))
+		b.Run(fmt.Sprintf("pages=%d/workers=1", pages), func(b *testing.B) { benchExtract(b, path, extractOpts{}) })
+		b.Run(fmt.Sprintf("pages=%d/workers=8", pages), func(b *testing.B) { benchExtract(b, path, extractOpts{Workers: 8}) })
+	}
+}
+
+// benchXPS returns an XPS document of the number of pages given: on
+// each a running title, three paragraphs of a few lines whose glyphs
+// state their advances as a printer driver writes them, a ruled table
+// with text in its cells, and a page number.
+func benchXPS(pages int) []byte {
+	g := xpstest.Glyphs
+	indices := func(text string) string {
+		var sb strings.Builder
+		sb.WriteString(`Indices="`)
+		for i, r := range text {
+			if i > 0 {
+				sb.WriteByte(';')
+			}
+			if r == ' ' {
+				fmt.Fprintf(&sb, "%d,25", xpstest.Glyph(r))
+			} else {
+				fmt.Fprintf(&sb, "%d,50", xpstest.Glyph(r))
+			}
+		}
+		sb.WriteByte('"')
+		return sb.String()
+	}
+	line := func(x, y float64, text string) string { return g(x, y, 14, text, indices(text)) }
+	var out []string
+	for p := 1; p <= pages; p++ {
+		var b strings.Builder
+		b.WriteString(g(96, 60, 11, "The Running Title of the Document", ""))
+		y := 130.0
+		for para := 0; para < 3; para++ {
+			for l := 0; l < 5; l++ {
+				b.WriteString(line(96, y, fmt.Sprintf("Line %d of paragraph %d on page %d, with enough words to fill the measure of it", l+1, para+1, p)))
+				y += 18
+			}
+			y += 14
+		}
+		xs, ys := []float64{96, 296, 496, 696}, []float64{y, y + 30, y + 60, y + 90}
+		b.WriteString(xpsGrid(xs, ys))
+		for r := 0; r < 3; r++ {
+			for c := 0; c < 3; c++ {
+				b.WriteString(line(xs[c]+8, ys[r]+21, fmt.Sprintf("cell %d %d of page %d", r+1, c+1, p)))
+			}
+		}
+		b.WriteString(g(400, 1000, 11, fmt.Sprint(p), ""))
+		out = append(out, xpstest.Page(xpstest.XPS, 816, 1056, b.String()))
+	}
+	return xpstest.Document(xpstest.XPS, out...).Bytes()
+}
+
+// BenchmarkExtractXPS reads synthetic XPS documents of two sizes,
+// sequentially and with eight workers.
+func BenchmarkExtractXPS(b *testing.B) {
+	for _, pages := range []int{10, 100} {
+		path := pdftest.TempFile(b, benchXPS(pages))
 		b.Run(fmt.Sprintf("pages=%d/workers=1", pages), func(b *testing.B) { benchExtract(b, path, extractOpts{}) })
 		b.Run(fmt.Sprintf("pages=%d/workers=8", pages), func(b *testing.B) { benchExtract(b, path, extractOpts{Workers: 8}) })
 	}

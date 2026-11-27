@@ -203,6 +203,20 @@ func (f *File) fixedWarnings(external bool) []gofastcore.Warning {
 		add(gofastcore.SeverityError, gofastcore.WarnLimitExceeded,
 			fmt.Sprintf("the outline has more than %d entries; the rest are not read", xps.MaxOutline))
 	}
+	if _, cut, damaged := f.x.Intents(0); cut || damaged {
+		if damaged {
+			add(gofastcore.SeverityWarning, gofastcore.WarnInputStreamDamaged,
+				"a part that holds the signature definitions of the document is damaged; what stands after the damage is not read")
+		}
+		if cut {
+			add(gofastcore.SeverityError, gofastcore.WarnLimitExceeded,
+				"the signature definitions of the document say more than is read of what their signatures are to mean")
+		}
+	}
+	if _, total := pkg.Trailing(); total > 0 {
+		add(gofastcore.SeverityInfo, gofastcore.WarnInputTrailingData,
+			fmt.Sprintf("%d bytes follow the end of the archive", total))
+	}
 	if n := f.x.TargetsCut; n > 0 {
 		add(gofastcore.SeverityError, gofastcore.WarnLimitExceeded,
 			fmt.Sprintf("the document lists %d addressable names more than are kept; links to them lead nowhere", n))
@@ -357,13 +371,27 @@ func (e *Extractor) fixedPage(f *File, i int, w want, ws *workState) (out pageOu
 		}
 	}
 	part.Warnings = append(part.Warnings, res.Warnings...)
+	// What the signature definitions of the document say a signature
+	// asked for on this page is to mean: a note of the page, after its
+	// content, as what an annotation of a PDF says is.
+	var extras []extra
+	if err == nil {
+		intents, _, _ := f.x.Intents(i)
+		for _, intent := range intents {
+			if text := fixedText(intent, &controls); text != "" {
+				extras = append(extras, extra{block: gofastcore.Block{Kind: gofastcore.KindNote, Text: text,
+					Attrs: map[string]string{gofastcore.AttrNoteType: gofastcore.NoteComment}}})
+			}
+		}
+		out.addNotes(extras)
+	}
 	switch {
 	case err != nil:
 		part.Blocks, out.lines, out.styles, out.images = nil, nil, nil, nil
 		part.Warn(gofastcore.SeverityError, gofastcore.WarnPartFailed, err.Error())
 	case res.Err != nil:
 		part.Warn(gofastcore.SeverityError, gofastcore.WarnPartFailed, res.Err.Error())
-	case lay.HasText:
+	case lay.HasText || len(extras) > 0:
 	case images > 0:
 		part.Warn(gofastcore.SeverityWarning, gofastcore.WarnPartImageOnly, fmt.Sprintf("the page has %d images and no text", images))
 	default:

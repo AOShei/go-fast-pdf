@@ -396,3 +396,29 @@ func Glyph(r rune) int {
 	}
 	return 0
 }
+
+// Collection returns a font collection that holds the programs given,
+// each a program as Font makes them.
+func Collection(programs ...[]byte) []byte {
+	out := []byte("ttcf\x00\x01\x00\x00")
+	out = binary.BigEndian.AppendUint32(out, uint32(len(programs)))
+	at := len(out) + 4*len(programs)
+	for _, p := range programs {
+		out = binary.BigEndian.AppendUint32(out, uint32(at))
+		at += len(p)
+	}
+	at = len(out)
+	for _, p := range programs {
+		// The tables of a program are addressed from the start of the
+		// file: those of a program in a collection are moved with it.
+		q := append([]byte(nil), p...)
+		n := int(binary.BigEndian.Uint16(q[4:]))
+		for i := 0; i < n; i++ {
+			rec := 12 + 16*i
+			binary.BigEndian.PutUint32(q[rec+8:], binary.BigEndian.Uint32(q[rec+8:])+uint32(at))
+		}
+		out = append(out, q...)
+		at += len(q)
+	}
+	return out
+}

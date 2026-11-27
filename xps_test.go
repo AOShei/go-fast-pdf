@@ -1121,3 +1121,176 @@ func FuzzXPSStructure(f *testing.F) {
 		}
 	})
 }
+
+// TestXPSSignatureIntent: what a signature definition says its signature
+// is to mean is a note of the page the definition names.
+func TestXPSSignatureIntent(t *testing.T) {
+	g := xpstest.Glyphs
+	page := func(text string) string { return xpstest.Page(xpstest.XPS, 816, 1056, g(96, 120, 16, text, "")) }
+	pkg := xpstest.Document(xpstest.XPS, page("The first page."), page("The second page."), xpstest.Page(xpstest.XPS, 816, 1056, ""))
+	pkg.Add("Documents/1/_rels/FixedDoc.fdoc.rels", []byte(`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">`+
+		`<Relationship Id="R1" Type="`+xpstest.XPS+`/signature-definitions" Target="Signatures/defs.xml"/></Relationships>`))
+	pkg.Add("Documents/1/Signatures/defs.xml", []byte(`<SignatureDefinitions xmlns="`+xpstest.XPS+`/signature-definitions">`+
+		`<SignatureDefinition SignerName="A. Signer" SpotID="0947a67d-27e0-4a2d-9a0c-000000000001"><SpotLocation PageURI="/Documents/1/Pages/2.fpage" StartX="10" StartY="20"/>`+
+		`<Intent>I have read and agree to the terms of page two.</Intent><SignBy>2026-12-31T00:00:00Z</SignBy><SigningLocation>Montr`+"é"+`al</SigningLocation></SignatureDefinition>`+
+		`<SignatureDefinition SignerName="B. Signer"><Intent>Approved for release.</Intent></SignatureDefinition>`+
+		`<SignatureDefinition SignerName="C. Signer"><SpotLocation PageURI="/Documents/1/Pages/3.fpage"/><Intent>The only thing on its page.</Intent></SignatureDefinition>`+
+		`<SignatureDefinition SignerName="D. Signer"><Intent>  </Intent></SignatureDefinition>`+
+		`</SignatureDefinitions>`))
+	doc := xpsExtract(t, nil, pkg.Bytes())
+	wantBlocks(t, &doc.Parts[0], "paragraph: The first page.", "note: Approved for release.")
+	wantBlocks(t, &doc.Parts[1], "paragraph: The second page.", "note: I have read and agree to the terms of page two.")
+	wantBlocks(t, &doc.Parts[2], "note: The only thing on its page.")
+	if b := &doc.Parts[1].Blocks[1]; b.Attrs[gofastcore.AttrNoteType] != gofastcore.NoteComment || b.Origin != gofastcore.OriginNative {
+		t.Errorf("note: %v %v", b.Attrs, b.Origin)
+	}
+	// A page with a note and no other text is not a page without text.
+	if len(doc.Parts[2].Warnings) != 0 {
+		t.Errorf("page 3: %v", doc.Parts[2].Warnings)
+	}
+}
+
+// TestXPSAlternateContent: markup of a later version of the format comes
+// with what a reader that does not know it is to read in its place.
+func TestXPSAlternateContent(t *testing.T) {
+	g := xpstest.Glyphs
+	body := g(96, 100, 16, "Before the alternatives.", "") +
+		`<mc:AlternateContent xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" xmlns:v2="http://example.com/xps/v2">` +
+		`<mc:Choice Requires="v2"><v2:Sparkle>` + g(96, 200, 16, "For a reader of version two.", "") + `</v2:Sparkle>` + g(96, 220, 16, "Also for that reader.", "") + `</mc:Choice>` +
+		`<mc:Fallback><Canvas>` + g(96, 200, 16, "For every other reader.", "") + `</Canvas></mc:Fallback>` +
+		`</mc:AlternateContent>` +
+		`<v2:Unknown xmlns:v2="http://example.com/xps/v2">` + g(96, 300, 16, "In an element of another format.", "") + `</v2:Unknown>` +
+		g(96, 400, 16, "After them.", "")
+	doc := xpsDoc(t, nil, body)
+	wantBlocks(t, &doc.Parts[0], "paragraph: Before the alternatives.", "paragraph: For every other reader.", "paragraph: After them.")
+}
+
+// TestXPSSidewaysAndFaces: glyphs set sideways advance by their height,
+// and a font named with a number is that face of a collection.
+func TestXPSSidewaysAndFaces(t *testing.T) {
+	// Upright, "abcd" at 16 units is 4 glyphs of 8 units, 24 points;
+	// sideways each advances by the height of the font's line, 16 units.
+	doc := xpsDoc(t, nil, xpstest.Glyphs(96, 120, 16, "abcd", `IsSideways="true"`))
+	box := doc.Parts[0].Blocks[0].Loc.BBox
+	if w := box.X1 - box.X0; w < 47.9 || w > 48.1 {
+		t.Errorf("sideways: %v wide", w)
+	}
+
+	// The second face of a collection has wide glyphs: two words placed
+	// by its advances stand apart, and by those of the first would run
+	// into each other.
+	wide := map[rune]int{}
+	for r := rune('a'); r <= 'z'; r++ {
+		wide[r] = 1000
+	}
+	ttc := xpstest.Collection(xpstest.Font(&xpstest.FontOptions{Name: "First"}), xpstest.Font(&xpstest.FontOptions{Name: "Second Wide", Advances: wide}))
+	glyphs := func(x float64, text string) string {
+		return fmt.Sprintf(`<Glyphs Fill="#FF000000" FontUri="/Resources/both.ttc#1" FontRenderingEmSize="20" OriginX="%g" OriginY="120" UnicodeString="%s"/>`, x, text)
+	}
+	pkg := xpstest.Document(xpstest.XPS, xpstest.Page(xpstest.XPS, 816, 1056, glyphs(96, "wide")+glyphs(176, "word")))
+	pkg.Add("Resources/both.ttc", ttc)
+	data := pkg.Bytes()
+	f, err := gofastpdf.OpenBytes(data, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	page, _ := f.Page(1)
+	lines, err := page.Lines()
+	if err != nil || len(lines) != 1 || lines[0].Text != "wideword" || lines[0].Font != "Second Wide" {
+		t.Errorf("lines: %v %+v", err, lines)
+	}
+}
+
+// TestXPSOpenXPSStructure: an OpenXPS document writes its structure, its
+// fragments and its resources in namespaces of its own, and is read as
+// an XPS document is.
+func TestXPSOpenXPSStructure(t *testing.T) {
+	ox := func(s string) string { return strings.ReplaceAll(s, xpstest.XPS, xpstest.OpenXPS) }
+	g := xpstest.Glyphs
+	body := `<FixedPage.Resources><ResourceDictionary xmlns:x="` + xpstest.XPS + `/resourcedictionary-key"><SolidColorBrush x:Key="none" Color="#00000000"/></ResourceDictionary></FixedPage.Resources>` +
+		g(96, 100, 16, "Set as one paragraph with the line below it,", `Name="a"`) + g(96, 120, 16, "but declared to be a paragraph of its own.", `Name="b"`) +
+		strings.Replace(g(96, 300, 16, "Not drawn.", ""), `Fill="#FF000000"`, `Fill="{StaticResource none}"`, 1)
+	frag := `<StoryFragment FragmentType="Content"><ParagraphStructure><NamedElement NameReference="a"/></ParagraphStructure><ParagraphStructure><NamedElement NameReference="b"/></ParagraphStructure></StoryFragment>`
+	outline := `<OutlineEntry OutlineLevel="1" Description="The page" OutlineTarget="#1"/>`
+	pkg := xpsStructured([]string{xpstest.Page(xpstest.XPS, 816, 1056, body)}, nil, outline, []string{frag})
+	for _, name := range []string{"_rels/.rels", "FixedDocSeq.fdseq", "Documents/1/FixedDoc.fdoc", "Documents/1/_rels/FixedDoc.fdoc.rels", "Documents/1/Structure/DocStructure.struct",
+		"Documents/1/Pages/1.fpage", "Documents/1/Pages/_rels/1.fpage.rels", "Documents/1/Structure/Fragments/1.frag"} {
+		pkg.Add(name, []byte(ox(string(pkg.Get(name)))))
+	}
+	doc := xpsExtract(t, nil, pkg.Bytes())
+	if doc.Source.Format != "oxps" || len(doc.Outline) != 1 || doc.Outline[0].Part != 1 {
+		t.Errorf("format %q, outline %+v", doc.Source.Format, doc.Outline)
+	}
+	p := &doc.Parts[0]
+	wantBlocks(t, p, "paragraph: Set as one paragraph with the line below it,", "paragraph: but declared to be a paragraph of its own.", "paragraph: Not drawn.")
+	if p.Blocks[2].Display != gofastcore.DisplayNoInk {
+		t.Errorf("display %v", p.Blocks[2].Display)
+	}
+}
+
+// TestXPSTrailingData: bytes after the end of the archive are reported.
+func TestXPSTrailingData(t *testing.T) {
+	data := xpstest.Document(xpstest.XPS, xpstest.Page(xpstest.XPS, 816, 1056, xpstest.Glyphs(96, 120, 16, "The page.", ""))).Bytes()
+	doc := xpsExtract(t, nil, append(data, []byte("what was appended to the file")...))
+	wantBlocks(t, &doc.Parts[0], "paragraph: The page.")
+	if !xpsWarned(doc.Warnings, gofastcore.WarnInputTrailingData) {
+		t.Errorf("warnings: %v", doc.Warnings)
+	}
+	if doc = xpsExtract(t, nil, data); len(doc.Warnings) != 0 {
+		t.Errorf("warnings of a file with nothing after it: %v", doc.Warnings)
+	}
+}
+
+// TestXPSDamagedCorpus cuts and changes the XPS files of the shared
+// corpus that are for development, when GOFAST_CORPUS names it: every
+// copy is read or refused, never with an internal error, and what is
+// read keeps the contract of the shared model.
+func TestXPSDamagedCorpus(t *testing.T) {
+	root := os.Getenv("GOFAST_CORPUS")
+	if root == "" {
+		t.Skip("GOFAST_CORPUS is not set")
+	}
+	files, _ := filepath.Glob(filepath.Join(root, "dev", "xps", "*.xps"))
+	read, refused := 0, 0
+	for _, path := range files {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(data) > 1<<20 {
+			continue // the small files: each copy is read whole
+		}
+		try := func(what string, copy []byte) {
+			_, err := extractBytes(copy, extractOpts{Images: true, Spans: true, Workers: 2})
+			switch {
+			case err == nil:
+				read++
+			case errors.Is(err, errContract) || strings.Contains(err.Error(), "internal error"):
+				t.Errorf("%s, %s: %v", filepath.Base(path), what, err)
+			default:
+				refused++
+			}
+		}
+		// Cut at 40 places, and 120 copies with 8 bytes changed each, the
+		// same every time.
+		for i := 1; i <= 40; i++ {
+			try(fmt.Sprintf("cut to %d/40", i), data[:len(data)*i/41])
+		}
+		state := uint32(len(data))*2654435761 + 1
+		next := func() uint32 {
+			state ^= state << 13
+			state ^= state >> 17
+			state ^= state << 5
+			return state
+		}
+		for i := 0; i < 120; i++ {
+			copy := append([]byte(nil), data...)
+			for k := 0; k < 8; k++ {
+				copy[next()%uint32(len(copy))] ^= byte(1 << (next() % 8))
+			}
+			try(fmt.Sprintf("changed copy %d", i), copy)
+		}
+	}
+	t.Logf("%d copies read, %d refused", read, refused)
+}

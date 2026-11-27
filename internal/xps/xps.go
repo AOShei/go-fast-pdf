@@ -39,9 +39,11 @@ const (
 
 const (
 	spFixed = xmlscan.FirstSpace + iota
+	spCompat
 )
 
-var spaces = map[string]xmlscan.Space{nsXPS: spFixed, nsOpenXPS: spFixed}
+var spaces = map[string]xmlscan.Space{nsXPS: spFixed, nsOpenXPS: spFixed,
+	"http://schemas.openxmlformats.org/markup-compatibility/2006": spCompat}
 
 var scanOptions = xmlscan.Options{Spaces: spaces}
 
@@ -104,6 +106,12 @@ type Document struct {
 	fontBytes int64
 	fallback  map[string]*font.Font
 	images    map[string]ImageInfo
+
+	// What the signature definitions say, read once: by page.
+	intentsOnce    sync.Once
+	intents        map[int][]string
+	intentsCut     bool
+	intentsDamaged bool
 }
 
 // Doc is one fixed document of the sequence.
@@ -112,6 +120,9 @@ type Doc struct {
 	Part string
 	// Structure is the name of its DocumentStructure part, "" for none.
 	Structure string
+	// Signatures is the name of its SignatureDefinitions part, "" for
+	// none.
+	Signatures string
 }
 
 // target is a name that a fixed document lists as addressable on one of
@@ -194,9 +205,19 @@ func Open(r io.ReaderAt, size int64, lim Limits) (*Document, error) {
 		// The structure the document declares: its outline.
 		if rels, err := pkg.RelsWith(doc, &s); err == nil {
 			for k := range rels {
-				if rel := &rels[k]; !rel.External && (rel.Type == nsXPS+"/documentstructure" || rel.Type == nsOpenXPS+"/documentstructure") && pkg.Has(rel.Target) {
-					d.Docs[i].Structure = rel.Target
-					break
+				rel := &rels[k]
+				if rel.External || !pkg.Has(rel.Target) {
+					continue
+				}
+				switch rel.Type {
+				case nsXPS + "/documentstructure", nsOpenXPS + "/documentstructure":
+					if d.Docs[i].Structure == "" {
+						d.Docs[i].Structure = rel.Target
+					}
+				case nsXPS + "/signature-definitions", nsOpenXPS + "/signature-definitions":
+					if d.Docs[i].Signatures == "" {
+						d.Docs[i].Signatures = rel.Target
+					}
 				}
 			}
 		}

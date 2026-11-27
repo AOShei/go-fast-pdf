@@ -149,3 +149,105 @@ func (d *Document) Target(doc int, name []byte, page int) bool {
 	p, ok := d.targets[target{doc, string(name)}]
 	return ok && int(p) == page
 }
+
+// Signature definitions say who is asked to sign a document, where on
+// which page, by when, and what the signature is to mean: the Intent, a
+// sentence the author of the document wrote, which is text to be read.
+
+const (
+	spSignature = xmlscan.FirstSpace + 24 + iota
+)
+
+var signatureOptions = xmlscan.Options{Spaces: map[string]xmlscan.Space{
+	nsXPS + "/signature-definitions":     spSignature,
+	nsOpenXPS + "/signature-definitions": spSignature,
+}}
+
+const (
+	// maxIntents bounds the signature definitions that are read, and
+	// maxIntentBytes the text of all their intents together.
+	maxIntents     = 1 << 10
+	maxIntentBytes = 1 << 20
+)
+
+// Intents returns what the signature definitions say the signatures
+// asked for on the page with index page are to mean, in the order of
+// the definitions. A definition that names no page of the document is
+// on the first page of its fixed document. cut is set when there are
+// more definitions, or more text, than are read, and damaged when a
+// part of them breaks off.
+func (d *Document) Intents(page int) (intents []string, cut, damaged bool) {
+	d.intentsOnce.Do(d.readIntents)
+	return d.intents[page], d.intentsCut, d.intentsDamaged
+}
+
+func (d *Document) readIntents() {
+	var s xmlscan.Scanner
+	count, room := 0, maxIntentBytes
+	for i := range d.Docs {
+		name := d.Docs[i].Signatures
+		if name == "" {
+			continue
+		}
+		first := -1 // the first page of the document
+		for k := range d.Pages {
+			if d.Pages[k].Doc == i {
+				first = k
+				break
+			}
+		}
+		if first < 0 {
+			continue
+		}
+		closer, err := d.pkg.Scan(name, &s, &signatureOptions)
+		if err != nil {
+			d.intentsDamaged = true
+			continue
+		}
+		page := first
+		var buf []byte
+		for {
+			k := s.Next()
+			if k == xmlscan.EOF {
+				break
+			}
+			if k != xmlscan.Start || s.Space() != spSignature {
+				continue
+			}
+			switch string(s.Local()) {
+			case "SignatureDefinition":
+				page = first
+			case "SpotLocation":
+				if v, ok := s.Attr(xmlscan.NoSpace, "PageURI"); ok {
+					part := opc.Resolve(name, string(v))
+					for k := range d.Pages {
+						if d.Pages[k].Part == part {
+							page = k
+							break
+						}
+					}
+				}
+			case "Intent":
+				buf = s.AppendText(buf[:0])
+				text := strings.TrimSpace(string(buf))
+				if text == "" {
+					continue
+				}
+				if count >= maxIntents || len(text) > room {
+					d.intentsCut = true
+					continue
+				}
+				count++
+				room -= len(text)
+				if d.intents == nil {
+					d.intents = map[int][]string{}
+				}
+				d.intents[page] = append(d.intents[page], text)
+			}
+		}
+		if s.Err() != nil {
+			d.intentsDamaged = true
+		}
+		closer.Close()
+	}
+}

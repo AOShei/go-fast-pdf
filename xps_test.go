@@ -343,6 +343,20 @@ func TestXPSInvalidText(t *testing.T) {
 	}
 }
 
+// TestXPSLigatures: ligatures and presentation forms are written as
+// their letters, in the text of a page and in what the document says of
+// itself, as for PDF.
+func TestXPSLigatures(t *testing.T) {
+	page := xpstest.Page(xpstest.XPS, 816, 1056, xpstest.Glyphs(96, 120, 16, "An o\uFB03ce \uFB01le.", `Indices=";;;(1:1)5;;;;(1:1)6"`))
+	pkg := xpstest.Document(xpstest.XPS, page)
+	pkg.Add("docProps/core.xml", []byte(`<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>O`+"\uFB03"+`cial</dc:title></cp:coreProperties>`))
+	doc := xpsExtract(t, nil, pkg.Bytes())
+	wantBlocks(t, &doc.Parts[0], "paragraph: An office file.")
+	if doc.Metadata.Title != "Official" {
+		t.Errorf("title %q", doc.Metadata.Title)
+	}
+}
+
 // TestXPSDepth: Canvas elements nested beyond the bound are not read,
 // and the page says so; what is around them is read.
 func TestXPSDepth(t *testing.T) {
@@ -577,7 +591,8 @@ func xpsSeeds() []string {
 		g(300, 120, 20, "שלום ", `BidiLevel="1"`) + g(225, 120, 20, "abc", `BidiLevel="2"`) + g(220, 120, 20, "עולם", `BidiLevel="1"`),
 		`<Canvas RenderTransform="2,0,0,2,0,0" Opacity="0.5"><Canvas><Canvas.RenderTransform><MatrixTransform Matrix="0,1,-1,0,10,20"/></Canvas.RenderTransform>` +
 			g(38, 40, 8, "Turned", `IsSideways="true" StyleSimulations="BoldItalicSimulation"`) + `</Canvas></Canvas>`,
-		`<Glyphs FontUri="` + xpstest.FontName + `#0" FontRenderingEmSize="16" OriginX="96" OriginY="120" Indices="35;36;37,,1,2;900"/>` +
+		g(96, 200, 16, "An o\uFB03ce \uFB01le.", "") +
+			`<Glyphs FontUri="` + xpstest.FontName + `#0" FontRenderingEmSize="16" OriginX="96" OriginY="120" Indices="35;36;37,,1,2;900"/>` +
 			`<Path Data="M 0,0 L 10,0 10,10 Z" Fill="#FF000000"/><Glyphs Fill="#00000000" FontUri="/none.ttf" FontRenderingEmSize="1e2" OriginX="1" OriginY="2" UnicodeString="{}{x}"><Glyphs.Fill><SolidColorBrush Color="#FF000000"/></Glyphs.Fill></Glyphs>`,
 	}
 }

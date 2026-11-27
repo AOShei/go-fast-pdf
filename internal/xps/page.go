@@ -10,6 +10,7 @@ import (
 	gofastcore "github.com/AOShei/go-fast-core"
 	"github.com/AOShei/go-fast-core/opc"
 	"github.com/AOShei/go-fast-core/xmlscan"
+	"github.com/AOShei/go-fast-pdf/internal/charset"
 	"github.com/AOShei/go-fast-pdf/internal/extract"
 	"github.com/AOShei/go-fast-pdf/internal/font"
 )
@@ -521,6 +522,11 @@ func (w *Worker) clusters(face *font.Face) {
 			}
 			e2 := parseEntry(ind, &ip)
 			e.glyph, e.advance = e2.glyph, e2.advance
+		}
+		// Ligatures and presentation forms are written as their letters,
+		// as the text of a PDF font is. All begin with the same byte.
+		if bytes.IndexByte(w.text[it.lo:], 0xEF) >= 0 {
+			w.text = charset.LettersIn(w.text, int(it.lo))
 		}
 		it.hi = int32(len(w.text))
 		t := w.text[it.lo:it.hi]

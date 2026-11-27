@@ -1,6 +1,18 @@
 # Changelog
 
-## Unreleased
+## v0.5.0 (2026-11-26)
+
+Tables in files without tags, paragraphs and footnotes. Nothing is taken from the API of v0.4: it gains
+`Extractor.NoOffPageText`, and blocks of kind footnote. What changes is which tables are found, where
+paragraphs end, and what a note at the foot of a page is.
+
+On 86 tagged files, their tags taken away and the result compared with what the tags say (21 French and
+English documents from the web, 65 of the corpora), v0.4.0 against this release: the rows of tables
+that are exactly those of the tags go from 36.4 to 56.3 percent in the documents from the web and from
+58.7 to 66.1 in the corpora; the paragraphs that are right from 88.0 to 91.2 and from 81.1 to 81.5
+percent; of the blocks marked headings, those that are headings from 45.1 to 50.6 and from 49.9 to
+50.9 percent, and of the headings of the tags those found from 67.2 to 66.9 and from 78.3 to 77.9.
+Each change below says what it costs, and what it was held against.
 
 - **go-fast-core v0.1.11.** Its renderers join a continued block to the block it continues past the
   footnotes between them, and write the footnotes after it. The rendered text and Markdown of a
@@ -179,6 +191,18 @@
   compound ("pre-empt", "mid-band", "sub-part") are words that their document writes without the hyphen
   elsewhere. 481 of the 3,192 files change. A document without a hyphen at a line end pays nothing; on the
   two manuals of the benchmarks, which have them, the instructions rise by 3.3 and 3.9 percent.
+
+### Checked before the release
+
+On the code that is tagged: the 3,186 files of the corpora (50,995 pages) read in processes of their own,
+three times, with no crash, hang or memory failure, at most 2.5 s and 680 MiB for a file; instructions
+per operation within 0.8 percent of v0.4.0's on 10 of the 12 benchmarks, with a median change of +0.5,
+and 5.2 and 5.5 percent more on the two manuals with many tables, for the tables now looked for by
+their rules and shades (`bench/v0.5.0.txt`); fuzzing of its 25 targets for an hour each on machines of
+four processors, 100 processor hours and 3.19 billion inputs, with nothing found.
+The table of the README that compares the library with others is measured again: on its 8 documents the
+library reads 9,187 pages a second, where the table of v0.2.2, which had stood since, said 10,184; the
+other programs are within 5 percent of what they were.
 
 ## v0.4.0 (2026-11-25)
 

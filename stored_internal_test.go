@@ -41,13 +41,14 @@ func FuzzPacket(f *testing.F) {
 				}
 			}
 		}
-		if u := unescapeXML(src); utf8.ValidString(src) && !utf8.ValidString(u) {
-			t.Fatalf("unescaping made %q of %q", u, src)
-		}
 	})
 }
 
-func TestUnescapeXML(t *testing.T) {
+// The references of a packet, as the scanner of go-fast-core reads them
+// for it: the five entities and character references are read, one to
+// no character is U+FFFD, and an entity that is not XML's stays as it is
+// written.
+func TestPacketReferences(t *testing.T) {
 	for in, want := range map[string]string{
 		"a &amp; b":            "a & b",
 		"&lt;&gt;&quot;&apos;": `<>"'`,
@@ -57,8 +58,9 @@ func TestUnescapeXML(t *testing.T) {
 		"&own; & &;":           "&own; & &;",
 		"no entity":            "no entity",
 	} {
-		if got := unescapeXML(in); got != want {
-			t.Errorf("%q: %q, want %q", in, got, want)
+		props := packetProperties(`<rdf:RDF xmlns:rdf="r" xmlns:p="p"><rdf:Description><p:q>`+in+`</p:q></rdf:Description></rdf:RDF>`, noCut)
+		if len(props) != 1 || len(props[0].values) != 1 || props[0].values[0] != want {
+			t.Errorf("%q: %+v, want %q", in, props, want)
 		}
 	}
 }
@@ -99,8 +101,12 @@ func FuzzXFAData(f *testing.F) {
 // cleaned as text is: found by fuzzing, a property named by a control
 // character.
 func TestNamesAreCleaned(t *testing.T) {
-	props := packetProperties("<rdf:RDF><rdf:Description><\x1c>value</\x1c></rdf:Description></rdf:RDF>", noCut)
-	if len(props) != 1 || props[0].name != "\x1c" {
+	// A name with a control character in it comes from the scanner as
+	// it is written, and is cleaned where it is used; what is named by a
+	// control character alone is no tag, and its text belongs to no
+	// property.
+	props := packetProperties("<rdf:RDF><rdf:Description><\x1c>value</\x1c><p\x1cq>w</p\x1cq></rdf:Description></rdf:RDF>", noCut)
+	if len(props) != 1 || props[0].name != "p\x1cq" || len(props[0].values) != 1 || props[0].values[0] != "w" {
 		t.Fatalf("%+v", props)
 	}
 	var rm removed

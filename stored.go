@@ -2,11 +2,12 @@ package gofastpdf
 
 import (
 	"bytes"
-	"strconv"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	gofastcore "github.com/AOShei/go-fast-core"
+	"github.com/AOShei/go-fast-core/xmlscan"
 	"github.com/AOShei/go-fast-pdf/internal/charset"
 	"github.com/AOShei/go-fast-pdf/internal/file"
 	"github.com/AOShei/go-fast-pdf/internal/syntax"
@@ -454,6 +455,7 @@ func xfaData(r *reader, v syntax.Value, named map[string]bool) (blocks []gofastc
 // control characters removed from what is kept by rm.
 func xfaValues(src string, named map[string]bool, cutf cutFunc, rm *removed) (blocks []gofastcore.Block, cut bool) {
 	x := &xmlScan{s: src, cut: cutf}
+	defer x.close()
 	// Find xfa:data inside xfa:datasets.
 	for inDatasets := false; ; {
 		t := x.next()
@@ -681,16 +683,15 @@ var packetSkipped = map[string]bool{
 // attributes and the elements of each rdf:Description, with the text
 // that is in them, under the names the packet writes. A packet is XML of
 // a simple and regular kind, and it is read here as such and no more:
-// tags, attributes, text, comments, CDATA and the five entities of XML.
-// No schema, no entity of the packet's own making, nothing fetched. A
-// packet that is not well formed gives what was read before the fault.
-//
-// encoding/xml reads it too, at about twenty times the cost: on a page
-// of text a packet would take as long as the page.
+// tags, attributes, text, comments, CDATA and the five entities of XML,
+// by the scanner of go-fast-core (xmlScan). No schema, no entity of the
+// packet's own making, nothing fetched. A packet that is not well formed
+// is read on through the fault, as far as its properties can be told.
 //
 // what a bound of the reading leaves out is counted by cutf.
 func packetProperties(src string, cutf cutFunc) (out []property) {
 	x := &xmlScan{s: src, cut: cutf}
+	defer x.close()
 	total := 0 // values of all the properties
 	inDescription := false
 	// The namespaces of the prefixes, as the elements declare them. A
@@ -846,13 +847,40 @@ type xmlToken struct {
 	text   string
 }
 
-// xmlScan reads the tags and the text of XML, one at a time.
+// xmlScan reads the tags and the text of XML, one at a time: the
+// metadata packet and the data of an XFA form. The reading is that of
+// go-fast-core's scanner (xmlscan), which every go-fast library reads
+// XML with; what is here turns its tokens into those the two readers
+// are written for: names as the file writes them, with their prefixes,
+// a start tag that says whether it is also the end of its element, and
+// text in one piece.
+//
+// The scanner reads on through markup that is not well formed, as a
+// lenient reader does (xmlscan.Options.Recover): a packet is XML of a
+// simple and regular kind that programs write by hand, and its
+// properties are read as far as they can be told.
 type xmlScan struct {
-	s   string
-	pos int
+	s string
 	// cut counts what a bound of the reading leaves out.
 	cut cutFunc
+
+	sc      *xmlscan.Scanner
+	data    []byte
+	started bool
+	// skipEnd is set after a start tag that is also the end of its
+	// element: the scanner gives an end for it, which is not handed on.
+	skipEnd  bool
+	attrsCut int
+	text     []byte
+	// held is the token the scanner is at when it was read ahead of a
+	// text, 0 for none.
+	held xmlscan.Kind
 }
+
+// xmlScanOptions are the options the packets are read with. The text is
+// UTF-8 already, whatever a declaration in it says: it was decoded when
+// the stream was read.
+var xmlScanOptions = xmlscan.Options{Decoded: true, Recover: true, Spans: true, MaxAttrs: maxXMLAttrs}
 
 // name holds a name to maxNameBytes, and counts a cut.
 func (x *xmlScan) name(s string) string {
@@ -864,166 +892,136 @@ func (x *xmlScan) name(s string) string {
 }
 
 func (x *xmlScan) next() xmlToken {
-	for x.pos < len(x.s) {
-		s, i := x.s, x.pos
-		if s[i] != '<' {
-			end := strings.IndexByte(s[i:], '<')
-			if end < 0 {
-				end = len(s) - i
-			}
-			x.pos = i + end
-			if text := s[i : i+end]; strings.TrimSpace(text) != "" {
-				return xmlToken{kind: tokText, text: unescapeXML(text)}
-			}
-			continue
-		}
-		rest := s[i:]
-		switch {
-		case strings.HasPrefix(rest, "<!--"):
-			end := strings.Index(rest, "-->")
-			if end < 0 {
-				return xmlToken{kind: tokEnd}
-			}
-			x.pos = i + end + 3
-		case strings.HasPrefix(rest, "<![CDATA["):
-			end := strings.Index(rest, "]]>")
-			if end < 0 {
-				return xmlToken{kind: tokEnd}
-			}
-			x.pos = i + end + 3
-			return xmlToken{kind: tokText, text: rest[9:end]}
-		case strings.HasPrefix(rest, "<?"), strings.HasPrefix(rest, "<!"):
-			end := strings.IndexByte(rest, '>')
-			if end < 0 {
-				return xmlToken{kind: tokEnd}
-			}
-			x.pos = i + end + 1
-		case strings.HasPrefix(rest, "</"):
-			end := strings.IndexByte(rest, '>')
-			if end < 0 {
-				return xmlToken{kind: tokEnd}
-			}
-			x.pos = i + end + 1
-			return xmlToken{kind: tokClose, name: strings.TrimSpace(rest[2:end])}
-		default:
-			return x.startTag()
-		}
+	if !x.started {
+		x.started = true
+		x.data = []byte(x.s)
+		x.sc = xmlScanners.Get().(*xmlscan.Scanner)
+		x.sc.ResetBytes(x.data, &xmlScanOptions)
 	}
-	return xmlToken{kind: tokEnd}
-}
-
-// startTag reads a start tag at x.pos, with its attributes.
-func (x *xmlScan) startTag() xmlToken {
-	s := x.s
-	i := x.pos + 1
-	name := func() string {
-		start := i
-		for i < len(s) && !isXMLSpace(s[i]) && s[i] != '>' && s[i] != '/' && s[i] != '=' {
-			i++
-		}
-		return s[start:i]
-	}
-	t := xmlToken{kind: tokOpen, name: name()}
-	if t.name == "" {
-		return xmlToken{kind: tokEnd}
+	sc := x.sc
+	if sc == nil {
+		return xmlToken{kind: tokEnd} // closed
 	}
 	for {
-		for i < len(s) && isXMLSpace(s[i]) {
-			i++
+		// The token read ahead of a text, or the next one.
+		k := x.held
+		if x.held = 0; k == 0 {
+			k = sc.Next()
 		}
-		switch {
-		case i >= len(s):
+		switch k {
+		case xmlscan.EOF:
+			x.close()
 			return xmlToken{kind: tokEnd}
-		case s[i] == '>':
-			x.pos = i + 1
+		case xmlscan.Start:
+			// The names and the values are taken from the text as it
+			// was given, where they stand in it as the scanner hands
+			// them out: nothing is copied for them then.
+			start, end := sc.Span()
+			at, to := x.within(start, end)
+			var t xmlToken
+			t.kind = tokOpen
+			t.name, at = x.str(sc.Name(), at, to)
+			// A start tag that ends in "/>" is the whole element.
+			if to >= 2 && x.data[to-2] == '/' {
+				t.closed, x.skipEnd = true, true
+			}
+			if n := sc.NumAttr(); n > 0 {
+				t.attrs = make([]xmlAttr, n)
+				for i := range t.attrs {
+					_, _, v := sc.AttrAt(i)
+					a := &t.attrs[i]
+					a.name, at = x.str(sc.AttrNameAt(i), at, to)
+					a.value, at = x.str(v, at, to)
+				}
+			}
+			// The attributes past the bound, which the scanner counts.
+			if cut := sc.Stats.AttrsCut; cut > x.attrsCut {
+				x.cut(boundXMLAttrs, "", int64(cut-x.attrsCut), 0)
+				x.attrsCut = cut
+			}
 			return t
-		case strings.HasPrefix(s[i:], "/>"):
-			x.pos, t.closed = i+2, true
-			return t
+		case xmlscan.End:
+			if x.skipEnd {
+				x.skipEnd = false
+				continue
+			}
+			start, end := sc.Span()
+			at, to := x.within(start, end)
+			name, _ := x.str(sc.Name(), at, to)
+			return xmlToken{kind: tokClose, name: name}
+		case xmlscan.Text:
+			// The scanner hands long text over in pieces: they are one
+			// text here. A CDATA section is a text of its own, as it is
+			// written apart.
+			start, end := sc.Span()
+			at, to := x.within(start, end)
+			first, _ := x.str(sc.Text(), at, to)
+			pieces := 1
+			for section := x.section(); !section; {
+				if x.held = sc.Next(); x.held != xmlscan.Text || x.section() {
+					break
+				}
+				x.held = 0
+				if pieces == 1 {
+					x.text = append(x.text[:0], first...)
+				}
+				x.text = append(x.text, sc.Text()...)
+				pieces++
+			}
+			if pieces > 1 {
+				first = string(x.text)
+			}
+			if strings.TrimSpace(first) == "" {
+				continue
+			}
+			return xmlToken{kind: tokText, text: first}
 		}
-		an := name()
-		for i < len(s) && isXMLSpace(s[i]) {
-			i++
-		}
-		if an == "" || i >= len(s) || s[i] != '=' {
-			return xmlToken{kind: tokEnd}
-		}
-		i++
-		for i < len(s) && isXMLSpace(s[i]) {
-			i++
-		}
-		if i >= len(s) || s[i] != '"' && s[i] != '\'' {
-			return xmlToken{kind: tokEnd}
-		}
-		end := strings.IndexByte(s[i+1:], s[i])
-		if end < 0 {
-			return xmlToken{kind: tokEnd}
-		}
-		if len(t.attrs) < maxXMLAttrs {
-			t.attrs = append(t.attrs, xmlAttr{name: an, value: unescapeXML(s[i+1 : i+1+end])})
-		} else {
-			x.cut(boundXMLAttrs, "", 1, 0)
-		}
-		i += end + 2
 	}
 }
 
-func isXMLSpace(c byte) bool { return c == ' ' || c == '\t' || c == '\n' || c == '\r' }
+// xmlScanners keeps scanners between packets: one holds the tables it
+// grew, which a new one would make again for every packet.
+var xmlScanners = sync.Pool{New: func() any { return new(xmlscan.Scanner) }}
 
-// unescapeXML reads the five entities of XML and character references.
-// An entity it does not know stays as it is written.
-func unescapeXML(s string) string {
-	if strings.IndexByte(s, '&') < 0 {
-		return s
-	}
-	var sb strings.Builder
-	for {
-		i := strings.IndexByte(s, '&')
-		if i < 0 {
-			sb.WriteString(s)
-			return sb.String()
-		}
-		sb.WriteString(s[:i])
-		s = s[i:]
-		end := strings.IndexByte(s, ';')
-		if end < 0 || end > 12 {
-			sb.WriteByte('&')
-			s = s[1:]
-			continue
-		}
-		ref := s[1:end]
-		switch ref {
-		case "amp":
-			sb.WriteByte('&')
-		case "lt":
-			sb.WriteByte('<')
-		case "gt":
-			sb.WriteByte('>')
-		case "quot":
-			sb.WriteByte('"')
-		case "apos":
-			sb.WriteByte('\'')
-		default:
-			n, ok := int64(0), false
-			switch {
-			case strings.HasPrefix(ref, "#x") || strings.HasPrefix(ref, "#X"):
-				n, ok = parseRef(ref[2:], 16)
-			case strings.HasPrefix(ref, "#"):
-				n, ok = parseRef(ref[1:], 10)
-			}
-			if !ok {
-				sb.WriteString(s[:end+1])
-			} else if r := rune(n); utf8.ValidRune(r) {
-				sb.WriteRune(r)
-			} else {
-				sb.WriteRune(utf8.RuneError)
-			}
-		}
-		s = s[end+1:]
+// close ends the reading and gives the scanner back. What was handed
+// out stays valid: it is of the text as it was given, or a copy.
+func (x *xmlScan) close() {
+	if x.sc != nil {
+		x.sc.Release()
+		xmlScanners.Put(x.sc)
+		x.sc = nil
 	}
 }
 
-func parseRef(digits string, base int) (int64, bool) {
-	n, err := strconv.ParseInt(digits, base, 32)
-	return n, err == nil && digits != "" && n >= 0
+// within returns the part of the text that a token the scanner says is
+// at start to end can be in: none of it when the scanner says nothing
+// usable.
+func (x *xmlScan) within(start, end int64) (from, to int) {
+	if start < 0 || end < start || end > int64(len(x.data)) {
+		return 0, 0
+	}
+	return int(start), int(end)
+}
+
+// str returns b, which the scanner handed out, as a string: the stretch
+// of the text as it was given where b stands in it between from and to,
+// and where that stretch ends; or a copy of b, and from, when b is not
+// there as it is (a value with a reference in it, a name that was
+// mended).
+func (x *xmlScan) str(b []byte, from, to int) (string, int) {
+	if len(b) == 0 {
+		return "", from
+	}
+	if from < to {
+		if i := bytes.Index(x.data[from:to], b); i >= 0 {
+			return x.s[from+i : from+i+len(b)], from + i + len(b)
+		}
+	}
+	return string(b), from
+}
+
+// section reports whether the text the scanner is at is a CDATA section.
+func (x *xmlScan) section() bool {
+	start, _ := x.sc.Span()
+	return start >= 0 && int(start)+9 <= len(x.data) && string(x.data[start:start+9]) == "<![CDATA["
 }

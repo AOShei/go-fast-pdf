@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## v0.6.3 (2026-11-28)
+
+go-fast-core v0.1.18, and one correction for XPS: a title, a property or the description of an image that
+is longer than is kept is cut between two characters. Nothing of the API changes, and no file of the
+corpora is read otherwise.
 
 - **go-fast-core v0.1.18.** Its XML scanner hands out names that are valid UTF-8, as it does text since
   v0.1.17: a byte of an element or attribute name that is part of no character is counted with the
@@ -9,6 +13,14 @@
   core property longer than 64 KiB, and the description of an image longer than 4 KiB, were cut at the
   byte: a cut inside a character left U+FFFD at the end of the text. They are cut with core's
   `charset.CutUTF8`.
+
+### Checked before the release
+
+On the code that is tagged: the 3,186 files of the corpora (50,995 pages) read in processes of their own,
+three times, with no crash, hang or memory failure, at most 2.5 s and 662 MiB for a file; instructions
+per operation of the 12 benchmarks that count them between 0.3 percent fewer and 0.5 percent more than
+v0.6.2's, a median change of 0.0 (`bench/v0.6.3.txt`); fuzzing of its 30 targets for an hour each on
+machines of four processors, 120 processor hours and 3.95 billion inputs, with nothing found.
 
 ## v0.6.2 (2026-11-28)
 

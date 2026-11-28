@@ -16,7 +16,7 @@ share.
   exhaust them.
 - It starts no program, fetches nothing, runs nothing that a file contains, and does no OCR.
 
-> **Status.** v0.6.2 (2026-11-28), on go-fast-core v0.1.17. The API is not that of v0.1:
+> **Status.** v0.6.3 (2026-11-28), on go-fast-core v0.1.18. The API is not that of v0.1:
 > [MIGRATION.md](MIGRATION.md) says what became what; [CHANGELOG.md](CHANGELOG.md) says what changed.
 
 ## Speed

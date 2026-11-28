@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- **The metadata packet and the data of an XFA form are read with go-fast-core's XML scanner.**
+  go-fast-pdf had a scanner of its own for them, the fourth in the go-fast libraries. Of the 3,186 files
+  of the corpora, none gives another document. What differs is at the edges: markup that is not well
+  formed is read on through the fault, where the reading stopped at it, and a tag named by a control
+  character alone is text, not an element. A one-page document with a packet takes about 1.6 percent
+  more instructions; a long one, none that can be measured.
+
 ## v0.6.3 (2026-11-28)
 
 go-fast-core v0.1.18, and one correction for XPS: a title, a property or the description of an image that

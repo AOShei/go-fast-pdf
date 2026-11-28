@@ -400,8 +400,9 @@ file can be read from many goroutines, and the result is the same for any number
   the 14 public files of the shared go-fast corpus (3 of them held out, 3 encrypted and refused), the
   words of those that are read compared with what PyMuPDF reads, run as a separate program; the public
   files cut short and with bytes changed, 1,600 copies.
-- **Every change** runs on linux/amd64, linux/arm64, darwin/arm64 and windows/amd64 under the race
-  detector, and as a 32-bit build. The tests run over 90 percent of the statements.
+- **Every change of code** runs on linux/amd64, linux/arm64, darwin/arm64 and windows/amd64 under the race
+  detector, and as a 32-bit build. The tests run over 90 percent of the statements. A change of documents
+  alone, as the pull request of a release is, runs the lint only: the code under it passed as the change before it.
 
 ## Limitations
 

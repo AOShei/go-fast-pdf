@@ -1,13 +1,25 @@
 # Changelog
 
-## Unreleased
+## v0.6.4 (2026-11-28)
+
+The metadata packet of a PDF and the data of an XFA form are read with go-fast-core's XML scanner, as
+XPS is. Nothing of the API changes, and no file of the corpora gives another document.
 
 - **The metadata packet and the data of an XFA form are read with go-fast-core's XML scanner.**
   go-fast-pdf had a scanner of its own for them, the fourth in the go-fast libraries. Of the 3,186 files
   of the corpora, none gives another document. What differs is at the edges: markup that is not well
   formed is read on through the fault, where the reading stopped at it, and a tag named by a control
-  character alone is text, not an element. A one-page document with a packet takes about 1.6 percent
+  character alone is text, not an element. A one-page document with a packet takes about 1.7 percent
   more instructions; a long one, none that can be measured.
+
+### Checked before the release
+
+On the code that is tagged: the 3,186 files of the corpora (50,995 pages) read in processes of their own,
+three times, with no crash, hang or memory failure, at most 2.4 s and 662 MiB for a file; instructions
+per operation of 11 of the 12 benchmarks that count them between 0.4 percent fewer and 0.1 percent more
+than v0.6.3's, and 1.7 percent more on the twelfth, a document of one page with a metadata packet
+(`bench/v0.6.4.txt`); fuzzing of its 30 targets for an hour each on machines of four processors, 120
+processor hours and 3.75 billion inputs, with nothing found.
 
 ## v0.6.3 (2026-11-28)
 

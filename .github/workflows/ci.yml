@@ -13,6 +13,32 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Whether the change touches anything but documents. A change of
+  # documents and benchmark records alone, as the pull request of a
+  # release is, sits on code that passed every check as the change before
+  # it: the lint runs, and the tests and the fuzzing are not run a second
+  # time on the same code. Anything else runs everything.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.code.outputs.code }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: code
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: |
+          # For a pull request: what it changes from where it left its base.
+          if [ "${{ github.event_name }}" = pull_request ]; then
+            BASE=$(git merge-base "$BASE" "$HEAD" 2>/dev/null || echo "$BASE")
+          fi
+          code=$(.github/scripts/changed-code.sh "$BASE" "$HEAD")
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "changes code: $code"
+
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -32,6 +58,8 @@ jobs:
         run: .github/scripts/check-deps.sh
 
   test:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -56,6 +84,8 @@ jobs:
   # 64 bits: a size or an offset of a file that is larger than 2 GiB on
   # paper.
   test-32bit:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -69,6 +99,8 @@ jobs:
   # which skip themselves under it, and the share of the statements that
   # the tests run.
   budgets-and-coverage:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -83,6 +115,8 @@ jobs:
         run: .github/scripts/check-coverage.sh cover.out
 
   fuzz:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

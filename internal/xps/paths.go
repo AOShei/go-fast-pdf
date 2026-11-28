@@ -6,6 +6,7 @@ import (
 	"math"
 	"strings"
 
+	"github.com/AOShei/go-fast-core/charset"
 	"github.com/AOShei/go-fast-core/opc"
 	"github.com/AOShei/go-fast-core/xmlscan"
 )
@@ -697,9 +698,9 @@ func (r *reader) path() {
 		case "Opacity":
 			p.opacity = opacity(v)
 		case "AutomationProperties.HelpText":
-			p.alt = append(p.alt[:0], v[:min(len(v), maxAlt)]...)
+			p.alt = append(p.alt[:0], charset.CutUTF8(v, maxAlt)...)
 		case "AutomationProperties.Name":
-			p.name = append(p.name[:0], v[:min(len(v), maxAlt)]...)
+			p.name = append(p.name[:0], charset.CutUTF8(v, maxAlt)...)
 		case "Name":
 			if w.links && len(v) <= MaxName {
 				p.id = append(p.id, v...)

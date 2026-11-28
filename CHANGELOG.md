@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- **go-fast-core v0.1.18.** Its XML scanner hands out names that are valid UTF-8, as it does text since
+  v0.1.17: a byte of an element or attribute name that is part of no character is counted with the
+  others in the warning of an XPS page or document.
+- **XPS: a string cut at its bound is cut between two characters.** The title of an outline entry or a
+  core property longer than 64 KiB, and the description of an image longer than 4 KiB, were cut at the
+  byte: a cut inside a character left U+FFFD at the end of the text. They are cut with core's
+  `charset.CutUTF8`.
+
 ## v0.6.2 (2026-11-28)
 
 go-fast-core v0.1.17. What go-fast-pdf did for itself for XPS and the other go-fast libraries need too

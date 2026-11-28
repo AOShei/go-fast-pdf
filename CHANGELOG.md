@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased
+## v0.6.2 (2026-11-28)
+
+go-fast-core v0.1.17. What go-fast-pdf did for itself for XPS and the other go-fast libraries need too
+is core's now: the test of what protects an encrypted package, the giving back of bytes counted to a
+page, and the check that text is valid UTF-8. Nothing of the API changes. The words of two messages
+change, and the address of a link with a byte that is no character keeps it as U+FFFD.
 
 - **go-fast-core v0.1.17.** Three things that go-fast-pdf did for itself are core's now, shared with the
   other go-fast libraries. No XPS file of the corpus is read otherwise, and PDF is not touched.
@@ -15,6 +20,14 @@
     are no characters; they appear as U+FFFD", for the text of the page alone. The document says the
     same of its properties, outline and signature definitions. The address of a link with such a byte
     keeps it as U+FFFD, where the byte was dropped.
+
+### Checked before the release
+
+On the code that is tagged: the 3,186 files of the corpora (50,995 pages) read in processes of their own,
+three times, with no crash, hang or memory failure, at most 2.4 s and 745 MiB for a file; instructions
+per operation of the 12 benchmarks that count them between 0.2 percent fewer and 0.3 percent more than
+v0.6.1's, a median change of +0.05 (`bench/v0.6.2.txt`); fuzzing of its 30 targets for an hour each on
+machines of four processors, 120 processor hours and 4.06 billion inputs, with nothing found.
 
 ## v0.6.1 (2026-11-27)
 

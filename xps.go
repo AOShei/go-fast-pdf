@@ -10,6 +10,7 @@ import (
 
 	gofastcore "github.com/AOShei/go-fast-core"
 	"github.com/AOShei/go-fast-core/cfb"
+	"github.com/AOShei/go-fast-core/envelope"
 	"github.com/AOShei/go-fast-pdf/internal/charset"
 	"github.com/AOShei/go-fast-pdf/internal/extract"
 	"github.com/AOShei/go-fast-pdf/internal/layout"
@@ -37,14 +38,6 @@ import (
 // states, and by half the font size for a glyph without one.
 const WarnFontUnreadable = xps.WarnFontUnreadable
 
-// The messages of an encrypted package that is not read. The first is
-// that of go-fast-ooxml for the same envelope.
-const (
-	rightsManaged = "encrypted package protected by rights management (Information Rights Management): its key is in a licence that a rights-management server issues to the people the document names, and this library contacts no server"
-	passwordSet   = "encrypted package protected with a password, in the envelope of an encrypted Office document: this library does not decrypt it"
-	unstated      = "encrypted package that is not protected with a password, and whose encryption is not stated"
-)
-
 var compoundSignature = []byte{0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1}
 
 // openFixed opens data when it is an XPS or OpenXPS document. It returns
@@ -59,24 +52,11 @@ func openFixed(data []byte, budget int64) (*xps.Document, error) {
 		if err != nil {
 			return nil, nil
 		}
-		rights := cf.Has("\x06DataSpaces", "DataSpaceInfo", "\x09DRMEncryptedDataSpace") ||
-			cf.Has("\x06DataSpaces", "TransformInfo", "\x09DRMEncryptedTransform") || cf.Has("\x09DRMContent")
-		// The envelope that the .NET packaging classes write around an XPS
-		// document under rights management names its transform as it
-		// likes, and keeps the licences of its users beside it, each in a
-		// stream whose name begins "EUL-".
-		for _, t := range cf.List("\x06DataSpaces", "TransformInfo") {
-			for _, name := range cf.List("\x06DataSpaces", "TransformInfo", t) {
-				rights = rights || strings.HasPrefix(name, "EUL-")
-			}
-		}
-		switch {
-		case rights:
-			return nil, fmt.Errorf("gofastpdf: %s: %w", rightsManaged, gofastcore.ErrUnsupported)
-		case cf.Has("EncryptionInfo") && cf.Has("EncryptedPackage"):
-			return nil, fmt.Errorf("gofastpdf: %s: %w", passwordSet, gofastcore.ErrUnsupported)
-		case cf.Has("\x06DataSpaces") || cf.Has("EncryptedPackage"):
-			return nil, fmt.Errorf("gofastpdf: %s: %w", unstated, gofastcore.ErrUnsupported)
+		// What protects the package, and the words for it, are
+		// go-fast-core's: the same test and the same text as for an
+		// encrypted Office document.
+		if p := envelope.Detect(cf); p != envelope.None {
+			return nil, fmt.Errorf("gofastpdf: %s: %w", envelope.Message(p, "package"), gofastcore.ErrUnsupported)
 		}
 		return nil, nil
 	case bytes.HasPrefix(data, []byte("PK")):
@@ -167,6 +147,18 @@ func charRefsWarning(n int) gofastcore.Warning {
 	return gofastcore.Warning{Code: gofastcore.WarnTextUnmappedGlyphs, Severity: gofastcore.SeverityWarning, Message: message}
 }
 
+// invalidUTF8Warning is the warning for n bytes of a part written in
+// UTF-8 that are part of no character, in the words the go-fast
+// libraries share for it. The scanner of go-fast-core reads each as
+// U+FFFD and counts it.
+func invalidUTF8Warning(n int) gofastcore.Warning {
+	message := fmt.Sprintf("%d byte sequences are not valid UTF-8 and are read as U+FFFD", n)
+	if n == 1 {
+		message = "1 byte sequence is not valid UTF-8 and is read as U+FFFD"
+	}
+	return gofastcore.Warning{Code: gofastcore.WarnTextUnmappedGlyphs, Severity: gofastcore.SeverityWarning, Message: message}
+}
+
 // fixedText returns a string of an XPS document that is text to be read,
 // such as a title, as the strings of a PDF are given: without control
 // characters, which rm counts, and with ligatures and presentation forms
@@ -230,8 +222,12 @@ func (f *File) fixedWarnings(external bool) []gofastcore.Warning {
 		add(gofastcore.SeverityInfo, gofastcore.WarnInputTrailingData,
 			fmt.Sprintf("%d bytes follow the end of the archive", total))
 	}
-	if n := f.x.CharRefs(); n > 0 {
-		ws = append(ws, charRefsWarning(n))
+	refs, invalid := f.x.Unmapped()
+	if refs > 0 {
+		ws = append(ws, charRefsWarning(refs))
+	}
+	if invalid > 0 {
+		ws = append(ws, invalidUTF8Warning(invalid))
 	}
 	if n := f.x.TargetsCut; n > 0 {
 		add(gofastcore.SeverityError, gofastcore.WarnLimitExceeded,
@@ -422,6 +418,9 @@ func (e *Extractor) fixedPage(f *File, i int, w want, ws *workState) (out pageOu
 	controls.add(lay.Removed)
 	if n := info.CharRefs; n > 0 && err == nil {
 		part.Warnings = append(part.Warnings, charRefsWarning(n))
+	}
+	if n := info.InvalidUTF8; n > 0 && err == nil {
+		part.Warnings = append(part.Warnings, invalidUTF8Warning(n))
 	}
 	for k := range part.Warnings {
 		part.Warnings[k].Message = cleanString(part.Warnings[k].Message)

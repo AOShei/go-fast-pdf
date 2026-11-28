@@ -131,9 +131,10 @@
 // fallback it comes with.
 //
 // A character reference that names no character XML allows (&#0;, a
-// surrogate, a number past U+10FFFF) is read as U+FFFD, and the page
-// whose parts have such references says how many in a warning
-// text.unmapped_glyphs of its own; the document says it of its
+// surrogate, a number past U+10FFFF) is read as U+FFFD, and so is a byte
+// of a part written in UTF-8 that is part of no character. The page
+// whose parts have such references or bytes says how many, each in a
+// warning text.unmapped_glyphs of its own; the document says it of its
 // properties, its outline and its signature definitions.
 //
 // The limit on decoded bytes bounds what the package decompresses to.

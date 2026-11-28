@@ -63,8 +63,9 @@ type PageInfo struct {
 	Fonts []FontUse
 	// CharRefs is the number of character references to no character
 	// XML allows (&#0;, a surrogate, a number past U+10FFFF) in the
-	// parts read for the page, each read as U+FFFD.
-	CharRefs int
+	// parts read for the page, and InvalidUTF8 the number of their bytes
+	// that are part of no character; each is read as U+FFFD.
+	CharRefs, InvalidUTF8 int
 	// Spent is set when the limit on decompressed bytes was reached
 	// while the page was read.
 	Spent bool
@@ -134,7 +135,6 @@ type glyphs struct {
 	bold, italic          bool
 	fill                  bool // a Fill is stated, as an attribute or an element
 	clear                 bool // the Fill is a colour that is fully transparent
-	invalid               bool // the text had bytes that are no character
 	// The names of the resources that its transformation and its fill
 	// are, when they are written as such, in key.
 	key, transformKey, fillKey []byte
@@ -280,10 +280,6 @@ func (d *Document) ReadPage(i int, opts extract.Options, res *extract.Result, w 
 	if r.damaged {
 		fx.Warn(gofastcore.SeverityWarning, gofastcore.WarnInputStreamDamaged,
 			"the markup of a resource dictionary that the page draws on is damaged; the resources after the damage are not read")
-	}
-	if r.invalid {
-		fx.Warn(gofastcore.SeverityWarning, gofastcore.WarnTextUnmappedGlyphs,
-			"text on the page has bytes that are no characters; they appear as U+FFFD")
 	}
 	if r.fontMissing {
 		fx.Warn(gofastcore.SeverityWarning, WarnFontUnreadable,
@@ -483,7 +479,6 @@ func (r *reader) glyphs() {
 			s.Skip()
 		}
 	}
-	r.invalid = r.invalid || g.invalid
 	if !r.show() {
 		r.fontMissing = true
 	}
@@ -497,7 +492,7 @@ func (r *reader) href(v []byte) string {
 	if len(v) > maxHref {
 		return ""
 	}
-	address := strings.TrimSpace(strings.ToValidUTF8(string(v), ""))
+	address := strings.TrimSpace(string(v))
 	if address == "" {
 		return ""
 	}
@@ -564,18 +559,9 @@ func (w *Worker) readGlyphs(s *xmlscan.Scanner) *glyphs {
 			if len(v) >= 2 && v[0] == '{' && v[1] == '}' {
 				v = v[2:]
 			}
-			if utf8.Valid(v) {
-				g.uni = append(g.uni, v...)
-				continue
-			}
-			// Bytes that are no character: each is U+FFFD, here and not
-			// later, since the text is taken apart by its characters.
-			g.invalid = true
-			for len(v) > 0 {
-				r, n := utf8.DecodeRune(v)
-				g.uni = utf8.AppendRune(g.uni, r)
-				v = v[n:]
-			}
+			// The scanner hands out valid UTF-8, which the text needs: it
+			// is taken apart by its characters.
+			g.uni = append(g.uni, v...)
 		case "Indices":
 			g.indices = append(g.indices, v...)
 		case "Name":

@@ -184,7 +184,7 @@ file holds for one, with these particulars.
 
 ## How this is tested
 
-- Every pull request fuzzes the targets of `.github/fuzz-targets.txt` for 30 seconds each; every night for an hour each. A release is
+- Every pull request that changes code fuzzes the targets of `.github/fuzz-targets.txt` for 30 seconds each; every night for an hour each. A release is
   preceded by a longer campaign. Every input that found something is a regression test.
 - A soak test reads 3,186 files (the public corpus, and 1,536 further documents that are never used
   for anything else), each in a process of its own under a time limit of a minute and a memory ceiling

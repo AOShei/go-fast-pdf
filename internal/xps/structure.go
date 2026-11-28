@@ -3,6 +3,7 @@ package xps
 import (
 	"strings"
 
+	"github.com/AOShei/go-fast-core/charset"
 	"github.com/AOShei/go-fast-core/opc"
 	"github.com/AOShei/go-fast-core/xmlscan"
 )
@@ -77,7 +78,7 @@ func (d *Document) Outline(limit int64) (entries []OutlineEntry, cut, many, dama
 				}
 			}
 			if v, ok := s.Attr(xmlscan.NoSpace, "Description"); ok {
-				e.Title = string(v[:min(len(v), maxTitle)])
+				e.Title = string(charset.CutUTF8(v, maxTitle))
 			}
 			if limit -= int64(len(e.Title)); limit < 0 {
 				cut = true

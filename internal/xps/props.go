@@ -1,6 +1,7 @@
 package xps
 
 import (
+	"github.com/AOShei/go-fast-core/charset"
 	"github.com/AOShei/go-fast-core/xmlscan"
 )
 
@@ -83,7 +84,8 @@ func (d *Document) Properties() (p Properties, ok bool) {
 		// The text of the element, whatever is nested in it.
 		buf, cut := s.AppendText(buf[:0]), false
 		if len(buf) > maxPropertyBytes {
-			buf, cut = buf[:maxPropertyBytes], true
+			// Not inside a character.
+			buf, cut = charset.CutUTF8(buf, maxPropertyBytes), true
 		}
 		if cut {
 			p.Cut++

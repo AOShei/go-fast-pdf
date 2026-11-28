@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	gofastcore "github.com/AOShei/go-fast-core"
 	"github.com/AOShei/go-fast-core/cfb"
@@ -921,6 +922,24 @@ func TestXPSCharacterReferences(t *testing.T) {
 	}
 	if got, want := count(doc.Warnings), "1 character reference names"+tail+"is read as U+FFFD"; got != want {
 		t.Errorf("document: %q", got)
+	}
+}
+
+// TestXPSCuts: a string of the document that is longer than is kept is
+// cut between two characters, not inside one.
+func TestXPSCuts(t *testing.T) {
+	// Each "é" is two bytes: after an odd number of bytes of ASCII, a
+	// cut at an even bound falls inside one.
+	long := "x" + strings.Repeat("\u00e9", 40_000)
+	img := `<Path Data="M 96,100 L 296,100 L 296,200 L 96,200 Z" AutomationProperties.HelpText="` + long + `"><Path.Fill><ImageBrush ImageSource="/Resources/a.png" Viewbox="0,0,1,1" Viewport="0,0,1,1"/></Path.Fill></Path>`
+	pkg := xpsStructured([]string{xpstest.Page(xpstest.XPS, 816, 1056, img)}, nil, `<OutlineEntry Description="`+long+`" OutlineTarget="#1"/>`, nil)
+	pkg.Add("Resources/a.png", xpsPNG(t, 4, 4))
+	pkg.Add("docProps/core.xml", []byte(`<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>`+long+`</dc:title></cp:coreProperties>`))
+	doc := xpsExtract(t, nil, pkg.Bytes())
+	for what, got := range map[string]string{"the description of the image": doc.Parts[0].Blocks[0].Text, "the title of the outline": doc.Outline[0].Title, "the title": doc.Metadata.Title} {
+		if len(got) >= len(long) || len(got) < 4000 || strings.Contains(got, "\uFFFD") || !strings.HasSuffix(got, "\u00e9") || !utf8.ValidString(got) {
+			t.Errorf("%s: %d bytes, ending %q", what, len(got), got[max(0, len(got)-6):])
+		}
 	}
 }
 
